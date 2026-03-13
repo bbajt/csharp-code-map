@@ -1,5 +1,10 @@
 # CodeMap — Turn Your AI Agent Into a Semantic Dragon
 
+[![NuGet](https://img.shields.io/nuget/v/codemap-mcp.svg?label=nuget&color=blue)](https://www.nuget.org/packages/codemap-mcp)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/codemap-mcp.svg?color=blue)](https://www.nuget.org/packages/codemap-mcp)
+[![CI](https://github.com/bbajt/csharp-code-map/actions/workflows/ci.yml/badge.svg)](https://github.com/bbajt/csharp-code-map/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Non--Commercial-orange.svg)](LICENSE)
+
 > *Stop feeding your AI agent raw source files. Give it a semantic index instead.*
 
 CodeMap is a **Roslyn-powered MCP server** that lets AI agents navigate C# codebases by **symbol, call graph, and architectural fact** — instead of brute-reading thousands of lines of source code. One tool call. Precise answer. No context flood.
@@ -233,25 +238,30 @@ extraction gaps. Every tool in this README was tested against the codebase that 
 
 ## Installation
 
-### .NET Global Tool (recommended)
+### .NET Global Tool — NuGet (recommended)
 
 ```bash
 dotnet tool install -g codemap-mcp
 codemap-mcp --version
 ```
 
+Requires .NET 9 runtime. Install it from [dot.net](https://dotnet.microsoft.com/download) if needed.
+
+> **NuGet package:** [nuget.org/packages/codemap-mcp](https://www.nuget.org/packages/codemap-mcp)
+
 ### Self-Contained Binary (no .NET required)
+
+Build from source — produces a single executable, batteries included:
 
 ```bash
 # Linux/macOS
 ./scripts/build-release.sh 1.0.0
 
-# Windows
+# Windows PowerShell
 .\scripts\build-release.ps1 1.0.0
 ```
 
-Produces single-file executables for `win-x64`, `linux-x64`, and `osx-arm64`.
-No .NET runtime required. No trimming (Roslyn uses reflection at runtime).
+Outputs `dist/win-x64/`, `dist/linux-x64/`, `dist/osx-arm64/`. Drop the binary anywhere and run it — no runtime, no SDK, no install step. No trimming (Roslyn uses runtime reflection).
 
 ### Docker
 
@@ -265,7 +275,7 @@ docker run -i \
 
 > `-i` is required — MCP uses stdio transport. Without it the container gets immediate EOF.
 
-Note: Uses the .NET SDK base image (~800MB) because `MSBuildWorkspace` needs MSBuild at runtime for `index.ensure_baseline`. The shared cache (`-v /cache`) avoids rebuilding the index on every container start.
+Uses the .NET SDK base image (~800MB) because `MSBuildWorkspace` needs MSBuild at runtime for `index.ensure_baseline`. Mount a cache volume (`-v /path/to/cache:/cache`) to avoid rebuilding the index on every container start.
 
 ---
 
