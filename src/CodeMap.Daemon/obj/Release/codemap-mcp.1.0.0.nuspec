@@ -1,14 +1,34 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+<package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
   <metadata>
     <id>codemap-mcp</id>
     <version>1.0.0</version>
-    <authors>CodeMap Contributors</authors>
-    <description>Roslyn-powered semantic code index for AI agents</description>
+    <authors>Branimir Bajt</authors>
+    <license type="file">LICENSE</license>
+    <licenseUrl>https://aka.ms/deprecateLicenseUrl</licenseUrl>
+    <readme>README.md</readme>
+    <projectUrl>https://github.com/bbajt/csharp-code-map</projectUrl>
+    <description>CodeMap is a Roslyn-powered MCP (Model Context Protocol) server that turns any MCP-compatible AI agent into a semantic code navigator for C# solutions.
+
+Instead of reading source files, agents call 26 focused MCP tools to query symbols, call graphs, type hierarchies, and architectural facts (HTTP endpoints, config keys, DB tables, DI registrations, middleware, retry policies, log templates) — directly from a Roslyn-built semantic index.
+
+Average token savings: 90%+ vs raw file reading. On production codebases: 95–99%+.
+
+Key capabilities:
+- symbols.search / symbols.get_card / symbols.get_context — find and understand any symbol
+- graph.trace_feature — full annotated feature flow in one call
+- refs.find / graph.callers / graph.callees — precise reference and call chain navigation
+- codemap.summarize / codemap.export / index.diff — codebase overview and semantic PR diffs
+- Workspace mode — see uncommitted edits via incremental overlay (~63ms refresh)
+- Shared baseline cache — index once, reuse across machines (CODEMAP_CACHE_DIR)
+
+Usage: add 'codemap-mcp' as an MCP server in your AI agent config. See README for setup.</description>
+    <copyright>Copyright © 2026 CodeMap Branimir Bajt</copyright>
+    <tags>mcp roslyn ai-agent csharp semantic-search code-navigation code-analysis llm claude dotnet</tags>
     <packageTypes>
       <packageType name="DotnetTool" />
     </packageTypes>
-    <repository type="git" commit="49bc5084ceb89159ec1e36883da1e01bb728b55d" />
+    <repository type="git" url="https://github.com/bbajt/csharp-code-map" commit="7b79d97a0d430cbb34533890f65802727aedefe4" />
   </metadata>
   <files>
     <file src="C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Daemon\obj\Release\net9.0\DotnetToolSettings.xml" target="tools\net9.0\any\DotnetToolSettings.xml" />
@@ -244,5 +264,7 @@
     <file src="C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Daemon\bin\Release\net9.0\publish\runtimes\win\lib\net9.0\System.Diagnostics.EventLog.dll" target="tools\net9.0\any\runtimes\win\lib\net9.0\System.Diagnostics.EventLog.dll" />
     <file src="C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Daemon\bin\Release\net9.0\publish\runtimes\win\lib\net7.0\System.Security.Cryptography.Pkcs.dll" target="tools\net9.0\any\runtimes\win\lib\net7.0\System.Security.Cryptography.Pkcs.dll" />
     <file src="C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Daemon\bin\Release\net9.0\publish\runtimes\win\lib\net8.0\System.Windows.Extensions.dll" target="tools\net9.0\any\runtimes\win\lib\net8.0\System.Windows.Extensions.dll" />
+    <file src="C:\Users\Developer\source\repos\CodeMap\README.md" target="\README.md" />
+    <file src="C:\Users\Developer\source\repos\CodeMap\LICENSE" target="\LICENSE" />
   </files>
 </package>

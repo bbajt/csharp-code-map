@@ -63,6 +63,12 @@ public sealed class QueryEngine : IQueryEngine
             return Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Failure(
                 CodeMapError.InvalidArgument("Query string is required."));
 
+        query = FtsQuerySanitizer.Sanitize(query)
+            ?? "";
+        if (string.IsNullOrEmpty(query))
+            return Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Failure(
+                CodeMapError.InvalidArgument("Query contains only unsupported FTS5 special characters. Try a plain symbol name."));
+
         // 2. Resolve commit
         var commitResult = ResolveCommit(routing);
         if (commitResult.IsFailure)

@@ -2221,11 +2221,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.Core.Tests\\CodeMap.Core.Tests.csproj",
+      "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.Core.Tests\\CodeMap.Core.Tests.csproj",
       "projectName": "CodeMap.Core.Tests",
-      "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.Core.Tests\\CodeMap.Core.Tests.csproj",
+      "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.Core.Tests\\CodeMap.Core.Tests.csproj",
       "packagesPath": "C:\\Users\\Developer\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.Core.Tests\\obj\\",
+      "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.Core.Tests\\obj\\",
       "projectStyle": "PackageReference",
       "centralPackageVersionsManagementEnabled": true,
       "fallbackFolders": [
@@ -2247,11 +2247,11 @@
         "net9.0": {
           "targetAlias": "net9.0",
           "projectReferences": {
-            "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj": {
-              "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj"
+            "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj": {
+              "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj"
             },
-            "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj": {
-              "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj"
+            "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj": {
+              "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj"
             }
           }
         }
@@ -2315,8 +2315,8 @@
           "FluentAssertions": "7.0.0",
           "LibGit2Sharp": "0.30.0",
           "Microsoft.Build.Locator": "1.7.8",
-          "Microsoft.CodeAnalysis.CSharp.Workspaces": "4.12.0",
-          "Microsoft.CodeAnalysis.Workspaces.MSBuild": "4.12.0",
+          "Microsoft.CodeAnalysis.CSharp.Workspaces": "5.3.0",
+          "Microsoft.CodeAnalysis.Workspaces.MSBuild": "5.3.0",
           "Microsoft.Data.Sqlite": "9.0.2",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.2",
           "Microsoft.Extensions.Hosting": "9.0.2",
@@ -2343,7 +2343,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.311/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.312/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

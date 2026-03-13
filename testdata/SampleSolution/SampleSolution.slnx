@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="SampleApp/SampleApp.csproj" />
+  <Project Path="SampleApp.Tests/SampleApp.Tests.csproj" />
+  <Project Path="SampleApp.Shared/SampleApp.Shared.csproj" />
+  <Project Path="SampleApp.Api/SampleApp.Api.csproj" />
+</Solution>

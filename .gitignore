@@ -87,4 +87,3 @@ BenchmarkDotNet.Artifacts/
 ############################
 packages.lock.json
 *.DotSettings.user
-/.gitignore

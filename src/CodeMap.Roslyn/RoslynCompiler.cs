@@ -39,9 +39,9 @@ public sealed class RoslynCompiler : IRoslynCompiler
 
         using var workspace = MSBuildWorkspace.Create();
 
-        workspace.WorkspaceFailed += (_, args) =>
+        workspace.RegisterWorkspaceFailedHandler((args) =>
             _logger.LogWarning("Workspace diagnostic [{Kind}]: {Message}",
-                args.Diagnostic.Kind, args.Diagnostic.Message);
+                args.Diagnostic.Kind, args.Diagnostic.Message));
 
         _logger.LogInformation("Opening solution: {SolutionPath}", solutionPath);
         var solution = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct);

@@ -7,8 +7,25 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>codemap-mcp</ToolCommandName>
     <PackageId>codemap-mcp</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <PackageOutputPath>./nupkg</PackageOutputPath>
+
+    <!-- NuGet package description (overrides Directory.Build.props for the tool package) -->
+    <PackageDescription>CodeMap is a Roslyn-powered MCP (Model Context Protocol) server that turns any MCP-compatible AI agent into a semantic code navigator for C# solutions.
+
+Instead of reading source files, agents call 26 focused MCP tools to query symbols, call graphs, type hierarchies, and architectural facts (HTTP endpoints, config keys, DB tables, DI registrations, middleware, retry policies, log templates) — directly from a Roslyn-built semantic index.
+
+Average token savings: 90%+ vs raw file reading. On production codebases: 95–99%+.
+
+Key capabilities:
+- symbols.search / symbols.get_card / symbols.get_context — find and understand any symbol
+- graph.trace_feature — full annotated feature flow in one call
+- refs.find / graph.callers / graph.callees — precise reference and call chain navigation
+- codemap.summarize / codemap.export / index.diff — codebase overview and semantic PR diffs
+- Workspace mode — see uncommitted edits via incremental overlay (~63ms refresh)
+- Shared baseline cache — index once, reuse across machines (CODEMAP_CACHE_DIR)
+
+Usage: add 'codemap-mcp' as an MCP server in your AI agent config. See README for setup.</PackageDescription>
 
     <!-- Single-file publish: only when a RID is specified (self-contained builds).
          dotnet pack does not set RuntimeIdentifier, so this is a no-op during pack.
@@ -16,6 +33,14 @@
     <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
     <EnableCompressionInSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</EnableCompressionInSingleFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Include README and LICENSE in the NuGet package -->
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+    <!-- icon.png: place a 128x128 PNG at the repo root before publishing -->
+    <None Include="..\..\icon.png" Pack="true" PackagePath="\" Condition="Exists('..\..\icon.png')" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CodeMap.Core\CodeMap.Core.csproj" />

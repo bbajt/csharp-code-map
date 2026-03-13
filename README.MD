@@ -38,7 +38,7 @@ That's **93.9% fewer tokens** for a task agents do dozens of times per session. 
 
 ## What It Does
 
-CodeMap builds a **persistent semantic index** from your `.sln` file using Roslyn — the same compiler that powers Visual Studio. The index captures:
+CodeMap builds a **persistent semantic index** from your solution file using Roslyn — the same compiler that powers Visual Studio. Supports both **`.sln`** (all Visual Studio versions) and **`.slnx`** (VS 2022 17.12+ / .NET SDK 9+) solution formats. The index captures:
 
 - Every symbol (classes, methods, properties, interfaces, records)
 - Every call relationship and reference (who calls what, where)
@@ -255,10 +255,10 @@ Build from source — produces a single executable, batteries included:
 
 ```bash
 # Linux/macOS
-./scripts/build-release.sh 1.0.0
+./scripts/build-release.sh 1.1.0
 
 # Windows PowerShell
-.\scripts\build-release.ps1 1.0.0
+.\scripts\build-release.ps1 1.1.0
 ```
 
 Outputs `dist/win-x64/`, `dist/linux-x64/`, `dist/osx-arm64/`. Drop the binary anywhere and run it — no runtime, no SDK, no install step. No trimming (Roslyn uses runtime reflection).
@@ -313,7 +313,7 @@ Your Git repo              CodeMap Server
      │  repo_path               │
      ├─────────────────────────►│ GitService         (repo identity, HEAD SHA)
      │                          │      │
-     │  solution.sln            │      ▼
+     │  solution.sln/.slnx      │      ▼
      ├─────────────────────────►│ RoslynCompiler     (MSBuildWorkspace → full semantic model)
      │                          │      │
      │                          │      ▼
@@ -342,7 +342,7 @@ Your Git repo              CodeMap Server
 ```
 CodeMap.Core      ← zero dependencies (domain types + interfaces)
 CodeMap.Git       ← Core (LibGit2Sharp)
-CodeMap.Roslyn    ← Core (Roslyn 4.x + MSBuildWorkspace)
+CodeMap.Roslyn    ← Core (Roslyn 5.x + MSBuildWorkspace)
 CodeMap.Storage   ← Core (SQLite + WAL + FTS5)
 CodeMap.Query     ← Core + Storage (query engine + cache + overlay merge)
 CodeMap.Mcp       ← Core + Query (MCP tool handlers)
@@ -399,4 +399,4 @@ cd tests/CodeMap.Benchmarks && dotnet run -c Release
 
 ---
 
-*26 MCP tools. 90%+ token savings. Roslyn-grade semantics. Your agent deserves better than grep.*
+*26 MCP tools. 90%+ token savings. Roslyn-grade semantics. `.sln` + `.slnx` support. Your agent deserves better than grep.*

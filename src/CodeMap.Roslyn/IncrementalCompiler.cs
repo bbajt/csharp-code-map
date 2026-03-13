@@ -126,9 +126,9 @@ public class IncrementalCompiler : IIncrementalCompiler
             _cachedSolution = null;
 
             var workspace = MSBuildWorkspace.Create();
-            workspace.WorkspaceFailed += (_, args) =>
+            workspace.RegisterWorkspaceFailedHandler((args) =>
                 _logger.LogWarning("Workspace diagnostic [{Kind}]: {Message}",
-                    args.Diagnostic.Kind, args.Diagnostic.Message);
+                    args.Diagnostic.Kind, args.Diagnostic.Message));
 
             solution = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct);
             _cachedWorkspace = workspace;

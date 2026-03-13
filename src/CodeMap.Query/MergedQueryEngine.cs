@@ -86,6 +86,11 @@ public class MergedQueryEngine : IQueryEngine
             return Fail<ResponseEnvelope<SymbolSearchResponse>>(
                 CodeMapError.InvalidArgument("Query string is required."));
 
+        query = FtsQuerySanitizer.Sanitize(query) ?? "";
+        if (string.IsNullOrEmpty(query))
+            return Fail<ResponseEnvelope<SymbolSearchResponse>>(
+                CodeMapError.InvalidArgument("Query contains only unsupported FTS5 special characters. Try a plain symbol name."));
+
         var (clamped, limitsApplied) = (budgets ?? BudgetLimits.Defaults).ClampToHardCaps();
         var maxResults = clamped.MaxResults;
 

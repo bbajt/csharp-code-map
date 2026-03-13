@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.Query.Tests\\CodeMap.Query.Tests.csproj": {}
+    "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.Query.Tests\\CodeMap.Query.Tests.csproj": {}
   },
   "projects": {
-    "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj": {
+    "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj",
+        "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj",
         "projectName": "CodeMap.Core",
-        "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj",
+        "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj",
         "packagesPath": "C:\\Users\\Developer\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\obj\\",
+        "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\obj\\",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
         "fallbackFolders": [
@@ -64,8 +64,8 @@
             "FluentAssertions": "7.0.0",
             "LibGit2Sharp": "0.30.0",
             "Microsoft.Build.Locator": "1.7.8",
-            "Microsoft.CodeAnalysis.CSharp.Workspaces": "4.12.0",
-            "Microsoft.CodeAnalysis.Workspaces.MSBuild": "4.12.0",
+            "Microsoft.CodeAnalysis.CSharp.Workspaces": "5.3.0",
+            "Microsoft.CodeAnalysis.Workspaces.MSBuild": "5.3.0",
             "Microsoft.Data.Sqlite": "9.0.2",
             "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.2",
             "Microsoft.Extensions.Hosting": "9.0.2",
@@ -92,18 +92,18 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.311/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.312/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Query\\CodeMap.Query.csproj": {
+    "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Query\\CodeMap.Query.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Query\\CodeMap.Query.csproj",
+        "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Query\\CodeMap.Query.csproj",
         "projectName": "CodeMap.Query",
-        "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Query\\CodeMap.Query.csproj",
+        "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Query\\CodeMap.Query.csproj",
         "packagesPath": "C:\\Users\\Developer\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Query\\obj\\",
+        "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Query\\obj\\",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
         "fallbackFolders": [
@@ -125,11 +125,11 @@
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj": {
-                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj"
+              "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj": {
+                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj"
               },
-              "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Storage\\CodeMap.Storage.csproj": {
-                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Storage\\CodeMap.Storage.csproj"
+              "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Storage\\CodeMap.Storage.csproj": {
+                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Storage\\CodeMap.Storage.csproj"
               }
             }
           }
@@ -156,8 +156,8 @@
             "FluentAssertions": "7.0.0",
             "LibGit2Sharp": "0.30.0",
             "Microsoft.Build.Locator": "1.7.8",
-            "Microsoft.CodeAnalysis.CSharp.Workspaces": "4.12.0",
-            "Microsoft.CodeAnalysis.Workspaces.MSBuild": "4.12.0",
+            "Microsoft.CodeAnalysis.CSharp.Workspaces": "5.3.0",
+            "Microsoft.CodeAnalysis.Workspaces.MSBuild": "5.3.0",
             "Microsoft.Data.Sqlite": "9.0.2",
             "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.2",
             "Microsoft.Extensions.Hosting": "9.0.2",
@@ -184,18 +184,18 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.311/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.312/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Storage\\CodeMap.Storage.csproj": {
+    "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Storage\\CodeMap.Storage.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Storage\\CodeMap.Storage.csproj",
+        "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Storage\\CodeMap.Storage.csproj",
         "projectName": "CodeMap.Storage",
-        "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Storage\\CodeMap.Storage.csproj",
+        "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Storage\\CodeMap.Storage.csproj",
         "packagesPath": "C:\\Users\\Developer\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Storage\\obj\\",
+        "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Storage\\obj\\",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
         "fallbackFolders": [
@@ -217,8 +217,8 @@
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj": {
-                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj"
+              "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj": {
+                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj"
               }
             }
           }
@@ -252,8 +252,8 @@
             "FluentAssertions": "7.0.0",
             "LibGit2Sharp": "0.30.0",
             "Microsoft.Build.Locator": "1.7.8",
-            "Microsoft.CodeAnalysis.CSharp.Workspaces": "4.12.0",
-            "Microsoft.CodeAnalysis.Workspaces.MSBuild": "4.12.0",
+            "Microsoft.CodeAnalysis.CSharp.Workspaces": "5.3.0",
+            "Microsoft.CodeAnalysis.Workspaces.MSBuild": "5.3.0",
             "Microsoft.Data.Sqlite": "9.0.2",
             "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.2",
             "Microsoft.Extensions.Hosting": "9.0.2",
@@ -280,18 +280,18 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.311/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.312/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.Query.Tests\\CodeMap.Query.Tests.csproj": {
+    "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.Query.Tests\\CodeMap.Query.Tests.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.Query.Tests\\CodeMap.Query.Tests.csproj",
+        "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.Query.Tests\\CodeMap.Query.Tests.csproj",
         "projectName": "CodeMap.Query.Tests",
-        "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.Query.Tests\\CodeMap.Query.Tests.csproj",
+        "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.Query.Tests\\CodeMap.Query.Tests.csproj",
         "packagesPath": "C:\\Users\\Developer\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.Query.Tests\\obj\\",
+        "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.Query.Tests\\obj\\",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
         "fallbackFolders": [
@@ -313,11 +313,11 @@
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Query\\CodeMap.Query.csproj": {
-                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Query\\CodeMap.Query.csproj"
+              "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Query\\CodeMap.Query.csproj": {
+                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Query\\CodeMap.Query.csproj"
               },
-              "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj": {
-                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj"
+              "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj": {
+                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj"
               }
             }
           }
@@ -381,8 +381,8 @@
             "FluentAssertions": "7.0.0",
             "LibGit2Sharp": "0.30.0",
             "Microsoft.Build.Locator": "1.7.8",
-            "Microsoft.CodeAnalysis.CSharp.Workspaces": "4.12.0",
-            "Microsoft.CodeAnalysis.Workspaces.MSBuild": "4.12.0",
+            "Microsoft.CodeAnalysis.CSharp.Workspaces": "5.3.0",
+            "Microsoft.CodeAnalysis.Workspaces.MSBuild": "5.3.0",
             "Microsoft.Data.Sqlite": "9.0.2",
             "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.2",
             "Microsoft.Extensions.Hosting": "9.0.2",
@@ -409,18 +409,18 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.311/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.312/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj": {
+    "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj",
+        "projectUniqueName": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj",
         "projectName": "CodeMap.TestUtilities",
-        "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj",
+        "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.TestUtilities\\CodeMap.TestUtilities.csproj",
         "packagesPath": "C:\\Users\\Developer\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\tests\\CodeMap.TestUtilities\\obj\\",
+        "outputPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\tests\\CodeMap.TestUtilities\\obj\\",
         "projectStyle": "PackageReference",
         "centralPackageVersionsManagementEnabled": true,
         "fallbackFolders": [
@@ -442,8 +442,8 @@
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj": {
-                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap\\src\\CodeMap.Core\\CodeMap.Core.csproj"
+              "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj": {
+                "projectPath": "C:\\Users\\Developer\\source\\repos\\CodeMap-GitHub\\src\\CodeMap.Core\\CodeMap.Core.csproj"
               }
             }
           }
@@ -482,8 +482,8 @@
             "FluentAssertions": "7.0.0",
             "LibGit2Sharp": "0.30.0",
             "Microsoft.Build.Locator": "1.7.8",
-            "Microsoft.CodeAnalysis.CSharp.Workspaces": "4.12.0",
-            "Microsoft.CodeAnalysis.Workspaces.MSBuild": "4.12.0",
+            "Microsoft.CodeAnalysis.CSharp.Workspaces": "5.3.0",
+            "Microsoft.CodeAnalysis.Workspaces.MSBuild": "5.3.0",
             "Microsoft.Data.Sqlite": "9.0.2",
             "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.2",
             "Microsoft.Extensions.Hosting": "9.0.2",
@@ -510,7 +510,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.311/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.312/PortableRuntimeIdentifierGraph.json"
         }
       }
     }
