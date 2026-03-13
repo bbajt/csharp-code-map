@@ -1,0 +1,90 @@
+############################
+# Build results
+############################
+bin/
+obj/
+out/
+artifacts/
+
+############################
+# Visual Studio
+############################
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+############################
+# Rider
+############################
+.idea/
+*.sln.iml
+
+############################
+# VS Code
+############################
+.vscode/
+
+############################
+# Logs
+############################
+*.log
+
+############################
+# Test results & coverage
+############################
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+.coverage/
+*.opencover.xml
+*.lcov
+
+############################
+# NuGet
+############################
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+nuget-push.txt
+
+############################
+# Publish output
+############################
+publish/
+
+############################
+# OS files
+############################
+.DS_Store
+Thumbs.db
+
+############################
+# Local configuration
+############################
+appsettings.Development.json
+secrets.json
+NUL
+
+############################
+# Resharper
+############################
+_ReSharper*/
+*.DotSettings.user
+
+############################
+# Dotnet tools
+############################
+.dotnet/
+BenchmarkDotNet.Artifacts/
+
+############################
+# CodeMap specific
+############################
+packages.lock.json
+*.DotSettings.user
+/.gitignore
