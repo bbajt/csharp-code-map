@@ -1,0 +1,15 @@
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\bin\Debug\net9.0\CodeMap.Core.deps.json
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\bin\Debug\net9.0\CodeMap.Core.dll
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\bin\Debug\net9.0\CodeMap.Core.pdb
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\obj\Debug\net9.0\CodeMap.Core.csproj.AssemblyReference.cache
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\obj\Debug\net9.0\CodeMap.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\obj\Debug\net9.0\CodeMap.Core.AssemblyInfoInputs.cache
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\obj\Debug\net9.0\CodeMap.Core.AssemblyInfo.cs
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\obj\Debug\net9.0\CodeMap.Core.csproj.CoreCompileInputs.cache
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\obj\Debug\net9.0\CodeMap.Core.dll
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\obj\Debug\net9.0\refint\CodeMap.Core.dll
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\obj\Debug\net9.0\CodeMap.Core.pdb
+C:\Users\Developer\source\repos\CodeMap\src\CodeMap.Core\obj\Debug\net9.0\ref\CodeMap.Core.dll
+C:\Users\Developer\AppData\Local\Temp\codemap-bin\CodeMap.Core.deps.json
+C:\Users\Developer\AppData\Local\Temp\codemap-bin\CodeMap.Core.dll
+C:\Users\Developer\AppData\Local\Temp\codemap-bin\CodeMap.Core.pdb

@@ -1,0 +1,14 @@
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\CodeMap.Daemon.pdb
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\BuildHost-net472\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.exe.config
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\BuildHost-netcore\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.deps.json
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\BuildHost-netcore\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.dll.config
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\BuildHost-netcore\Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.runtimeconfig.json
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\git2-a418d9d.dll
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\e_sqlite3.dll
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\CodeMap.Core.pdb
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\CodeMap.Git.pdb
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\CodeMap.Roslyn.pdb
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\CodeMap.Storage.pdb
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\CodeMap.Query.pdb
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\CodeMap.Mcp.pdb
+C:\Users\Developer\AppData\Local\Temp\codemap-win-x64\CodeMap.Daemon.exe

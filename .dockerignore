@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/dist/
+**/nupkg/
+**/BenchmarkDotNet.Artifacts/
+tests/
+testdata/
+docs/
+.git/
+*.md

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CodeMap.Benchmarks</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <StartupObject>CodeMap.Benchmarks.Program</StartupObject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CodeMap.Query\CodeMap.Query.csproj" />
+    <ProjectReference Include="..\..\src\CodeMap.Storage\CodeMap.Storage.csproj" />
+    <ProjectReference Include="..\..\src\CodeMap.Roslyn\CodeMap.Roslyn.csproj" />
+    <ProjectReference Include="..\..\src\CodeMap.Git\CodeMap.Git.csproj" />
+    <ProjectReference Include="..\CodeMap.TestUtilities\CodeMap.TestUtilities.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+</Project>

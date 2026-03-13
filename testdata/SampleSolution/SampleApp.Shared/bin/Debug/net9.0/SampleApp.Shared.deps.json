@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v9.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v9.0": {
+      "SampleApp.Shared/1.0.0": {
+        "runtime": {
+          "SampleApp.Shared.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "SampleApp.Shared/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

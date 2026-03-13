@@ -1,0 +1,20 @@
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.cs]
+# Namespace must match folder structure
+dotnet_diagnostic.IDE0130.severity = warning
+# Prefer file-scoped namespaces
+csharp_style_namespace_declarations = file_scoped:warning
+# Prefer primary constructors for records
+csharp_style_prefer_primary_constructors = true:suggestion
+
+[*.{csproj,props,targets}]
+indent_size = 2

@@ -1,0 +1,121 @@
+namespace CodeMap.Storage;
+
+internal static class OverlaySchemaDefinition
+{
+    public const int Version = 1;
+
+    // Run outside any transaction (SQLite restriction)
+    public static readonly string[] Pragmas =
+    [
+        "PRAGMA journal_mode = WAL",
+        "PRAGMA synchronous = NORMAL",
+        "PRAGMA foreign_keys = ON",
+        "PRAGMA cache_size = -8000",       // 8 MB page cache (default ~2 MB)
+        "PRAGMA mmap_size = 67108864",     // 64 MB memory-mapped I/O
+        "PRAGMA temp_store = MEMORY",      // Temp tables in RAM, not disk
+    ];
+
+    // DDL statements run inside a transaction after PRAGMAs.
+    // FTS is rebuilt via 'INSERT INTO symbols_fts(symbols_fts) VALUES(''rebuild'')'
+    // after each bulk insert — no AFTER INSERT trigger (SQLite semicolon limitation).
+    public static readonly string[] DdlStatements =
+    [
+        """
+        CREATE TABLE IF NOT EXISTS overlay_meta (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS files (
+            file_id     TEXT PRIMARY KEY,
+            path        TEXT NOT NULL,
+            sha256      TEXT NOT NULL,
+            project_id  TEXT
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS symbols (
+            symbol_id       TEXT PRIMARY KEY,
+            fqname          TEXT NOT NULL,
+            kind            TEXT NOT NULL,
+            file_id         TEXT NOT NULL,
+            span_start      INTEGER NOT NULL,
+            span_end        INTEGER NOT NULL,
+            signature       TEXT,
+            documentation   TEXT,
+            namespace       TEXT NOT NULL,
+            containing_type TEXT,
+            visibility      TEXT NOT NULL,
+            confidence      TEXT NOT NULL,
+            content_hash    TEXT NOT NULL,
+            stable_id       TEXT,
+            FOREIGN KEY (file_id) REFERENCES files(file_id)
+        )
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_symbols_stable ON symbols(stable_id) WHERE stable_id IS NOT NULL",
+        """
+        CREATE TABLE IF NOT EXISTS refs (
+            from_symbol_id    TEXT NOT NULL,
+            to_symbol_id      TEXT NOT NULL,
+            ref_kind          TEXT NOT NULL,
+            file_id           TEXT NOT NULL,
+            loc_start         INTEGER NOT NULL,
+            loc_end           INTEGER NOT NULL,
+            resolution_state  TEXT NOT NULL DEFAULT 'resolved',
+            to_name           TEXT,
+            to_container_hint TEXT,
+            stable_from_id    TEXT,
+            stable_to_id      TEXT,
+            FOREIGN KEY (file_id) REFERENCES files(file_id)
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_refs_to   ON refs(to_symbol_id, ref_kind)",
+        "CREATE INDEX IF NOT EXISTS idx_refs_from ON refs(from_symbol_id, ref_kind)",
+        """
+        CREATE TABLE IF NOT EXISTS type_relations (
+            type_symbol_id    TEXT NOT NULL,
+            related_symbol_id TEXT NOT NULL,
+            relation_kind     TEXT NOT NULL,
+            display_name      TEXT NOT NULL,
+            stable_type_id    TEXT,
+            stable_related_id TEXT,
+            PRIMARY KEY (type_symbol_id, related_symbol_id)
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_type_rel_related ON type_relations(related_symbol_id, relation_kind)",
+        """
+        CREATE TABLE IF NOT EXISTS facts (
+            symbol_id   TEXT NOT NULL,
+            stable_id   TEXT,
+            fact_kind   TEXT NOT NULL,
+            value       TEXT NOT NULL,
+            file_id     TEXT NOT NULL,
+            loc_start   INTEGER NOT NULL,
+            loc_end     INTEGER NOT NULL,
+            confidence  TEXT NOT NULL,
+            FOREIGN KEY (file_id) REFERENCES files(file_id)
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_facts_symbol ON facts(symbol_id)",
+        "CREATE INDEX IF NOT EXISTS idx_facts_kind   ON facts(fact_kind)",
+        "CREATE INDEX IF NOT EXISTS idx_facts_stable ON facts(stable_id) WHERE stable_id IS NOT NULL",
+        """
+        CREATE TABLE IF NOT EXISTS deleted_symbols (
+            symbol_id           TEXT PRIMARY KEY,
+            deleted_at_revision INTEGER NOT NULL
+        )
+        """,
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
+            fqname,
+            signature,
+            documentation,
+            content=symbols,
+            content_rowid=rowid
+        )
+        """,
+        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)",
+        "INSERT OR IGNORE INTO schema_version(version) VALUES (1)",
+    ];
+}

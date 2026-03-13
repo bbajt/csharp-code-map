@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CodeMap.Integration.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CodeMap.Git\CodeMap.Git.csproj" />
+    <ProjectReference Include="..\..\src\CodeMap.Storage\CodeMap.Storage.csproj" />
+    <ProjectReference Include="..\..\src\CodeMap.Mcp\CodeMap.Mcp.csproj" />
+    <ProjectReference Include="..\..\src\CodeMap.Daemon\CodeMap.Daemon.csproj" />
+    <ProjectReference Include="..\CodeMap.TestUtilities\CodeMap.TestUtilities.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+</Project>
