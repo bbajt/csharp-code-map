@@ -49,7 +49,7 @@ public sealed class IndexedSampleSolutionFixture : IAsyncLifetime
 
     // ── IAsyncLifetime ────────────────────────────────────────────────────────
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         MsBuildInitializer.EnsureRegistered();
 
@@ -77,12 +77,12 @@ public sealed class IndexedSampleSolutionFixture : IAsyncLifetime
         await DiscoverSymbolsAsync();
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         SqliteConnection.ClearAllPools();
         if (Directory.Exists(_tempDir))
             try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

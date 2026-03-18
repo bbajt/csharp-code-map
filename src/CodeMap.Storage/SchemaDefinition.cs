@@ -29,10 +29,14 @@ internal static class SchemaDefinition
         """,
         """
         CREATE TABLE IF NOT EXISTS files (
-            file_id     TEXT PRIMARY KEY,
-            path        TEXT NOT NULL,
-            sha256      TEXT NOT NULL,
-            project_id  TEXT
+            file_id           TEXT PRIMARY KEY,
+            path              TEXT NOT NULL,
+            sha256            TEXT NOT NULL,
+            project_id        TEXT,
+            is_virtual        INTEGER NOT NULL DEFAULT 0,
+            -- 0 = real file on disk; 1 = virtual decompiled source stored in decompiled_source column
+            decompiled_source TEXT
+            -- NULL for real files; C# source text for virtual decompiled files
         )
         """,
         """
@@ -51,6 +55,7 @@ internal static class SchemaDefinition
             confidence      TEXT NOT NULL,
             stable_id       TEXT,
             name_tokens     TEXT NOT NULL DEFAULT '',
+            is_decompiled   INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (file_id) REFERENCES files(file_id)
         )
         """,
@@ -68,6 +73,8 @@ internal static class SchemaDefinition
             to_container_hint TEXT,
             stable_from_id    TEXT,
             stable_to_id      TEXT,
+            is_decompiled     INTEGER NOT NULL DEFAULT 0,
+            -- 0 = extracted from source code; 1 = extracted from a decompiled SyntaxTree (Level 2)
             FOREIGN KEY (file_id) REFERENCES files(file_id)
         )
         """,

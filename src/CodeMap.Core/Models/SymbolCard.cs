@@ -39,6 +39,15 @@ public record SymbolCard(
 )
 {
     /// <summary>
+    /// Indicates the origin of this symbol's data.
+    /// 0 = indexed from C# source (existing behavior).
+    /// 1 = Roslyn metadata stub — lazy Level 1 (PHASE-12-01).
+    /// 2 = ICSharpCode.Decompiler reconstructed source — lazy Level 2 (PHASE-12-02).
+    /// Set by BaselineStore.GetSymbolAsync when reading from the DB.
+    /// All existing construction sites default to 0 (source symbol).
+    /// </summary>
+    public int IsDecompiled { get; init; } = 0;
+    /// <summary>
     /// Creates a minimal SymbolCard with empty collections.
     /// Used during extraction when not all data is available yet.
     /// </summary>

@@ -222,6 +222,72 @@ public interface ISymbolStore
         RepoId repoId,
         CommitSha commitSha,
         CancellationToken ct = default);
+
+    // === Lazy Metadata Resolution (PHASE-12-01) ===
+
+    /// <summary>
+    /// Inserts metadata stub <see cref="SymbolCard"/> records for a DLL type into
+    /// the baseline using <c>INSERT OR IGNORE</c> semantics (concurrent-safe).
+    /// Stubs are marked <c>is_decompiled = 1</c>.
+    /// A synthetic virtual file row is inserted into the <c>files</c> table first
+    /// to satisfy the FK constraint.
+    /// </summary>
+    /// <param name="typeRelations">Optional type relations for the resolved type (base class, interfaces).</param>
+    /// <returns>Number of symbol rows actually inserted (0 if already present).</returns>
+    Task<int> InsertMetadataStubsAsync(
+        RepoId repoId,
+        CommitSha commitSha,
+        IReadOnlyList<SymbolCard> stubs,
+        IReadOnlyList<Models.ExtractedTypeRelation>? typeRelations = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Triggers an FTS5 content table rebuild for the baseline's <c>symbols_fts</c>
+    /// virtual table. Call after <see cref="InsertMetadataStubsAsync"/> to keep
+    /// full-text search in sync with newly inserted stubs.
+    /// </summary>
+    Task RebuildFtsAsync(
+        RepoId repoId,
+        CommitSha commitSha,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the JSON DLL fingerprint stored in the baseline <c>repo_meta</c> table,
+    /// or <c>null</c> if the baseline predates PHASE-12-01.
+    /// </summary>
+    Task<string?> GetDllFingerprintAsync(
+        RepoId repoId,
+        CommitSha commitSha,
+        CancellationToken ct = default);
+
+    // === Lazy Decompiled Source (PHASE-12-02) ===
+
+    /// <summary>
+    /// Inserts a virtual file row into the <c>files</c> table with the given decompiled
+    /// C# source. The file path must follow the convention
+    /// <c>decompiled/{AssemblyName}/{TypeFullName.Replace('.', '/')}.cs</c>.
+    /// Idempotent: uses <c>INSERT OR IGNORE</c> so concurrent lazy writes are safe.
+    /// </summary>
+    Task InsertVirtualFileAsync(
+        RepoId repoId,
+        CommitSha commitSha,
+        string virtualPath,
+        string content,
+        IReadOnlyList<ExtractedReference>? decompiledRefs = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Upgrades a metadata stub (<c>is_decompiled=1</c>) to a decompiled symbol
+    /// (<c>is_decompiled=2</c>). Updates the symbol's <c>file_id</c> to point at the
+    /// virtual file and sets <c>is_decompiled=2</c>.
+    /// Idempotent: the <c>WHERE is_decompiled=1</c> guard prevents double-upgrades.
+    /// </summary>
+    Task UpgradeDecompiledSymbolAsync(
+        RepoId repoId,
+        CommitSha commitSha,
+        SymbolId symbolId,
+        string virtualFilePath,
+        CancellationToken ct = default);
 }
 
 // Supporting types for store operations

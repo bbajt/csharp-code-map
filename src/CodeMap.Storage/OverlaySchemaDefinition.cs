@@ -50,6 +50,7 @@ internal static class OverlaySchemaDefinition
             confidence      TEXT NOT NULL,
             content_hash    TEXT NOT NULL,
             stable_id       TEXT,
+            is_decompiled   INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (file_id) REFERENCES files(file_id)
         )
         """,

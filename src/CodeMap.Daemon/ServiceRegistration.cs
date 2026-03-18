@@ -6,6 +6,7 @@ using CodeMap.Mcp;
 using CodeMap.Mcp.Handlers;
 using CodeMap.Query;
 using CodeMap.Roslyn;
+using CodeMap.Roslyn.Extraction;
 using CodeMap.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -85,7 +86,11 @@ public static class ServiceRegistration
 
         // ── Incremental compiler ──────────────────────────────────────────────
         services.AddSingleton<SymbolDiffer>();
-        services.AddSingleton<IIncrementalCompiler, IncrementalCompiler>();
+        services.AddSingleton<IncrementalCompiler>();
+        services.AddSingleton<IIncrementalCompiler>(sp => sp.GetRequiredService<IncrementalCompiler>());
+
+        // ── Metadata resolver (lazy DLL stub extraction) ──────────────────────
+        services.AddSingleton<IMetadataResolver, MetadataResolver>();
 
         // ── Query ─────────────────────────────────────────────────────────────
         services.AddSingleton<ICacheService, InMemoryCacheService>();
@@ -97,7 +102,8 @@ public static class ServiceRegistration
 
         // ExcerptReader + GraphTraverser + FeatureTracer
         services.AddSingleton<ExcerptReader>();
-        services.AddSingleton<GraphTraverser>();
+        services.AddSingleton<GraphTraverser>(sp =>
+            new GraphTraverser(sp.GetRequiredService<IMetadataResolver>()));
         services.AddSingleton<FeatureTracer>();
 
         // QueryEngine as concrete inner engine; MergedQueryEngine as IQueryEngine

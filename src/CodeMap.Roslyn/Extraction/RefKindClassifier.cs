@@ -72,6 +72,10 @@ internal static class RefKindClassifier
             if (identifier.Parent is MemberAccessExpressionSyntax)
                 return null;
 
+            // Skip: it's the Name (or Alias) side of a global:: alias-qualified name
+            if (identifier.Parent is AliasQualifiedNameSyntax)
+                return null;
+
             // Skip: LHS of assignment (Write handles it)
             if (identifier.Parent is AssignmentExpressionSyntax assignExpr2 &&
                 assignExpr2.Left == identifier)

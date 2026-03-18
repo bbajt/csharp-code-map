@@ -65,6 +65,9 @@ public sealed class BaselineStore : ISymbolStore
 
             await InsertSemanticLevelAsync(conn, tx, data.Stats.SemanticLevel, data.Stats.ProjectDiagnostics, ct);
 
+            if (data.DllFingerprint is not null)
+                await InsertDllFingerprintAsync(conn, tx, data.DllFingerprint, ct);
+
             // Build path→fileId lookup (files must be inserted first)
             var fileIdByPath = BuildFileIdMap(data.Files);
 
@@ -108,6 +111,19 @@ public sealed class BaselineStore : ISymbolStore
         cmd.Transaction = tx;
         cmd.CommandText = "INSERT OR REPLACE INTO repo_meta(key, value) VALUES ('repo_root', $value)";
         cmd.Parameters.AddWithValue("$value", repoRootPath);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task InsertDllFingerprintAsync(
+        SqliteConnection conn,
+        SqliteTransaction tx,
+        string fingerprint,
+        CancellationToken ct)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "INSERT OR REPLACE INTO repo_meta(key, value) VALUES ('dll_fingerprint', $fp)";
+        cmd.Parameters.AddWithValue("$fp", fingerprint);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -189,7 +205,7 @@ public sealed class BaselineStore : ISymbolStore
         cmd.CommandText = """
             SELECT s.symbol_id, s.fqname, s.kind, s.signature, s.documentation,
                    s.namespace, s.containing_type, f.path, s.span_start, s.span_end,
-                   s.visibility, s.confidence, s.stable_id
+                   s.visibility, s.confidence, s.stable_id, s.is_decompiled
             FROM symbols s
             JOIN files f ON s.file_id = f.file_id
             WHERE s.stable_id = $stable_id
@@ -344,10 +360,12 @@ public sealed class BaselineStore : ISymbolStore
         cmd.CommandText = """
             INSERT OR IGNORE INTO refs
                 (from_symbol_id, to_symbol_id, ref_kind, file_id, loc_start, loc_end,
-                 resolution_state, to_name, to_container_hint, stable_from_id, stable_to_id)
+                 resolution_state, to_name, to_container_hint, stable_from_id, stable_to_id,
+                 is_decompiled)
             VALUES
                 ($from_symbol_id, $to_symbol_id, $ref_kind, $file_id, $loc_start, $loc_end,
-                 $resolution_state, $to_name, $to_container_hint, $stable_from_id, $stable_to_id)
+                 $resolution_state, $to_name, $to_container_hint, $stable_from_id, $stable_to_id,
+                 $is_decompiled)
             """;
 
         var pFrom = cmd.Parameters.Add("$from_symbol_id", SqliteType.Text);
@@ -361,6 +379,7 @@ public sealed class BaselineStore : ISymbolStore
         var pHint = cmd.Parameters.Add("$to_container_hint", SqliteType.Text);
         var pStableFrom = cmd.Parameters.Add("$stable_from_id", SqliteType.Text);
         var pStableTo = cmd.Parameters.Add("$stable_to_id", SqliteType.Text);
+        var pIsDecompiled = cmd.Parameters.Add("$is_decompiled", SqliteType.Integer);
 
         foreach (var r in refs)
         {
@@ -383,6 +402,7 @@ public sealed class BaselineStore : ISymbolStore
                                 ? (object)r.StableFromId.Value.Value : DBNull.Value;
             pStableTo.Value = r.StableToId.HasValue && !r.StableToId.Value.IsEmpty
                                 ? (object)r.StableToId.Value.Value : DBNull.Value;
+            pIsDecompiled.Value = r.IsDecompiled ? 1 : 0;
             await cmd.ExecuteNonQueryAsync(ct);
         }
     }
@@ -444,7 +464,7 @@ public sealed class BaselineStore : ISymbolStore
         cmd.CommandText = """
             SELECT s.symbol_id, s.fqname, s.kind, s.signature, s.documentation,
                    s.namespace, s.containing_type, f.path, s.span_start, s.span_end,
-                   s.visibility, s.confidence, s.stable_id
+                   s.visibility, s.confidence, s.stable_id, s.is_decompiled
             FROM symbols s
             JOIN files f ON s.file_id = f.file_id
             WHERE s.symbol_id = $symbol_id
@@ -704,14 +724,33 @@ public sealed class BaselineStore : ISymbolStore
         using var conn = _factory.OpenExisting(repoId, commitSha);
         if (conn is null) return null;
 
-        // Verify the file is indexed
+        // Check if file is indexed and whether it is a virtual (decompiled) file
         using var checkCmd = conn.CreateCommand();
-        checkCmd.CommandText = "SELECT 1 FROM files WHERE path = $path LIMIT 1";
+        checkCmd.CommandText =
+            "SELECT is_virtual, decompiled_source FROM files WHERE path = $path LIMIT 1";
         checkCmd.Parameters.AddWithValue("$path", filePath.Value);
-        var found = await checkCmd.ExecuteScalarAsync(ct);
-        if (found is null) return null;
 
-        // Resolve repo root
+        using (var reader = await checkCmd.ExecuteReaderAsync(ct))
+        {
+            if (!await reader.ReadAsync(ct)) return null;
+
+            bool isVirtual = reader.GetInt32(0) == 1;
+            if (isVirtual)
+            {
+                string? source = reader.IsDBNull(1) ? null : reader.GetString(1);
+                if (source is null) return null;
+
+                // Return the requested line range from the stored content; no disk read needed.
+                var lines = source.Split('\n');
+                int start = Math.Max(0, startLine - 1);
+                int end = Math.Min(lines.Length - 1, endLine - 1);
+                var content = string.Join('\n', lines[start..(end + 1)]);
+                return new FileSpan(filePath, startLine, Math.Min(endLine, lines.Length),
+                    lines.Length, content, false);
+            }
+        }
+
+        // Resolve repo root and fall through to disk read for real files
         string repoRoot = await GetRepoRootAsync(conn, ct);
         if (string.IsNullOrWhiteSpace(repoRoot)) return null;
 
@@ -807,7 +846,7 @@ public sealed class BaselineStore : ISymbolStore
         cmd.CommandText = """
             SELECT s.symbol_id, s.fqname, s.kind, s.signature, s.documentation,
                    s.namespace, s.containing_type, f.path, s.span_start, s.span_end,
-                   s.visibility, s.confidence, s.stable_id
+                   s.visibility, s.confidence, s.stable_id, s.is_decompiled
             FROM symbols s
             JOIN files f ON s.file_id = f.file_id
             WHERE f.path = $path
@@ -923,6 +962,8 @@ public sealed class BaselineStore : ISymbolStore
         if (reader.FieldCount > 12 && !reader.IsDBNull(12))
             stableId = new StableId(reader.GetString(12));
 
+        int isDecompiled = reader.FieldCount > 13 ? reader.GetInt32(13) : 0;
+
         return SymbolCard.CreateMinimal(
             symbolId: SymbolId.From(reader.GetString(0)),
             fullyQualifiedName: reader.GetString(1),
@@ -937,7 +978,7 @@ public sealed class BaselineStore : ISymbolStore
             documentation: reader.IsDBNull(4) ? null : reader.GetString(4),
             containingType: reader.IsDBNull(6) ? null : reader.GetString(6))
             with
-        { StableId = stableId };
+        { StableId = stableId, IsDecompiled = isDecompiled };
     }
 
     private static void ApplyFilters(
@@ -1177,6 +1218,248 @@ public sealed class BaselineStore : ISymbolStore
         cmd.Parameters.AddWithValue("$fromSymbolId", upgrade.FromSymbolId);
         cmd.Parameters.AddWithValue("$fileId", upgrade.FileId);
         cmd.Parameters.AddWithValue("$locStart", upgrade.LocStart);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    // =========================================================================
+    // Lazy Metadata Resolution (PHASE-12-01)
+    // =========================================================================
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Inserts a synthetic file row for the virtual DLL path (INSERT OR IGNORE) to satisfy
+    /// the FK constraint, then inserts each stub symbol with is_decompiled=1.
+    /// INSERT OR IGNORE on symbols ensures concurrent-safety and idempotency.
+    /// Optionally inserts type_relations for the resolved type (base class, interfaces).
+    /// </remarks>
+    public async Task<int> InsertMetadataStubsAsync(
+        RepoId repoId,
+        CommitSha commitSha,
+        IReadOnlyList<SymbolCard> stubs,
+        IReadOnlyList<ExtractedTypeRelation>? typeRelations = null,
+        CancellationToken ct = default)
+    {
+        using var conn = _factory.OpenExisting(repoId, commitSha);
+        if (conn is null) return 0;
+
+        using var tx = conn.BeginTransaction();
+
+        // Ensure virtual file rows exist for all unique decompiled paths
+        var uniqueFilePaths = stubs
+            .Select(s => s.FilePath.Value)
+            .Where(p => p.StartsWith("decompiled/", StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        using var fileCmd = conn.CreateCommand();
+        fileCmd.Transaction = tx;
+        fileCmd.CommandText = """
+            INSERT OR IGNORE INTO files (file_id, path, sha256, project_id)
+            VALUES ($file_id, $path, '', NULL)
+            """;
+        var pFileId2 = fileCmd.Parameters.Add("$file_id", SqliteType.Text);
+        var pPath2 = fileCmd.Parameters.Add("$path", SqliteType.Text);
+
+        foreach (var virtualPath in uniqueFilePaths)
+        {
+            ct.ThrowIfCancellationRequested();
+            // Use first 16 chars of SHA-256 of path as file_id (matches baseline convention)
+            var pathHash = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(virtualPath)));
+            pFileId2.Value = pathHash[..16];
+            pPath2.Value = virtualPath;
+            await fileCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        // Build path → fileId map from the deterministic hash already computed above.
+        // file_id = SHA256(path)[..16] — no SELECT needed; avoids unbounded scan as DLL types accumulate.
+        var virtualFileIds = uniqueFilePaths.ToDictionary(
+            p => p,
+            p => Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(p)))[..16],
+            StringComparer.Ordinal);
+
+        // Insert stubs
+        using var symCmd = conn.CreateCommand();
+        symCmd.Transaction = tx;
+        symCmd.CommandText = """
+            INSERT OR IGNORE INTO symbols
+                (symbol_id, fqname, kind, file_id, span_start, span_end,
+                 signature, documentation, namespace, containing_type,
+                 visibility, confidence, stable_id, name_tokens, is_decompiled)
+            VALUES
+                ($symbol_id, $fqname, $kind, $file_id, $span_start, $span_end,
+                 $signature, $documentation, $namespace, $containing_type,
+                 $visibility, $confidence, $stable_id, $name_tokens, 1)
+            """;
+
+        var pSym = symCmd.Parameters.Add("$symbol_id", SqliteType.Text);
+        var pFq = symCmd.Parameters.Add("$fqname", SqliteType.Text);
+        var pKind = symCmd.Parameters.Add("$kind", SqliteType.Text);
+        var pFile = symCmd.Parameters.Add("$file_id", SqliteType.Text);
+        var pStart = symCmd.Parameters.Add("$span_start", SqliteType.Integer);
+        var pEnd = symCmd.Parameters.Add("$span_end", SqliteType.Integer);
+        var pSig = symCmd.Parameters.Add("$signature", SqliteType.Text);
+        var pDoc = symCmd.Parameters.Add("$documentation", SqliteType.Text);
+        var pNs = symCmd.Parameters.Add("$namespace", SqliteType.Text);
+        var pCt = symCmd.Parameters.Add("$containing_type", SqliteType.Text);
+        var pVis = symCmd.Parameters.Add("$visibility", SqliteType.Text);
+        var pConf = symCmd.Parameters.Add("$confidence", SqliteType.Text);
+        var pStable = symCmd.Parameters.Add("$stable_id", SqliteType.Text);
+        var pTokens = symCmd.Parameters.Add("$name_tokens", SqliteType.Text);
+
+        int inserted = 0;
+        foreach (var stub in stubs)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (!virtualFileIds.TryGetValue(stub.FilePath.Value, out var fileId))
+                continue;
+
+            pSym.Value = stub.SymbolId.Value;
+            pFq.Value = stub.FullyQualifiedName;
+            pKind.Value = stub.Kind.ToString();
+            pFile.Value = fileId;
+            pStart.Value = stub.SpanStart;
+            pEnd.Value = stub.SpanEnd;
+            pSig.Value = (object?)stub.Signature ?? DBNull.Value;
+            pDoc.Value = (object?)stub.Documentation ?? DBNull.Value;
+            pNs.Value = stub.Namespace;
+            pCt.Value = (object?)stub.ContainingType ?? DBNull.Value;
+            pVis.Value = stub.Visibility;
+            pConf.Value = stub.Confidence.ToString();
+            pStable.Value = DBNull.Value;  // Metadata stubs don't get stable IDs
+            pTokens.Value = BuildNameTokens(stub.FullyQualifiedName);
+
+            // ExecuteNonQueryAsync returns the number of rows affected (0 for INSERT OR IGNORE no-op).
+            inserted += await symCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        // Insert type relations if provided
+        if (typeRelations is { Count: > 0 })
+            await InsertTypeRelationsAsync(conn, tx, typeRelations, ct);
+
+        tx.Commit();
+        return inserted;
+    }
+
+    /// <inheritdoc/>
+    public async Task RebuildFtsAsync(
+        RepoId repoId,
+        CommitSha commitSha,
+        CancellationToken ct = default)
+    {
+        using var conn = _factory.OpenExisting(repoId, commitSha);
+        if (conn is null) return;
+
+        await RebuildFtsAsync(conn, ct);
+    }
+
+    /// <inheritdoc/>
+    public async Task<string?> GetDllFingerprintAsync(
+        RepoId repoId,
+        CommitSha commitSha,
+        CancellationToken ct = default)
+    {
+        using var conn = _factory.OpenExisting(repoId, commitSha);
+        if (conn is null) return null;
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT value FROM repo_meta WHERE key = 'dll_fingerprint' LIMIT 1";
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return result as string;
+    }
+
+    // === Lazy Decompiled Source (PHASE-12-02) ===
+
+    /// <inheritdoc/>
+    public async Task InsertVirtualFileAsync(
+        RepoId repoId,
+        CommitSha commitSha,
+        string virtualPath,
+        string content,
+        IReadOnlyList<ExtractedReference>? decompiledRefs = null,
+        CancellationToken ct = default)
+    {
+        using var conn = _factory.OpenExisting(repoId, commitSha);
+        if (conn is null) return;
+
+        // Compute file_id as first 16 chars of SHA-256 of path (same convention as InsertMetadataStubsAsync)
+        var pathHash = Convert.ToHexStringLower(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(virtualPath)));
+        var fileId = pathHash[..16];
+
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT OR IGNORE INTO files (file_id, path, sha256, is_virtual, decompiled_source)
+                VALUES ($file_id, $path, $sha256, 1, $content)
+                """;
+            cmd.Parameters.AddWithValue("$file_id", fileId);
+            cmd.Parameters.AddWithValue("$path", virtualPath);
+            cmd.Parameters.AddWithValue("$sha256", pathHash);
+            cmd.Parameters.AddWithValue("$content", content);
+            await cmd.ExecuteNonQueryAsync(ct);
+
+            // Insert cross-DLL refs extracted from the decompiled SyntaxTree
+            if (decompiledRefs is { Count: > 0 })
+            {
+                // Skip-if-already-present guard: if any ref from this decompiled source exists, skip
+                using var checkCmd = conn.CreateCommand();
+                checkCmd.Transaction = tx;
+                checkCmd.CommandText = "SELECT COUNT(*) FROM refs WHERE file_id = $file_id LIMIT 1";
+                checkCmd.Parameters.AddWithValue("$file_id", fileId);
+                var existing = Convert.ToInt32(await checkCmd.ExecuteScalarAsync(ct));
+                if (existing == 0)
+                {
+                    var fileIdByPath = new Dictionary<string, string> { [virtualPath] = fileId };
+                    await InsertRefsAsync(conn, tx, decompiledRefs, fileIdByPath, ct);
+                }
+            }
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task UpgradeDecompiledSymbolAsync(
+        RepoId repoId,
+        CommitSha commitSha,
+        SymbolId symbolId,
+        string virtualFilePath,
+        CancellationToken ct = default)
+    {
+        using var conn = _factory.OpenExisting(repoId, commitSha);
+        if (conn is null) return;
+
+        // Look up file_id for the virtual path
+        using var lookupCmd = conn.CreateCommand();
+        lookupCmd.CommandText = "SELECT file_id FROM files WHERE path = $path LIMIT 1";
+        lookupCmd.Parameters.AddWithValue("$path", virtualFilePath);
+        var fileId = await lookupCmd.ExecuteScalarAsync(ct) as string;
+        if (fileId is null) return; // virtual file not yet inserted
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE symbols
+            SET is_decompiled = 2,
+                file_id = $fileId
+            WHERE symbol_id = $symbolId
+              AND is_decompiled = 1
+            """;
+        cmd.Parameters.AddWithValue("$fileId", fileId);
+        cmd.Parameters.AddWithValue("$symbolId", symbolId.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 }

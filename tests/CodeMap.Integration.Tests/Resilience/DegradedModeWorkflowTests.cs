@@ -37,7 +37,7 @@ public sealed class DegradedModeWorkflowTests : IAsyncLifetime
     private QueryEngine _engine = null!;
     private RoutingContext _routing = default!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), "codemap-degraded-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
@@ -57,12 +57,12 @@ public sealed class DegradedModeWorkflowTests : IAsyncLifetime
         await Task.CompletedTask;
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         SqliteConnection.ClearAllPools();
         if (Directory.Exists(_tempDir))
             try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     // ── Test 1: Broken build — search still works ─────────────────────────────

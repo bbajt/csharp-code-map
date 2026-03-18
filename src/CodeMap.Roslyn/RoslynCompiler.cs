@@ -114,6 +114,7 @@ public sealed class RoslynCompiler : IRoslynCompiler
         var allFacts = new List<ExtractedFact>();
         var projectDiagnostics = new List<Core.Models.ProjectDiagnostic>();
         var confidence = Confidence.High;
+        Compilation? firstCompilation = null;
 
         foreach (var project in solution.Projects)
         {
@@ -122,6 +123,7 @@ public sealed class RoslynCompiler : IRoslynCompiler
             try
             {
                 var compilation = await project.GetCompilationAsync(ct);
+                firstCompilation ??= compilation;
                 if (compilation is null)
                 {
                     _logger.LogWarning("No compilation for project {Project}", project.Name);
@@ -229,7 +231,35 @@ public sealed class RoslynCompiler : IRoslynCompiler
             SemanticLevel: semanticLevel,
             ProjectDiagnostics: projectDiagnostics);
 
-        return new CompilationResult(allSymbols, allReferences, allFiles, stats, allTypeRelations, allFacts);
+        string? dllFingerprint = firstCompilation is not null
+            ? BuildDllFingerprint(firstCompilation)
+            : null;
+
+        return new CompilationResult(allSymbols, allReferences, allFiles, stats, allTypeRelations, allFacts,
+            DllFingerprint: dllFingerprint);
+    }
+
+    private static string? BuildDllFingerprint(Compilation compilation)
+    {
+        var fingerprint = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var reference in compilation.References.OfType<Microsoft.CodeAnalysis.PortableExecutableReference>())
+        {
+            if (reference.FilePath is null || !File.Exists(reference.FilePath))
+                continue;
+            try
+            {
+                byte[] bytes = File.ReadAllBytes(reference.FilePath);
+                byte[] hash = SHA256.HashData(bytes);
+                string name = Path.GetFileNameWithoutExtension(reference.FilePath);
+                fingerprint.TryAdd(name, Convert.ToHexStringLower(hash));
+            }
+            catch
+            {
+                // Skip unreadable references
+            }
+        }
+        if (fingerprint.Count == 0) return null;
+        return System.Text.Json.JsonSerializer.Serialize(fingerprint);
     }
 
     private static IReadOnlyList<ExtractedFile> ExtractFiles(Project project, string solutionDir)

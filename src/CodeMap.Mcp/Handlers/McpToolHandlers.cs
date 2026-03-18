@@ -179,8 +179,7 @@ public sealed class McpToolHandlers
             var stableId = new StableId(symbolIdStr);
             var stableResult = await _queryEngine.GetSymbolByStableIdAsync(routingResult.Value, stableId, ct).ConfigureAwait(false);
             if (stableResult.IsFailure) return HandlerHelpers.ErrWithNotFoundSuggestion(stableResult.Error, symbolIdStr);
-            if (!includeCode) return Ok(stableResult.Value);
-            return await AppendSourceCodeAsync(stableResult.Value.Data.SymbolId, stableResult.Value, routingResult.Value, ct).ConfigureAwait(false);
+            return await AppendSourceCodeAsync(stableResult.Value.Data.SymbolId, stableResult.Value, routingResult.Value, includeCode, ct).ConfigureAwait(false);
         }
 
         var symbolId = SymbolId.From(symbolIdStr);
@@ -194,8 +193,7 @@ public sealed class McpToolHandlers
             }
             return HandlerHelpers.ErrWithNotFoundSuggestion(result.Error, symbolIdStr);
         }
-        if (!includeCode) return Ok(result.Value);
-        return await AppendSourceCodeAsync(symbolId, result.Value, routingResult.Value, ct).ConfigureAwait(false);
+        return await AppendSourceCodeAsync(symbolId, result.Value, routingResult.Value, includeCode, ct).ConfigureAwait(false);
     }
 
     // ── Symbol ID auto-correct ────────────────────────────────────────────────
@@ -221,9 +219,7 @@ public sealed class McpToolHandlers
             var result = await _queryEngine.GetSymbolCardAsync(routing, candidate, ct).ConfigureAwait(false);
             if (!result.IsSuccess) continue;
 
-            var toolResult = includeCode
-                ? await AppendSourceCodeAsync(candidate, result.Value, routing, ct).ConfigureAwait(false)
-                : Ok(result.Value);
+            var toolResult = await AppendSourceCodeAsync(candidate, result.Value, routing, includeCode, ct).ConfigureAwait(false);
 
             var note = $"Note: auto-corrected symbol ID — added `{prefix}` prefix. " +
                        $"Use `{candidateStr}` in future calls for reliability.";
@@ -243,42 +239,81 @@ public sealed class McpToolHandlers
     }
 
     /// <summary>
-    /// Reads the symbol's source code and injects it as a source_code field into the
-    /// serialized card response. Returns the card without modification if the read fails.
+    /// Injects <c>source</c>, optional <c>note</c>, and optional <c>source_code</c> into
+    /// the serialized card response without mutating <see cref="SymbolCard"/>.
+    /// Always injects a <c>source</c> discriminator ("source_code", "metadata_stub", or "decompiled").
     /// </summary>
     private async Task<ToolCallResult> AppendSourceCodeAsync(
         SymbolId symbolId,
         ResponseEnvelope<SymbolCard> envelope,
         RoutingContext routing,
+        bool includeCode,
         CancellationToken ct)
     {
         var card = envelope.Data;
-        if (card.SpanStart <= 0 || card.SpanEnd <= 0)
-            return Ok(envelope);
-
         const int MaxCodeLines = 100;
-        var spanResult = await _queryEngine.GetDefinitionSpanAsync(
-            routing, symbolId, maxLines: MaxCodeLines, contextLines: 0, ct).ConfigureAwait(false);
-        if (spanResult.IsFailure)
-            return Ok(envelope); // Return card without code if read fails
 
-        var spanData = spanResult.Value.Data;
-        var sourceCode = spanData.Content;
-        if (spanData.Truncated)
-        {
-            var remaining = card.SpanEnd - card.SpanStart - MaxCodeLines;
-            sourceCode += $"\n// ... ({remaining} more lines — use symbols.get_definition_span for full source)";
-        }
-
-        // Inject source_code into the JSON data node without mutating SymbolCard
+        // Serialize base envelope and get the data node for injection
         var rawJson = JsonSerializer.Serialize(envelope, CodeMapJsonOptions.Default);
         var jsonNode = JsonNode.Parse(rawJson)!.AsObject();
-        if (jsonNode.TryGetPropertyValue("data", out var dataNode) && dataNode is JsonObject dataObj)
+        if (!jsonNode.TryGetPropertyValue("data", out var dn) || dn is not JsonObject dataObj)
+            return new ToolCallResult(rawJson);
+
+        // Always inject source discriminator
+        string sourceValue = card.IsDecompiled switch
         {
-            dataObj["source_code"] = sourceCode;
-            if (spanData.Truncated)
-                dataObj["code_truncated"] = true;
+            2 => "decompiled",
+            1 => "metadata_stub",
+            _ => "source_code"
+        };
+        dataObj["source"] = sourceValue;
+
+        if (!includeCode)
+            return new ToolCallResult(jsonNode.ToJsonString());
+
+        if (card.IsDecompiled == 2)
+        {
+            // Decompiled symbol: read the entire virtual file
+            if (!string.IsNullOrEmpty(card.FilePath.Value))
+            {
+                var spanResult = await _queryEngine.GetSpanAsync(
+                    routing, card.FilePath, 1, int.MaxValue, 0,
+                    new BudgetLimits(maxLines: MaxCodeLines), ct).ConfigureAwait(false);
+                if (spanResult.IsSuccess)
+                {
+                    dataObj["source_code"] = spanResult.Value.Data.Content;
+                    if (spanResult.Value.Data.Truncated)
+                        dataObj["code_truncated"] = true;
+                }
+            }
         }
+        else if (card.IsDecompiled == 1)
+        {
+            // Decompilation was attempted (include_code=true) but is_decompiled still 1 → failed
+            dataObj["note"] =
+                "Source code could not be reconstructed for this type. " +
+                "The metadata stub (signature + XML doc) is available above.";
+        }
+        else if (card.SpanStart > 0 && card.SpanEnd > 0)
+        {
+            // Normal source symbol: read from disk via definition span
+            var spanResult = await _queryEngine.GetDefinitionSpanAsync(
+                routing, symbolId, maxLines: MaxCodeLines, contextLines: 0, ct).ConfigureAwait(false);
+            if (spanResult.IsSuccess)
+            {
+                var spanData = spanResult.Value.Data;
+                var sourceCode = spanData.Content;
+                if (spanData.Truncated)
+                {
+                    var remaining = card.SpanEnd - card.SpanStart - MaxCodeLines;
+                    sourceCode += $"\n// ... ({remaining} more lines — use symbols.get_definition_span for full source)";
+                }
+                dataObj["source_code"] = sourceCode;
+                if (spanData.Truncated)
+                    dataObj["code_truncated"] = true;
+            }
+        }
+
         return new ToolCallResult(jsonNode.ToJsonString());
     }
 

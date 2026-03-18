@@ -60,7 +60,9 @@ public sealed class FeatureTracer
             },
             maxDepth: depth,
             limitPerLevel: limit,
-            ct).ConfigureAwait(false);
+            ct,
+            lazyRepoId: repoId,
+            lazyCommitSha: commitSha).ConfigureAwait(false);
 
         // 3. Collect all symbol IDs from BFS (including root)
         var allSymbolIds = bfsResult.Nodes.Select(n => n.SymbolId).ToHashSet();
@@ -140,7 +142,9 @@ public sealed class FeatureTracer
             }
         }
 
-        return new TraceNode(symbolId, stableId, displayName, depth, annotations, children);
+        var isDecompiled = card?.IsDecompiled != 0;
+        return new TraceNode(symbolId, stableId, displayName, depth, annotations, children)
+            with { IsDecompiled = isDecompiled };
     }
 
     /// <summary>

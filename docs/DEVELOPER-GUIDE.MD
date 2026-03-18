@@ -18,7 +18,8 @@ For architecture decisions, see [DECISIONS.MD](DECISIONS.MD).
 - **Git** — required for LibGit2Sharp integration tests
 - **MSBuild** (included with .NET SDK) — required for integration tests that
   open real solutions via Roslyn MSBuildWorkspace
-- A C# solution to index (or use the built-in `testdata/SampleSolution/`)
+- A C# solution to index (or use the built-in `testdata/SampleSolution/`) — both `.sln`
+  and `.slnx` formats are accepted by `index.ensure_baseline`
 
 ---
 

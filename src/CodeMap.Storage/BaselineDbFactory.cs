@@ -45,6 +45,7 @@ public sealed class BaselineDbFactory : IBaselineScanner
 
     /// <summary>
     /// Opens an existing DB read-write. Returns null if the file does not exist.
+    /// Applies lightweight schema migrations (column additions) for forward compatibility.
     /// Caller must dispose the returned connection.
     /// </summary>
     public SqliteConnection? OpenExisting(CodeMap.Core.Types.RepoId repoId, CodeMap.Core.Types.CommitSha commitSha)
@@ -54,7 +55,32 @@ public sealed class BaselineDbFactory : IBaselineScanner
 
         var conn = new SqliteConnection($"Data Source={path}");
         conn.Open();
+        ApplyColumnMigrations(conn);
         return conn;
+    }
+
+    /// <summary>
+    /// Applies additive column migrations to an existing baseline DB.
+    /// Uses <c>ALTER TABLE … ADD COLUMN IF NOT EXISTS</c> (SQLite 3.37+, always bundled with
+    /// Microsoft.Data.Sqlite 6+). Each migration is idempotent and safe to run on every open.
+    /// </summary>
+    private static void ApplyColumnMigrations(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        // PHASE-12-01: add is_decompiled to symbols if not present
+        cmd.CommandText = "ALTER TABLE symbols ADD COLUMN IF NOT EXISTS is_decompiled INTEGER NOT NULL DEFAULT 0";
+        try { cmd.ExecuteNonQuery(); } catch { /* column already exists on some SQLite builds */ }
+
+        // PHASE-12-02: add is_virtual and decompiled_source to files if not present
+        cmd.CommandText = "ALTER TABLE files ADD COLUMN IF NOT EXISTS is_virtual INTEGER NOT NULL DEFAULT 0";
+        try { cmd.ExecuteNonQuery(); } catch { /* already exists */ }
+
+        cmd.CommandText = "ALTER TABLE files ADD COLUMN IF NOT EXISTS decompiled_source TEXT";
+        try { cmd.ExecuteNonQuery(); } catch { /* already exists */ }
+
+        // PHASE-12-03: add is_decompiled to refs if not present
+        cmd.CommandText = "ALTER TABLE refs ADD COLUMN IF NOT EXISTS is_decompiled INTEGER NOT NULL DEFAULT 0";
+        try { cmd.ExecuteNonQuery(); } catch { /* already exists */ }
     }
 
     private void EnsureSchema(SqliteConnection conn)

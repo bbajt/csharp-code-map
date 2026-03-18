@@ -60,6 +60,6 @@ public sealed class SymbolCardTests
     public void SymbolCard_Has18Fields()
     {
         var props = typeof(SymbolCard).GetProperties();
-        props.Should().HaveCount(18); // +1 for StableId (PHASE-03-01)
+        props.Should().HaveCount(19); // +1 for StableId (PHASE-03-01), +1 for IsDecompiled (PHASE-12-01)
     }
 }

@@ -2,8 +2,11 @@
 
 [![NuGet](https://img.shields.io/nuget/v/codemap-mcp.svg?label=nuget&color=blue)](https://www.nuget.org/packages/codemap-mcp)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/codemap-mcp.svg?color=blue)](https://www.nuget.org/packages/codemap-mcp)
-[![CI](https://github.com/bbajt/csharp-code-map/actions/workflows/ci.yml/badge.svg)](https://github.com/bbajt/csharp-code-map/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Non--Commercial-orange.svg)](LICENSE)
+
+```bash
+dotnet tool install --global codemap-mcp --version 1.3.0
+```
 
 > *Stop feeding your AI agent raw source files. Give it a semantic index instead.*
 
@@ -45,7 +48,7 @@ CodeMap builds a **persistent semantic index** from your solution file using Ros
 - Type hierarchy (inheritance chains, interface implementations)
 - Architectural facts extracted from code: HTTP endpoints, config keys, DB tables, DI registrations, middleware pipeline, retry policies, exception throw points, structured log templates
 
-All of this is exposed via **26 MCP tools** that any MCP-compatible AI agent can call.
+All of this is exposed via **26 MCP tools** that any MCP-compatible AI agent can call. Starting from v1.3, CodeMap also navigates **DLL boundaries** — lazily resolving NuGet and SDK symbols on first access, with optional ICSharpCode.Decompiler source reconstruction and cross-DLL call graphs.
 
 ---
 
@@ -212,6 +215,31 @@ When a file doesn't compile, CodeMap doesn't drop references. It stores **unreso
 
 ---
 
+## DLL Boundary Navigation
+
+CodeMap resolves DLL symbols lazily on first agent access — `NOT_FOUND` at a DLL
+boundary triggers automatic extraction rather than a dead end.
+
+**Two levels, both permanent (cached in baseline DB):**
+
+| Level | Trigger | What you get | Cost |
+|-------|---------|--------------|------|
+| 1 — Metadata stub | Any `NOT_FOUND` query | Method signatures, XML docs, type hierarchy | ~1–5ms (once) |
+| 2 — Decompiled source | `symbols.get_card` with `include_code: true` | Full reconstructed C# source via ICSharpCode.Decompiler | ~10–200ms (once) |
+
+After Level 2, cross-DLL call graph edges are extracted so `graph.callees` and
+`graph.trace_feature` traverse INTO and THROUGH DLL code seamlessly.
+
+**`source` discriminator in `symbols.get_card` response:**
+- `"source_code"` — symbol is from your own source
+- `"metadata_stub"` — Level 1 only (decompilation unavailable)
+- `"decompiled"` — Level 2 source reconstructed and ready
+
+`graph.trace_feature` applies a `max_lazy_resolutions_per_query` budget (default 20)
+when encountering previously-unseen DLL types to bound decompilation latency.
+
+---
+
 ## Shared Baseline Cache
 
 Index once, reuse everywhere — across machines, CI, Docker containers:
@@ -229,7 +257,7 @@ export CODEMAP_CACHE_DIR=/shared/codemap-cache
 
 ## Self-Hosting Validated
 
-CodeMap indexes its own 17-project solution (4,932 symbols, 22,808 references).
+CodeMap indexes its own 17-project solution (5,112 symbols, 23,540 references).
 All 26 tools verified against real-world architectural complexity. Self-hosting exposed
 and fixed cross-project reference bugs, CamelCase FTS edge cases, and multi-line SQL
 extraction gaps. Every tool in this README was tested against the codebase that implements it.
@@ -241,7 +269,7 @@ extraction gaps. Every tool in this README was tested against the codebase that 
 ### .NET Global Tool — NuGet (recommended)
 
 ```bash
-dotnet tool install -g codemap-mcp
+dotnet tool install --global codemap-mcp --version 1.3.0
 codemap-mcp --version
 ```
 
@@ -255,10 +283,10 @@ Build from source — produces a single executable, batteries included:
 
 ```bash
 # Linux/macOS
-./scripts/build-release.sh 1.1.0
+./scripts/build-release.sh 1.3.0
 
 # Windows PowerShell
-.\scripts\build-release.ps1 1.1.0
+.\scripts\build-release.ps1 1.3.0
 ```
 
 Outputs `dist/win-x64/`, `dist/linux-x64/`, `dist/osx-arm64/`. Drop the binary anywhere and run it — no runtime, no SDK, no install step. No trimming (Roslyn uses runtime reflection).
@@ -399,4 +427,4 @@ cd tests/CodeMap.Benchmarks && dotnet run -c Release
 
 ---
 
-*26 MCP tools. 90%+ token savings. Roslyn-grade semantics. `.sln` + `.slnx` support. Your agent deserves better than grep.*
+*26 MCP tools. 90%+ token savings. Roslyn-grade semantics. DLL boundary navigation. `.sln` + `.slnx` support. v1.3.0. Your agent deserves better than grep.*

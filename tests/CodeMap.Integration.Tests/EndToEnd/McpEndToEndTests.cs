@@ -46,7 +46,7 @@ public sealed class McpEndToEndTests : IAsyncLifetime
     // Repo root dir (has a source file the QueryEngine can read for file spans)
     private string _repoRootDir = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         // 1. Create a temp git repo with one commit
         _gitRepo = TempGitRepo.Create(remoteName: null);
@@ -106,7 +106,7 @@ public sealed class McpEndToEndTests : IAsyncLifetime
         await _store.CreateBaselineAsync(repoId, sha, compiled, _repoRootDir);
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         _gitRepo.Dispose();
@@ -115,7 +115,7 @@ public sealed class McpEndToEndTests : IAsyncLifetime
             if (Directory.Exists(dir))
                 try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ }
         }
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     // ── E2E Tests ─────────────────────────────────────────────────────────────

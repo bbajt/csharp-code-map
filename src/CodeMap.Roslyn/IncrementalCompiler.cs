@@ -288,6 +288,34 @@ public class IncrementalCompiler : IIncrementalCompiler
     }
 
     /// <summary>
+    /// Returns the <see cref="Compilation"/> from the first successfully compiled
+    /// project in the cached solution, or <c>null</c> if no solution has been
+    /// loaded yet. Used by <see cref="MetadataResolver"/> to access DLL metadata
+    /// without triggering a fresh MSBuildWorkspace open.
+    /// </summary>
+    internal async Task<Compilation?> GetMetadataCompilationAsync(CancellationToken ct = default)
+    {
+        var solution = _cachedSolution;
+        if (solution is null) return null;
+
+        foreach (var project in solution.Projects)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var compilation = await project.GetCompilationAsync(ct).ConfigureAwait(false);
+                if (compilation is not null) return compilation;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "GetCompilationAsync failed for project {Project} — trying next", project.Name);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Releases the <c>SemaphoreSlim</c> and disposes the cached <c>MSBuildWorkspace</c>.
     /// Must be called when the singleton is torn down (daemon shutdown).
     /// </summary>

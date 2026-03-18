@@ -38,7 +38,8 @@ public record CompilationResult(
     IReadOnlyList<ExtractedFile> Files,
     IndexStats Stats,
     IReadOnlyList<ExtractedTypeRelation>? TypeRelations = null,
-    IReadOnlyList<ExtractedFact>? Facts = null
+    IReadOnlyList<ExtractedFact>? Facts = null,
+    string? DllFingerprint = null
 );
 
 /// <summary>
@@ -57,7 +58,8 @@ public record ExtractedReference(
     string? ToName = null,
     string? ToContainerHint = null,
     Types.StableId? StableFromId = null,
-    Types.StableId? StableToId = null
+    Types.StableId? StableToId = null,
+    bool IsDecompiled = false
 );
 
 /// <summary>

@@ -24,6 +24,7 @@ public sealed class QueryEngine : IQueryEngine
     private readonly GraphTraverser _graphTraverser;
     private readonly FeatureTracer _featureTracer;
     private readonly ILogger<QueryEngine> _logger;
+    private readonly IMetadataResolver? _metadataResolver;
 
     private static readonly IReadOnlyDictionary<string, LimitApplied> _noLimits =
         new Dictionary<string, LimitApplied>(0);
@@ -35,7 +36,8 @@ public sealed class QueryEngine : IQueryEngine
         ExcerptReader excerptReader,
         GraphTraverser graphTraverser,
         FeatureTracer featureTracer,
-        ILogger<QueryEngine> logger)
+        ILogger<QueryEngine> logger,
+        IMetadataResolver? metadataResolver = null)
     {
         _store = store;
         _cache = cache;
@@ -44,6 +46,7 @@ public sealed class QueryEngine : IQueryEngine
         _graphTraverser = graphTraverser;
         _featureTracer = featureTracer;
         _logger = logger;
+        _metadataResolver = metadataResolver;
     }
 
     // ─── SearchSymbolsAsync ───────────────────────────────────────────────────
@@ -139,9 +142,21 @@ public sealed class QueryEngine : IQueryEngine
     // ─── GetSymbolCardAsync ───────────────────────────────────────────────────
 
     /// <inheritdoc/>
+    public Task<Result<ResponseEnvelope<SymbolCard>, CodeMapError>> GetSymbolCardAsync(
+        RoutingContext routing,
+        SymbolId symbolId,
+        CancellationToken ct = default)
+        => GetSymbolCardAsync(routing, symbolId, includeCode: true, ct);
+
+    /// <summary>
+    /// Fetches a symbol card. When <paramref name="includeCode"/> is <c>true</c> and the
+    /// card is a metadata stub (<c>IsDecompiled==1</c>), triggers Level 2 decompilation
+    /// via <see cref="IMetadataResolver.TryDecompileTypeAsync"/> and re-fetches the upgraded card.
+    /// </summary>
     public async Task<Result<ResponseEnvelope<SymbolCard>, CodeMapError>> GetSymbolCardAsync(
         RoutingContext routing,
         SymbolId symbolId,
+        bool includeCode,
         CancellationToken ct = default)
     {
         var tc = new TimingContext();
@@ -169,11 +184,35 @@ public sealed class QueryEngine : IQueryEngine
         tc.StartPhase();
         var card = await _store.GetSymbolAsync(routing.RepoId, commitSha, symbolId, ct);
 
+        if (card is null && _metadataResolver is not null)
+        {
+            // Level 1: try to extract metadata stubs from DLL references
+            int inserted = await _metadataResolver.TryResolveTypeAsync(
+                symbolId, routing.RepoId, commitSha, ct).ConfigureAwait(false);
+
+            if (inserted > 0)
+                card = await _store.GetSymbolAsync(routing.RepoId, commitSha, symbolId, ct);
+        }
+
         if (card is null)
         {
             tc.EndDbQuery();
             return Result<ResponseEnvelope<SymbolCard>, CodeMapError>.Failure(
                 CodeMapError.NotFound("Symbol", symbolId.Value));
+        }
+
+        // Level 2: trigger decompilation when card is a metadata stub and code was requested
+        if (card.IsDecompiled == 1 && includeCode && _metadataResolver is not null)
+        {
+            string? virtualPath = await _metadataResolver.TryDecompileTypeAsync(
+                symbolId, routing.RepoId, commitSha, ct).ConfigureAwait(false);
+
+            if (virtualPath is not null)
+            {
+                // Re-fetch card — is_decompiled is now 2, file_id updated
+                card = await _store.GetSymbolAsync(routing.RepoId, commitSha, symbolId, ct)
+                       ?? card; // fallback to existing stub if re-fetch fails
+            }
         }
 
         // Hydrate Facts from stored facts for this symbol

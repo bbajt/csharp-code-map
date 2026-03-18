@@ -8,19 +8,6 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
 
-  <!-- Enable dotnet test to use MTP natively instead of VSTest compat mode. -->
-  <PropertyGroup>
-    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
-  </PropertyGroup>
-
-  <!-- xUnit v3 analyzer suppression.
-       xUnit1051: use TestContext.Current.CancellationToken — style rule, not correctness.
-       Suppressed globally during Milestone 11 migration; address incrementally in M12+.
-       Applied unconditionally because IsTestProject is not available during .props evaluation. -->
-  <PropertyGroup>
-    <NoWarn>$(NoWarn);xUnit1051;MTP0001</NoWarn>
-  </PropertyGroup>
-
   <PropertyGroup>
     <Authors>Branimir Bajt</Authors>
     <Product>CodeMap</Product>

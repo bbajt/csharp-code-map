@@ -111,7 +111,7 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
             => Task.FromResult(0);
     }
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         MsBuildInitializer.EnsureRegistered();
 
@@ -215,12 +215,12 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
         return SymbolId.From(fallback);
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         if (Directory.Exists(_tempDir))
             try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

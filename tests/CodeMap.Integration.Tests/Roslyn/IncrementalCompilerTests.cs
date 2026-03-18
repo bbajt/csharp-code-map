@@ -29,7 +29,7 @@ public sealed class IncrementalCompilerTests : IAsyncLifetime
     private static readonly RepoId Repo = RepoId.From("incr-integration-repo");
     private static readonly CommitSha Sha = CommitSha.From(new string('f', 40));
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         MsBuildInitializer.EnsureRegistered();
 
@@ -49,12 +49,12 @@ public sealed class IncrementalCompilerTests : IAsyncLifetime
         _compiler = new IncrementalCompiler(differ, NullLogger<IncrementalCompiler>.Instance);
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         SqliteConnection.ClearAllPools();
         if (Directory.Exists(_tempDir))
             try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     [Fact]

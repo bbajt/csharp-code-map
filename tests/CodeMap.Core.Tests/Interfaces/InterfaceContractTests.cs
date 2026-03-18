@@ -144,7 +144,7 @@ public sealed class InterfaceContractTests
 
     [Fact]
     public void ISymbolStore_Defines21Methods() =>
-        typeof(ISymbolStore).GetMethods().Should().HaveCount(21); // +2 for GetAllFilePathsAsync + GetRepoRootAsync (PHASE-09-02)
+        typeof(ISymbolStore).GetMethods().Should().HaveCount(26); // +3 PHASE-12-01 + 2 PHASE-12-02 (InsertVirtualFileAsync + UpgradeDecompiledSymbolAsync)
 
     // ─── IQueryEngine ─────────────────────────────────────────────────────────
 

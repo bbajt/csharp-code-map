@@ -38,7 +38,7 @@ public sealed class ReindexPerformanceTests : IAsyncLifetime
     private static readonly FilePath ChangedFile =
         FilePath.From("SampleApp/Services/OrderService.cs");
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         MsBuildInitializer.EnsureRegistered();
 
@@ -58,13 +58,13 @@ public sealed class ReindexPerformanceTests : IAsyncLifetime
         _compiler = new IncrementalCompiler(differ, NullLogger<IncrementalCompiler>.Instance);
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         _compiler.Dispose();
         SqliteConnection.ClearAllPools();
         if (Directory.Exists(_tempDir))
             try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     [Fact]
