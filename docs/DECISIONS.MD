@@ -786,3 +786,48 @@ packages) without configuration.
   `decompiled_source` column). `GetFileSpanAsync` routes virtual reads to DB content.
 - `ICSharpCode.Decompiler` referenced only by `CodeMap.Roslyn`. No other project
   references it. Core zero-dependency constraint preserved.
+
+---
+
+## ADR-028: symbols.search query Parameter Made Optional — Kind-Browse Path
+
+**Date:** 2026-03-28
+**Version:** v1.3.1
+**Status:** Accepted
+
+**Context:**
+Agents commonly invoke `symbols.search` with `query: "*"` to list all symbols
+of a given kind (e.g. all classes in a project). FTS5 does not accept a bare
+`*` as a match-all wildcard — it throws an internal SQLite error, which
+surfaced to the MCP caller as `-32603 Internal error`. This is a well-known
+agent UX failure: the intent is clear and valid, but the mechanism is wrong.
+
+**Decision:**
+1. `IQueryEngine.SearchSymbolsAsync` signature changed from `string query` to
+   `string? query` (nullable). The storage-layer `ISymbolStore.SearchSymbolsAsync`
+   is unchanged (still requires non-empty string).
+
+2. `QueryEngine` dispatches based on query nullability:
+   - `query` non-empty → FTS5 text search (existing path, unchanged)
+   - `query` null/empty + `kinds` filter → `BrowseByKindsAsync` private method,
+     which calls `ISymbolStore.GetSymbolsByKindsAsync` (direct SQL, no FTS)
+   - `query` null/empty + no `kinds` → `INVALID_ARGUMENT` with guidance message
+
+3. `MergedQueryEngine` applies the same dispatch before the workspace-mode path.
+   For kind-browse in workspace mode, it delegates to the inner engine with a
+   committed routing context (baseline only — no overlay merge for browse).
+
+4. `McpToolHandlers.HandleSearchAsync`:
+   - `query` removed from the JSON schema `required` array.
+   - `query: "*"` is silently converted to `null` before dispatch.
+   - Schema description updated to document both modes.
+
+**Consequences:**
+- Agents can pass `kinds: ["Class"]` with no `query` and get all classes.
+- Agents passing `query: "*"` get the same result (silent coercion).
+- `Score` in `SymbolSearchHit` is `1` for kind-browse results (no FTS ranking).
+- `namespace` and `file_path` filters are NOT applied in the kind-browse SQL path
+  (only `kinds` is used). Agents needing namespace-scoped kind browse should
+  post-filter client-side or use a text query like `"*"` within the namespace.
+- No interface change to `ISymbolStore` — `GetSymbolsByKindsAsync` already existed
+  (added in PHASE-06-03 for `codemap.export`).

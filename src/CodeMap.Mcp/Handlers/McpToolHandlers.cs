@@ -55,18 +55,18 @@ public sealed class McpToolHandlers
             "symbols.search",
             "Search for C# symbols by name, namespace, kind, or file path using full-text search.",
             BuildSchema(
-                required: ["repo_path", "query"],
+                required: ["repo_path"],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
                     ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay data"),
                     ["virtual_files"] = VirtualFilesProp(),
-                    ["query"] = Prop("string", "FTS5 search query. Space = implicit AND (all terms must match). Use OR for alternatives: 'Foo OR Bar'. Use * for prefix: 'Order*'. Search one term at a time for broad results."),
+                    ["query"] = Prop("string", "FTS5 search query (optional when kinds is set). Omit to browse all symbols of the specified kinds. Space = implicit AND. Use OR for alternatives: 'Foo OR Bar'. Use * for prefix matching: 'Order*'."),
                     ["kinds"] = new JsonObject
                     {
                         ["type"] = "array",
                         ["items"] = new JsonObject { ["type"] = "string" },
-                        ["description"] = "Filter by SymbolKind (e.g. [\"Class\", \"Method\"])",
+                        ["description"] = "Filter by SymbolKind (e.g. [\"Class\", \"Method\"]). When query is omitted, kinds is required — returns all symbols of those types.",
                     },
                     ["namespace"] = Prop("string", "Namespace prefix filter"),
                     ["file_path"] = Prop("string", "File path prefix filter. E.g., 'src/' for production code only, 'tests/' for test code only."),
@@ -146,9 +146,11 @@ public sealed class McpToolHandlers
     internal async Task<ToolCallResult> HandleSearchAsync(JsonObject? args, CancellationToken ct)
     {
         var repoPath = args?["repo_path"]?.GetValue<string>();
-        var query = args?["query"]?.GetValue<string>();
         if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
-        if (string.IsNullOrEmpty(query)) return InvalidArg("query is required");
+
+        // Treat bare "*" as no query — engine routes to kinds-browse path
+        var query = args?["query"]?.GetValue<string>();
+        if (query == "*") query = null;
 
         var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;

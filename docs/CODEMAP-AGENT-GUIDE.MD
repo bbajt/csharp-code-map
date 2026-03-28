@@ -96,9 +96,21 @@ symbols.get_context   → Card + source code + callee cards with code
 symbols.get_card      → Card + source code (no callees)
                         Use when you only need one symbol's details.
 
-symbols.search        → Find symbols by name
-                        Always search first, then use the symbol_id
-                        from results. NEVER type FQNs manually.
+symbols.search        → Find symbols by name OR browse by kind (v1.3.1+)
+
+                        Mode 1 — text search (provide query):
+                          symbols.search { query: "OrderService" }
+                          symbols.search { query: "Order*" }   ← prefix
+
+                        Mode 2 — kind browse (omit query):
+                          symbols.search { kinds: ["Class"] }
+                          symbols.search { kinds: ["Interface","Enum"] }
+                          symbols.search { kinds: ["Class"], namespace: "MyApp" }
+                          → Returns all symbols of those types, up to limit.
+                          → query:"*" is also accepted and treated as kind browse.
+
+                        Always copy symbol_id from results.
+                        NEVER type FQNs manually.
 
 code.search_text      → Regex/substring search across source file content
                         Use when you know WHAT text to find but not WHERE.
@@ -155,6 +167,19 @@ format: `T:Namespace.Class`, `M:Namespace.Class.Method(ParamType)`.
 **Symptom:** `symbols.search("Foo Bar Baz")` returns zero results.
 **Fix:** FTS5 treats spaces as AND. Search one term at a time, or use
 `OR` between terms: `"Foo OR Bar OR Baz"`.
+
+### 5. Using `"*"` to list all symbols of a kind
+**Symptom:** `symbols.search { query: "*", kinds: ["Class"] }` returns
+an error (`-32603 Internal error` on older builds, `INVALID_ARGUMENT`
+on newer ones).
+**Why:** FTS5 does not accept a bare `*` as a match-all wildcard.
+**Fix (v1.3.1+):** Omit `query` entirely and pass the `kinds` filter:
+```
+symbols.search { repo_path: ".", kinds: ["Class"], workspace_id: "session" }
+```
+Or pass `query: "*"` — v1.3.1+ silently treats it as no query and routes
+to the kind-browse path automatically.
+Both forms return all symbols of the requested kinds up to `limit` (default 20, max 100).
 
 ### 5. Using Bash grep for source file searches
 **Symptom:** Running `grep -rn "pattern" src/` when CodeMap is available.

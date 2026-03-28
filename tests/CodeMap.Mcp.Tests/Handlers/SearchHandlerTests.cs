@@ -158,6 +158,49 @@ public sealed class SearchHandlerTests
     }
 
     [Fact]
+    public async Task Search_BareWildcard_TreatedAsNullQuery_DelegatesToEngine()
+    {
+        // "*" is converted to null; engine receives null query + no kinds → error from engine
+        // (kinds filter is needed for no-query browse — handler just passes null through)
+        string? capturedQuery = "not-set";
+        _queryEngine.SearchSymbolsAsync(
+                Arg.Any<RoutingContext>(),
+                Arg.Do<string?>(q => capturedQuery = q),
+                Arg.Any<SymbolSearchFilters?>(), Arg.Any<BudgetLimits?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Success(_fakeEnvelope));
+
+        await _handler.HandleSearchAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["query"] = "*" },
+            CancellationToken.None);
+
+        capturedQuery.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Search_NullQuery_WithKinds_DelegatesToEngine()
+    {
+        // Omitting query entirely with kinds set is the recommended browse pattern
+        string? capturedQuery = "not-set";
+        _queryEngine.SearchSymbolsAsync(
+                Arg.Any<RoutingContext>(),
+                Arg.Do<string?>(q => capturedQuery = q),
+                Arg.Any<SymbolSearchFilters?>(), Arg.Any<BudgetLimits?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Success(_fakeEnvelope));
+
+        await _handler.HandleSearchAsync(
+            new JsonObject
+            {
+                ["repo_path"] = RepoPath,
+                ["kinds"] = new JsonArray("Class"),
+            },
+            CancellationToken.None);
+
+        capturedQuery.Should().BeNull();
+    }
+
+    [Fact]
     public void Search_RegistersToolInRegistry()
     {
         var registry = new ToolRegistry();

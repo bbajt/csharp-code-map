@@ -17,7 +17,7 @@ public interface IQueryEngine
     /// </summary>
     Task<Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>> SearchSymbolsAsync(
         RoutingContext routing,
-        string query,
+        string? query,
         SymbolSearchFilters? filters,
         BudgetLimits? budgets,
         CancellationToken ct = default);

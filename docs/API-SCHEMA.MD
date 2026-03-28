@@ -524,13 +524,18 @@ Search symbols by name, signature, or documentation text via FTS5.
 
 **Parameters (JSON):**
 - `repo_path` (required) — absolute path to repo root
-- `query` (required) — FTS5 query string; append `*` for prefix match
+- `query` (optional) — FTS5 query string. Omit (or pass `"*"`) to browse all symbols of the specified `kinds` without FTS. Append `*` for prefix match: `"Order*"`. Space = AND, `OR` for alternatives.
+- `kinds` (optional, required when `query` is omitted) — array of SymbolKind strings. When provided without `query`, returns all symbols of those kinds via direct SQL (no FTS). Example: `["Class","Interface"]`.
 - `workspace_id` (optional)
 - `virtual_files` (optional) — for Ephemeral mode
-- `kinds` (optional) — array of SymbolKind strings
 - `namespace` (optional) — prefix match
 - `file_path` (optional) — prefix match
 - `limit` (optional) — default 20, clamped to max 100
+
+**Query routing (v1.3.1+):**
+- `query` provided → FTS5 text search across symbol names, signatures, docs
+- `query` omitted (or `"*"`) + `kinds` provided → `GetSymbolsByKindsAsync` (direct SQL, no FTS, returns all symbols of those kinds up to `limit`)
+- `query` omitted + no `kinds` → `INVALID_ARGUMENT` error with guidance
 
 **Response Data:**
 ```csharp

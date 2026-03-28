@@ -54,23 +54,29 @@ public sealed class QueryEngine : IQueryEngine
     /// <inheritdoc/>
     public async Task<Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>> SearchSymbolsAsync(
         RoutingContext routing,
-        string query,
+        string? query,
         SymbolSearchFilters? filters,
         BudgetLimits? budgets,
         CancellationToken ct = default)
     {
         var tc = new TimingContext();
 
-        // 1. Validate
+        // 1. Validate / route
         if (string.IsNullOrWhiteSpace(query))
+        {
+            if (filters?.Kinds is { Count: > 0 })
+                return await BrowseByKindsAsync(routing, filters, budgets, ct).ConfigureAwait(false);
             return Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Failure(
-                CodeMapError.InvalidArgument("Query string is required."));
+                CodeMapError.InvalidArgument(
+                    "query is required when no kinds filter is specified. " +
+                    "To browse by type, omit query and pass a kinds filter (e.g. kinds=[\"Class\"])."));
+        }
 
-        query = FtsQuerySanitizer.Sanitize(query)
-            ?? "";
-        if (string.IsNullOrEmpty(query))
+        var sanitized = FtsQuerySanitizer.Sanitize(query) ?? "";
+        if (string.IsNullOrEmpty(sanitized))
             return Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Failure(
                 CodeMapError.InvalidArgument("Query contains only unsupported FTS5 special characters. Try a plain symbol name."));
+        query = sanitized;
 
         // 2. Resolve commit
         var commitResult = ResolveCommit(routing);
@@ -135,6 +141,59 @@ public sealed class QueryEngine : IQueryEngine
 
         // 11. Cache result
         await _cache.SetAsync(cacheKey, envelope, ct);
+
+        return Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Success(envelope);
+    }
+
+    // ─── BrowseByKindsAsync (no-query path) ──────────────────────────────────
+
+    private async Task<Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>> BrowseByKindsAsync(
+        RoutingContext routing,
+        SymbolSearchFilters filters,
+        BudgetLimits? budgets,
+        CancellationToken ct)
+    {
+        var commitResult = ResolveCommit(routing);
+        if (commitResult.IsFailure)
+            return Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Failure(commitResult.Error);
+        var commitSha = commitResult.Value;
+
+        var baselineResult = await EnsureBaselineAsync(routing, commitSha, ct);
+        if (baselineResult.IsFailure)
+            return Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Failure(baselineResult.Error);
+
+        var (clamped, limitsApplied) = (budgets ?? BudgetLimits.Defaults).ClampToHardCaps();
+        var maxResults = clamped.MaxResults;
+
+        var tc = new TimingContext();
+        tc.StartPhase();
+        var hits = await _store.GetSymbolsByKindsAsync(
+            routing.RepoId, commitSha, filters.Kinds!, maxResults + 1, ct).ConfigureAwait(false);
+        tc.EndDbQuery();
+
+        var truncated = hits.Count > maxResults;
+        if (truncated)
+            hits = hits.Take(maxResults).ToList();
+        var totalCount = truncated ? maxResults + 1 : hits.Count;
+
+        var kindLabel = string.Join(", ", filters.Kinds!);
+        var answer = truncated
+            ? $"Found {totalCount}+ {kindLabel} symbols (showing first {maxResults}). Use a query or namespace filter to narrow results."
+            : $"Found {hits.Count} {kindLabel} symbol(s).";
+
+        var nextActions = NextActionsForSearch(hits);
+        var tokensSaved = TokenSavingsEstimator.ForSearch(hits.Count);
+        var costAvoided = TokenSavingsEstimator.EstimateCostAvoided(tokensSaved);
+        var costPerModel = TokenSavingsEstimator.EstimateCostPerModel(tokensSaved);
+        _tracker.RecordSaving(tokensSaved, costPerModel);
+
+        var semanticLevel = await LoadSemanticLevelAsync(routing.RepoId, commitSha, ct);
+        var envelope = EnvelopeBuilder.Build(
+            new SymbolSearchResponse(hits, totalCount, truncated),
+            answer, [], nextActions,
+            Confidence.High, tc.Build(), limitsApplied,
+            commitSha, tokensSaved, costAvoided,
+            semanticLevel: semanticLevel);
 
         return Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Success(envelope);
     }

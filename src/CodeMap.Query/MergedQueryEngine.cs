@@ -62,12 +62,30 @@ public class MergedQueryEngine : IQueryEngine
     /// </remarks>
     public async Task<Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>> SearchSymbolsAsync(
         RoutingContext routing,
-        string query,
+        string? query,
         SymbolSearchFilters? filters,
         BudgetLimits? budgets,
         CancellationToken ct = default)
     {
         routing = NormalizeEphemeralToWorkspace(routing);
+
+        // No-query path: delegate to inner (browse by kind, bypasses FTS and overlay merge)
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            if (filters?.Kinds is { Count: > 0 })
+            {
+                var browseRouting = routing.Consistency == ConsistencyMode.Workspace
+                    ? new RoutingContext(repoId: routing.RepoId, baselineCommitSha: routing.BaselineCommitSha)
+                    : routing;
+                return await _inner.SearchSymbolsAsync(browseRouting, query, filters, budgets, ct)
+                                   .ConfigureAwait(false);
+            }
+            return Fail<ResponseEnvelope<SymbolSearchResponse>>(
+                CodeMapError.InvalidArgument(
+                    "query is required when no kinds filter is specified. " +
+                    "To browse by type, omit query and pass a kinds filter (e.g. kinds=[\"Class\"])."));
+        }
+
         if (routing.Consistency != ConsistencyMode.Workspace)
             return await _inner.SearchSymbolsAsync(routing, query, filters, budgets, ct)
                                .ConfigureAwait(false);
@@ -82,14 +100,11 @@ public class MergedQueryEngine : IQueryEngine
                 CodeMapError.NotFound("Workspace", RequiredWorkspaceId(routing).Value));
 
         // 2. Resolve budgets
-        if (string.IsNullOrWhiteSpace(query))
-            return Fail<ResponseEnvelope<SymbolSearchResponse>>(
-                CodeMapError.InvalidArgument("Query string is required."));
-
-        query = FtsQuerySanitizer.Sanitize(query) ?? "";
-        if (string.IsNullOrEmpty(query))
+        var sanitized = FtsQuerySanitizer.Sanitize(query) ?? "";
+        if (string.IsNullOrEmpty(sanitized))
             return Fail<ResponseEnvelope<SymbolSearchResponse>>(
                 CodeMapError.InvalidArgument("Query contains only unsupported FTS5 special characters. Try a plain symbol name."));
+        query = sanitized;
 
         var (clamped, limitsApplied) = (budgets ?? BudgetLimits.Defaults).ClampToHardCaps();
         var maxResults = clamped.MaxResults;
