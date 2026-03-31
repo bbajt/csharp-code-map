@@ -1,3 +1,4 @@
+<!-- mcp-name: io.github.bbajt/codemap-mcp -->
 # CodeMap — Turn Your AI Agent Into a Semantic Dragon
 
 [![NuGet](https://img.shields.io/nuget/v/codemap-mcp.svg?label=nuget&color=blue)](https://www.nuget.org/packages/codemap-mcp)

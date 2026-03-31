@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.bbajt/codemap-mcp",
+  "title": "CodeMap",
+  "description": "Roslyn-powered semantic code index for C# codebases. Lets AI agents query symbols, call graphs, type hierarchies, and architectural facts instead of brute-reading source files. 90%+ average token savings.",
+  "repository": {
+    "url": "https://github.com/bbajt/csharp-code-map",
+    "source": "github"
+  },
+  "version": "1.3.1",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "identifier": "codemap-mcp",
+      "version": "1.3.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "CODEMAP_CACHE_DIR",
+          "description": "Path to a shared baseline cache directory. When set, index.ensure_baseline checks the cache before running a full Roslyn build — useful on CI or shared machines.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
