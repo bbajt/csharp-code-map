@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-Non--Commercial-orange.svg)](LICENSE)
 
 ```bash
-dotnet tool install --global codemap-mcp --version 1.3.0
+dotnet tool install --global codemap-mcp --version 1.3.2
 ```
 
 > *Stop feeding your AI agent raw source files. Give it a semantic index instead.*
