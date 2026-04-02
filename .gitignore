@@ -71,6 +71,14 @@ secrets.json
 NUL
 
 ############################
+# Secrets / credentials
+############################
+.nuget-key
+*_github_token
+*_token.txt
+*.secret
+
+############################
 # Resharper
 ############################
 _ReSharper*/
@@ -87,3 +95,4 @@ BenchmarkDotNet.Artifacts/
 ############################
 packages.lock.json
 *.DotSettings.user
+log-debug/

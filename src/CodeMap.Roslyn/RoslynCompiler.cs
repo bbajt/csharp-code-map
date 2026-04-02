@@ -104,6 +104,15 @@ public sealed class RoslynCompiler : IRoslynCompiler
             filteredTypeRelations, filteredFacts);
     }
 
+    // Holds per-project data between the symbol pass and the ref pass.
+    private sealed record ProjectPassData(
+        Project Project,
+        Compilation Compilation,
+        IReadOnlyList<SymbolCard> Symbols,
+        IReadOnlyDictionary<string, StableId> StableIdMap,
+        IReadOnlyList<DiagnosticSeverity> ErrorSeverities,
+        IReadOnlyList<string> ErrorMessages);
+
     private async Task<CompilationResult> ExtractSolutionAsync(
         Solution solution, string solutionDir, CancellationToken ct)
     {
@@ -115,6 +124,14 @@ public sealed class RoslynCompiler : IRoslynCompiler
         var projectDiagnostics = new List<Core.Models.ProjectDiagnostic>();
         var confidence = Confidence.High;
         Compilation? firstCompilation = null;
+
+        // ── Pass 1: compile every project, extract symbols/files/typeRelations.
+        // Refs are deferred to Pass 2 so the complete cross-project symbol set is
+        // available — required for cross-language (VB→C#, C#→VB) project refs where
+        // Roslyn uses MetadataReference (no IsInSource locations) rather than
+        // CompilationReference. solution.Projects order follows the .sln file, not
+        // build-dependency order, so a streaming accumulation cannot work.
+        var passData = new List<ProjectPassData>();
 
         foreach (var project in solution.Projects)
         {
@@ -150,43 +167,17 @@ public sealed class RoslynCompiler : IRoslynCompiler
                 }
 
                 var (symbols, stableIdMap) = SymbolExtractor.ExtractAllWithStableIds(compilation, project.Name, solutionDir);
-                var references = ReferenceExtractor.ExtractAll(compilation, solutionDir, stableIdMap);
                 var files = ExtractFiles(project, solutionDir);
                 var typeRelations = TypeRelationExtractor.ExtractAll(compilation, stableIdMap);
 
                 allSymbols.AddRange(symbols);
-                allReferences.AddRange(references);
                 allFiles.AddRange(files);
                 allTypeRelations.AddRange(typeRelations);
 
-                // Skip architectural fact extraction for test/benchmark projects.
-                // Symbols and refs are still indexed (valid code), but facts like
-                // exceptions thrown in assertions and log calls in test helpers
-                // would pollute codemap.summarize and codemap.export.
-                bool isTestProject = project.Name.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
-                    || project.Name.EndsWith(".Benchmarks", StringComparison.OrdinalIgnoreCase)
-                    || project.Name.EndsWith(".TestUtilities", StringComparison.OrdinalIgnoreCase);
-
-                if (!isTestProject)
-                {
-                    allFacts.AddRange(EndpointExtractor.ExtractAll(compilation, solutionDir, stableIdMap));
-                    allFacts.AddRange(ConfigKeyExtractor.ExtractAll(compilation, solutionDir, stableIdMap));
-                    allFacts.AddRange(DbTableExtractor.ExtractAll(compilation, solutionDir, stableIdMap));
-                    allFacts.AddRange(DiRegistrationExtractor.ExtractAll(compilation, solutionDir, stableIdMap));
-                    allFacts.AddRange(MiddlewareExtractor.ExtractAll(compilation, solutionDir, stableIdMap));
-                    allFacts.AddRange(RetryPolicyExtractor.ExtractAll(compilation, solutionDir, stableIdMap));
-                    allFacts.AddRange(ExceptionExtractor.ExtractAll(compilation, solutionDir, stableIdMap));
-                    allFacts.AddRange(LogExtractor.ExtractAll(compilation, solutionDir, stableIdMap));
-                }
-
-                projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
-                    ProjectName: project.Name,
-                    Compiled: true,
-                    SymbolCount: symbols.Count,
-                    ReferenceCount: references.Count,
-                    Errors: errors.Count > 0
-                        ? errors.Take(5).Select(e => e.GetMessage()).ToList()
-                        : null));
+                passData.Add(new ProjectPassData(
+                    project, compilation, symbols, stableIdMap,
+                    errors.Select(e => e.Severity).ToList(),
+                    errors.Take(5).Select(e => e.GetMessage()).ToList()));
             }
             catch (OperationCanceledException)
             {
@@ -197,19 +188,105 @@ public sealed class RoslynCompiler : IRoslynCompiler
                 _logger.LogError(ex, "Failed to compile project {Project}", project.Name);
                 confidence = Confidence.Low;
 
-                var fallbackFiles = GetProjectSourceFiles(project).ToList();
-                var fallbackSymbols = SyntacticFallback.Extract(fallbackFiles);
-                var fallbackRefs = SyntacticReferenceExtractor.ExtractAll(fallbackFiles, solutionDir);
-                allSymbols.AddRange(fallbackSymbols);
-                allReferences.AddRange(fallbackRefs);
+                // Syntactic fallback — guarded separately because project.Documents may also
+                // be unavailable when the project itself failed to load (e.g. missing .NET
+                // Framework targeting pack). Without this inner guard the NRE would propagate
+                // out of the catch block and crash the entire indexing run.
+                try
+                {
+                    // VB.NET syntactic fallback — syntax-level symbols and unresolved edges.
+                    if (project.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
+                    {
+                        _logger.LogInformation("VB.NET syntactic fallback for {Project}", project.Name);
+                        var (vbSymbols, vbRefs) = Extraction.VbNet.VbSyntacticExtractor.ExtractAll(project, solutionDir);
+                        allSymbols.AddRange(vbSymbols);
+                        allReferences.AddRange(vbRefs);
+                        projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
+                            ProjectName: project.Name,
+                            Compiled: false,
+                            SymbolCount: vbSymbols.Count,
+                            ReferenceCount: vbRefs.Count,
+                            Errors: [ex.Message]));
+                        continue;
+                    }
 
-                projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
-                    ProjectName: project.Name,
-                    Compiled: false,
-                    SymbolCount: fallbackSymbols.Count,
-                    ReferenceCount: fallbackRefs.Count,
-                    Errors: [ex.Message]));
+                    var fallbackFiles = GetProjectSourceFiles(project).ToList();
+                    var fallbackSymbols = SyntacticFallback.Extract(fallbackFiles);
+                    var fallbackRefs = SyntacticReferenceExtractor.ExtractAll(fallbackFiles, solutionDir);
+                    allSymbols.AddRange(fallbackSymbols);
+                    allReferences.AddRange(fallbackRefs);
+
+                    projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
+                        ProjectName: project.Name,
+                        Compiled: false,
+                        SymbolCount: fallbackSymbols.Count,
+                        ReferenceCount: fallbackRefs.Count,
+                        Errors: [ex.Message]));
+                }
+                catch (Exception fallbackEx)
+                {
+                    _logger.LogError(fallbackEx,
+                        "Syntactic fallback also failed for {Project} — skipping", project.Name);
+                    projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
+                        ProjectName: project.Name,
+                        Compiled: false,
+                        SymbolCount: 0,
+                        ReferenceCount: 0,
+                        Errors: [ex.Message, $"Syntactic fallback also failed: {fallbackEx.Message}"]));
+                }
             }
+        }
+
+        // ── Pass 2: extract refs and facts now that all project symbols are known.
+        // allSymbolIds covers every project so cross-language project refs resolve.
+        var allSymbolIds = allSymbols.Select(s => s.SymbolId.Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var pd in passData)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var references = ReferenceExtractor.ExtractAll(
+                pd.Compilation, solutionDir, pd.StableIdMap, allSymbolIds);
+            allReferences.AddRange(references);
+
+            // Skip architectural fact extraction for test/benchmark projects.
+            bool isTestProject = pd.Project.Name.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
+                || pd.Project.Name.EndsWith(".Benchmarks", StringComparison.OrdinalIgnoreCase)
+                || pd.Project.Name.EndsWith(".TestUtilities", StringComparison.OrdinalIgnoreCase);
+
+            if (!isTestProject)
+            {
+                if (pd.Project.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
+                {
+                    allFacts.AddRange(Extraction.VbNet.VbEndpointExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(Extraction.VbNet.VbConfigKeyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(Extraction.VbNet.VbDbTableExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(Extraction.VbNet.VbDiRegistrationExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(Extraction.VbNet.VbMiddlewareExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(Extraction.VbNet.VbRetryPolicyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(Extraction.VbNet.VbExceptionExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(Extraction.VbNet.VbLogExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                }
+                else
+                {
+                    allFacts.AddRange(EndpointExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(ConfigKeyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(DbTableExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(DiRegistrationExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(MiddlewareExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(RetryPolicyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(ExceptionExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(LogExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                }
+            }
+
+            projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
+                ProjectName: pd.Project.Name,
+                Compiled: true,
+                SymbolCount: pd.Symbols.Count,
+                ReferenceCount: references.Count,
+                Errors: pd.ErrorMessages.Count > 0 ? pd.ErrorMessages : null));
         }
 
         // Compute SemanticLevel from per-project outcomes
@@ -289,7 +366,8 @@ public sealed class RoslynCompiler : IRoslynCompiler
                     FileId: fileId,
                     Path: relativePath,
                     Sha256Hash: sha256,
-                    ProjectName: project.Name));
+                    ProjectName: project.Name,
+                    Content: content));
             }
             catch (Exception)
             {

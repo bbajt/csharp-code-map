@@ -26,6 +26,8 @@ internal static class ExceptionExtractor
         string solutionDir,
         IReadOnlyDictionary<string, StableId>? stableIdMap = null)
     {
+        if (compilation.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
+            return VbNet.VbExceptionExtractor.ExtractAll(compilation, solutionDir, stableIdMap);
         var facts = new List<ExtractedFact>();
         string normalizedDir = solutionDir.Replace('\\', '/').TrimEnd('/') + '/';
 

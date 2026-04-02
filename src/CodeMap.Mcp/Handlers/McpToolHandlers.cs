@@ -155,7 +155,7 @@ public sealed class McpToolHandlers
         var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;
 
-        var limit = args?["limit"]?.GetValue<int>() ?? 20;
+        var limit = args.GetInt("limit", 20);
         var filters = BuildSearchFilters(args);
         var budgets = new BudgetLimits(maxResults: Math.Clamp(limit, 1, 100));
 
@@ -326,13 +326,13 @@ public sealed class McpToolHandlers
         if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
         if (string.IsNullOrEmpty(filePathStr)) return InvalidArg("file_path is required");
 
-        int startLine = args?["start_line"]?.GetValue<int>() ?? 0;
-        int endLine = args?["end_line"]?.GetValue<int>() ?? 0;
+        int startLine = args.GetInt("start_line", 0);
+        int endLine = args.GetInt("end_line", 0);
         if (startLine <= 0) return InvalidArg("start_line must be a positive integer");
         if (endLine < startLine) return InvalidArg("end_line must be >= start_line");
 
-        var contextLines = args?["context_lines"]?.GetValue<int>() ?? 0;
-        var maxLines = args?["max_lines"]?.GetValue<int>() ?? 120;
+        var contextLines = args.GetInt("context_lines", 0);
+        var maxLines = args.GetInt("max_lines", 120);
         var budgets = new BudgetLimits(maxLines: Math.Clamp(maxLines, 1, 400));
 
         var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
@@ -350,8 +350,8 @@ public sealed class McpToolHandlers
         if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
         if (string.IsNullOrEmpty(symbolIdStr)) return InvalidArg("symbol_id is required");
 
-        var maxLines = args?["max_lines"]?.GetValue<int>() ?? 120;
-        var contextLines = args?["context_lines"]?.GetValue<int>() ?? 2;
+        var maxLines = args.GetInt("max_lines", 120);
+        var contextLines = args.GetInt("context_lines", 2);
 
         var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;
@@ -371,7 +371,7 @@ public sealed class McpToolHandlers
         var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;
 
-        var limit = args?["limit"]?.GetValue<int>() ?? 50;
+        var limit = args.GetInt("limit", 50);
         var filePathFilter = args?["file_path"]?.GetValue<string>();
         var budgets = new BudgetLimits(maxResults: Math.Clamp(limit, 1, 200));
 

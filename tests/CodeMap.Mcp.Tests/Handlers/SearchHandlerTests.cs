@@ -95,14 +95,19 @@ public sealed class SearchHandlerTests
     }
 
     [Fact]
-    public async Task Search_MissingQuery_ReturnsInvalidArgument()
+    public async Task Search_MissingQuery_UsesKindBrowseMode()
     {
+        // query is optional since v1.3.1 (kind-browse mode) — missing query should NOT error
+        _queryEngine.SearchSymbolsAsync(
+                Arg.Any<RoutingContext>(), Arg.Any<string?>(),
+                Arg.Any<SymbolSearchFilters?>(), Arg.Any<BudgetLimits?>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Success(_fakeEnvelope));
+
         var result = await _handler.HandleSearchAsync(
             new JsonObject { ["repo_path"] = RepoPath },
             CancellationToken.None);
 
-        result.IsError.Should().BeTrue();
-        result.Content.Should().Contain("query");
+        result.IsError.Should().BeFalse();
     }
 
     [Fact]

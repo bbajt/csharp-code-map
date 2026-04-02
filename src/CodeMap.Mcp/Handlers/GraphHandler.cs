@@ -108,8 +108,8 @@ public sealed class GraphHandler
         if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
         if (string.IsNullOrEmpty(entryPointStr)) return InvalidArg("entry_point is required");
 
-        var depth = Math.Clamp(args?["depth"]?.GetValue<int>() ?? DefaultTraceDepth, 1, MaxTraceDepthCap);
-        var limit = Math.Clamp(args?["limit"]?.GetValue<int>() ?? DefaultTraceLimit, 1, MaxTraceLimitCap);
+        var depth = Math.Clamp(args.GetInt("depth", DefaultTraceDepth), 1, MaxTraceDepthCap);
+        var limit = Math.Clamp(args.GetInt("limit", DefaultTraceLimit), 1, MaxTraceLimitCap);
 
         var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
         var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
@@ -146,8 +146,8 @@ public sealed class GraphHandler
         if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
         if (string.IsNullOrEmpty(symbolIdStr)) return InvalidArg("symbol_id is required");
 
-        var depth = Math.Clamp(args?["depth"]?.GetValue<int>() ?? DefaultDepth, 1, MaxDepthHardCap);
-        var limitPerLevel = Math.Clamp(args?["limit_per_level"]?.GetValue<int>() ?? DefaultLimitPerLevel, 1, MaxLimitHardCap);
+        var depth = Math.Clamp(args.GetInt("depth", DefaultDepth), 1, MaxDepthHardCap);
+        var limitPerLevel = Math.Clamp(args.GetInt("limit_per_level", DefaultLimitPerLevel), 1, MaxLimitHardCap);
 
         var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
         var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);

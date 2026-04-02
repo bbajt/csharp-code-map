@@ -174,8 +174,8 @@ public sealed class IndexHandler
         if (string.IsNullOrEmpty(repoPath)) return Error("repo_path is required");
         if (_scanner is null) return Error("index.cleanup is not available (scanner not configured)");
 
-        var keepCount = args?["keep_count"]?.GetValue<int>() ?? 5;
-        var olderThanDays = args?["older_than_days"]?.GetValue<int>();
+        var keepCount = args.GetInt("keep_count", 5);
+        var olderThanDays = args.GetInt("older_than_days");
         var dryRun = args?["dry_run"]?.GetValue<bool>() ?? true;
 
         try

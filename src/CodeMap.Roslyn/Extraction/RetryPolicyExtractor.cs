@@ -23,6 +23,8 @@ internal static class RetryPolicyExtractor
         string solutionDir,
         IReadOnlyDictionary<string, StableId>? stableIdMap = null)
     {
+        if (compilation.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
+            return VbNet.VbRetryPolicyExtractor.ExtractAll(compilation, solutionDir, stableIdMap);
         var facts = new List<ExtractedFact>();
         string normalizedDir = solutionDir.Replace('\\', '/').TrimEnd('/') + '/';
 

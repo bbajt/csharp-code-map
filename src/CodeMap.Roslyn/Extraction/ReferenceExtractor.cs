@@ -14,7 +14,8 @@ internal static class ReferenceExtractor
     public static IReadOnlyList<ExtractedReference> ExtractAll(
         Compilation compilation,
         string solutionDir,
-        IReadOnlyDictionary<string, StableId>? stableIdMap = null)
+        IReadOnlyDictionary<string, StableId>? stableIdMap = null,
+        IReadOnlySet<string>? crossProjectSymbolIds = null)
     {
         var references = new List<ExtractedReference>();
 
@@ -32,7 +33,7 @@ internal static class ReferenceExtractor
                 var (targetSymbol, refKind) = classified.Value;
 
                 // Only track references to source-defined symbols
-                if (!IsSourceSymbol(targetSymbol, compilation)) continue;
+                if (!IsSourceSymbol(targetSymbol, compilation, crossProjectSymbolIds)) continue;
 
                 var fromSymbol = FindContainingSymbol(node, model);
                 if (fromSymbol is null) continue;
@@ -66,7 +67,7 @@ internal static class ReferenceExtractor
         }
 
         // Walk declarations for Override and Implementation relationships
-        ExtractDeclarationRelationships(compilation, references, solutionDir, stableIdMap);
+        ExtractDeclarationRelationships(compilation, references, solutionDir, stableIdMap, crossProjectSymbolIds);
 
         return references;
     }
@@ -74,7 +75,8 @@ internal static class ReferenceExtractor
     private static void ExtractDeclarationRelationships(Compilation compilation,
         List<ExtractedReference> references,
         string solutionDir,
-        IReadOnlyDictionary<string, StableId>? stableIdMap)
+        IReadOnlyDictionary<string, StableId>? stableIdMap,
+        IReadOnlySet<string>? crossProjectSymbolIds = null)
     {
         foreach (var type in GetAllSourceTypes(compilation))
         {
@@ -84,7 +86,7 @@ internal static class ReferenceExtractor
                 {
                     // Override relationship
                     if (method.IsOverride && method.OverriddenMethod is { } overridden
-                        && IsSourceSymbol(overridden, compilation))
+                        && IsSourceSymbol(overridden, compilation, crossProjectSymbolIds))
                     {
                         AddDeclRef(method, overridden, CodeMapRefKind.Override, references, solutionDir, stableIdMap);
                     }
@@ -134,18 +136,13 @@ internal static class ReferenceExtractor
 
     private static ISymbol? FindContainingSymbol(SyntaxNode node, SemanticModel model)
     {
+        // Use language-agnostic GetDeclaredSymbol — works for both C# and VB.NET.
         var current = node.Parent;
         while (current is not null)
         {
-            if (current is MethodDeclarationSyntax
-                or ConstructorDeclarationSyntax
-                or PropertyDeclarationSyntax
-                or AccessorDeclarationSyntax
-                or OperatorDeclarationSyntax
-                or ConversionOperatorDeclarationSyntax)
-            {
-                return model.GetDeclaredSymbol(current);
-            }
+            var declared = model.GetDeclaredSymbol(current);
+            if (declared is IMethodSymbol or IPropertySymbol)
+                return declared;
             current = current.Parent;
         }
 
@@ -153,22 +150,36 @@ internal static class ReferenceExtractor
         current = node.Parent;
         while (current is not null)
         {
-            if (current is TypeDeclarationSyntax)
-                return model.GetDeclaredSymbol(current);
+            var declared = model.GetDeclaredSymbol(current);
+            if (declared is INamedTypeSymbol)
+                return declared;
             current = current.Parent;
         }
 
         return null;
     }
 
-    private static bool IsSourceSymbol(ISymbol symbol, Compilation compilation)
+    private static bool IsSourceSymbol(ISymbol symbol, Compilation compilation,
+        IReadOnlySet<string>? crossProjectSymbolIds = null)
     {
         // Accept symbols from the same assembly (intra-project refs)
         if (SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, compilation.Assembly))
             return true;
-        // Accept symbols from referenced source projects (cross-project refs).
+        // Accept symbols from same-language referenced projects (CompilationReference — source locations preserved).
         // Framework symbols (System.*, Microsoft.*) have no source locations so this excludes them.
-        return symbol.Locations.Any(l => l.IsInSource);
+        if (symbol.Locations.Any(l => l.IsInSource))
+            return true;
+        // Accept symbols from cross-language referenced projects (MetadataReference — no source locations).
+        // Roslyn compiles C# projects to DLL before referencing from VB (and vice-versa), so source
+        // locations are absent. We fall back to doc-comment ID lookup against the known symbol set
+        // built from all projects in the solution that were processed before this one.
+        if (crossProjectSymbolIds is not null)
+        {
+            var docId = symbol.GetDocumentationCommentId();
+            if (docId is not null && crossProjectSymbolIds.Contains(docId))
+                return true;
+        }
+        return false;
     }
 
     private static IEnumerable<INamedTypeSymbol> GetAllSourceTypes(Compilation compilation) =>

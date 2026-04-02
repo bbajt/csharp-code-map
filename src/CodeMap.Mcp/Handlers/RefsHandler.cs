@@ -84,7 +84,7 @@ public sealed class RefsHandler
             resolutionState = parsedResState;
         }
 
-        var limitVal = args?["limit"]?.GetValue<int>();
+        var limitVal = args.GetInt("limit");
         BudgetLimits? budgets = limitVal is not null
             ? new BudgetLimits(maxReferences: Math.Clamp(limitVal.Value, 1, 500))
             : null;

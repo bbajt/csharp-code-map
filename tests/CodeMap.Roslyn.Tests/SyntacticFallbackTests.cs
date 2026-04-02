@@ -56,4 +56,16 @@ public class SyntacticFallbackTests
         var cards = Extract("public class Foo { public void Bar() {} }");
         cards.Should().AllSatisfy(c => c.Confidence.Should().Be(Confidence.Low));
     }
+
+    [Fact]
+    public void Extract_VbNetContent_ReturnsEmptyWithoutThrowing()
+    {
+        // VB.NET syntax is not valid C# — the fallback C# parser produces no recognisable
+        // declarations. RoslynCompiler guards against calling this for VB projects (PHASE-13-03),
+        // but the method itself must not throw on unexpected input.
+        var act = () => SyntacticFallback.Extract(
+            [("Test.vb", "Public Class Foo\nPublic Sub Bar()\nEnd Sub\nEnd Class")]);
+        act.Should().NotThrow();
+        act().Should().BeEmpty();
+    }
 }

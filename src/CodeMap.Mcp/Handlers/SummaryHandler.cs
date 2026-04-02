@@ -79,7 +79,7 @@ public sealed class SummaryHandler
         if (string.IsNullOrEmpty(repoPath))
             return Err(CodeMapError.InvalidArgument("repo_path is required"));
 
-        var maxItems = args?["max_items_per_section"]?.GetValue<int>() ?? 50;
+        var maxItems = args.GetInt("max_items_per_section", 50);
 
         string[]? sectionFilter = null;
         if (args?["section_filter"] is JsonArray arr)

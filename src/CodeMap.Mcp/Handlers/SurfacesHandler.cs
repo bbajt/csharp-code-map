@@ -99,7 +99,7 @@ public sealed class SurfacesHandler
 
         var pathFilter = args?["path_filter"]?.GetValue<string>();
         var httpMethod = args?["http_method"]?.GetValue<string>();
-        var limit = args?["limit"]?.GetValue<int>() ?? 50;
+        var limit = args.GetInt("limit", 50);
 
         var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
         var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
@@ -116,7 +116,7 @@ public sealed class SurfacesHandler
         if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
 
         var keyFilter = args?["key_filter"]?.GetValue<string>();
-        var limit = args?["limit"]?.GetValue<int>() ?? 50;
+        var limit = args.GetInt("limit", 50);
 
         var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
         var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
@@ -133,7 +133,7 @@ public sealed class SurfacesHandler
         if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
 
         var tableFilter = args?["table_filter"]?.GetValue<string>();
-        var limit = args?["limit"]?.GetValue<int>() ?? 50;
+        var limit = args.GetInt("limit", 50);
 
         var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
         var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);

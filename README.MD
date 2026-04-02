@@ -3,17 +3,39 @@
 
 [![NuGet](https://img.shields.io/nuget/v/codemap-mcp.svg?label=nuget&color=blue)](https://www.nuget.org/packages/codemap-mcp)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/codemap-mcp.svg?color=blue)](https://www.nuget.org/packages/codemap-mcp)
+[![.NET](https://img.shields.io/badge/.NET-9-512BD4)](#)
+[![MCP Server](https://img.shields.io/badge/MCP-server-1f6feb)](#)
+[![C%23](https://img.shields.io/badge/C%23-Roslyn-239120)](#)
+[![VB.NET](https://img.shields.io/badge/VB.NET-Roslyn-512BD4)](#)
+[![GitHub Stars](https://img.shields.io/github/stars/bbajt/csharp-code-map?style=social)](https://github.com/bbajt/csharp-code-map/stargazers)
 [![License](https://img.shields.io/badge/license-Non--Commercial-orange.svg)](LICENSE)
-
-```bash
-dotnet tool install --global codemap-mcp --version 1.3.2
-```
 
 > *Stop feeding your AI agent raw source files. Give it a semantic index instead.*
 
-CodeMap is a **Roslyn-powered MCP server** that lets AI agents navigate C# codebases by **symbol, call graph, and architectural fact** — instead of brute-reading thousands of lines of source code. One tool call. Precise answer. No context flood.
+CodeMap is a **Roslyn-powered MCP server** that lets AI agents navigate **C# and VB.NET** codebases by **symbol, call graph, and architectural fact** — instead of brute-reading thousands of lines of source code. One tool call. Precise answer. No context flood.
 
 **Average token savings: 90%+** versus reading files directly.
+
+---
+
+## Install via Claude Code or manually
+
+The fastest way to install is to paste the prompt below into a **Claude Code** shell. Claude will check your environment, install the tool, and register it as an MCP server — no manual steps needed.
+
+> Check whether .NET 9 SDK is installed by running `dotnet --version`. If the reported version is below 9.0, install it: on Windows run `winget install Microsoft.DotNet.SDK.9`, on macOS/Linux download from https://dotnet.microsoft.com/download/dotnet/9.0. Verify with `dotnet --version` once done. Once .NET 9 is confirmed, install CodeMap: if `codemap-mcp` is not yet installed run `dotnet tool install --global codemap-mcp`, otherwise run `dotnet tool update --global codemap-mcp` to get the latest version. Verify the binary is reachable with `codemap-mcp --version`. Finally, register it as a global MCP server in Claude Code by running `claude mcp add codemap-mcp codemap-mcp --scope user` and confirm it appears in the output of `claude mcp list`.
+
+**Or install manually:**
+
+```bash
+# Install .NET 9 SDK if needed (Windows)
+winget install Microsoft.DotNet.SDK.9
+
+dotnet tool install --global codemap-mcp
+codemap-mcp --version
+claude mcp add codemap-mcp codemap-mcp --scope user
+```
+
+Requires **.NET 9**. If you're working on a C# or VB.NET codebase you almost certainly have it already — check with `dotnet --version`.
 
 ---
 
@@ -50,6 +72,8 @@ CodeMap builds a **persistent semantic index** from your solution file using Ros
 - Architectural facts extracted from code: HTTP endpoints, config keys, DB tables, DI registrations, middleware pipeline, retry policies, exception throw points, structured log templates
 
 All of this is exposed via **26 MCP tools** that any MCP-compatible AI agent can call. Starting from v1.3, CodeMap also navigates **DLL boundaries** — lazily resolving NuGet and SDK symbols on first access, with optional ICSharpCode.Decompiler source reconstruction and cross-DLL call graphs.
+
+**Supported languages:** C# and VB.NET. Mixed-language solutions (`.sln` / `.slnx` containing both C# and VB.NET projects) are indexed in a single pass. All 26 MCP tools work identically for symbols from either language.
 
 ---
 
@@ -269,28 +293,9 @@ extraction gaps. Every tool in this README was tested against the codebase that 
 
 ### .NET Global Tool — NuGet (recommended)
 
-```bash
-dotnet tool install --global codemap-mcp --version 1.3.0
-codemap-mcp --version
-```
-
-Requires .NET 9 runtime. Install it from [dot.net](https://dotnet.microsoft.com/download) if needed.
+See the **[Install via Claude Code or manually](#install-via-claude-code-or-manually)** section at the top for the one-paste Claude Code prompt and manual steps.
 
 > **NuGet package:** [nuget.org/packages/codemap-mcp](https://www.nuget.org/packages/codemap-mcp)
-
-### Self-Contained Binary (no .NET required)
-
-Build from source — produces a single executable, batteries included:
-
-```bash
-# Linux/macOS
-./scripts/build-release.sh 1.3.0
-
-# Windows PowerShell
-.\scripts\build-release.ps1 1.3.0
-```
-
-Outputs `dist/win-x64/`, `dist/linux-x64/`, `dist/osx-arm64/`. Drop the binary anywhere and run it — no runtime, no SDK, no install step. No trimming (Roslyn uses runtime reflection).
 
 ### Docker
 
@@ -428,4 +433,4 @@ cd tests/CodeMap.Benchmarks && dotnet run -c Release
 
 ---
 
-*26 MCP tools. 90%+ token savings. Roslyn-grade semantics. DLL boundary navigation. `.sln` + `.slnx` support. v1.3.0. Your agent deserves better than grep.*
+*26 MCP tools. 90%+ token savings. Roslyn-grade semantics. C# and VB.NET, side by side. DLL boundary navigation. `.sln` + `.slnx` support. v1.4.0. Your agent deserves better than grep.*

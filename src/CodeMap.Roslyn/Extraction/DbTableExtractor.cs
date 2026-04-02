@@ -50,6 +50,8 @@ internal static class DbTableExtractor
         string solutionDir,
         IReadOnlyDictionary<string, StableId>? stableIdMap = null)
     {
+        if (compilation.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
+            return VbNet.VbDbTableExtractor.ExtractAll(compilation, solutionDir, stableIdMap);
         var facts = new List<ExtractedFact>();
         // Track entity type FQNs captured via DbSet to avoid standalone [Table] duplicates
         var capturedEntityFqns = new HashSet<string>(StringComparer.Ordinal);

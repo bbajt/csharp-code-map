@@ -93,7 +93,7 @@ public sealed class ExportHandler
 
         var detail = args?["detail"]?.GetValue<string>() ?? "standard";
         var format = args?["format"]?.GetValue<string>() ?? "markdown";
-        var maxTokens = args?["max_tokens"]?.GetValue<int>() ?? 4000;
+        var maxTokens = args.GetInt("max_tokens", 4000);
 
         string[]? sectionFilter = null;
         if (args?["section_filter"] is JsonArray arr)

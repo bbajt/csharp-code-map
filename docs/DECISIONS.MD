@@ -831,3 +831,73 @@ agent UX failure: the intent is clear and valid, but the mechanism is wrong.
   post-filter client-side or use a text query like `"*"` within the namespace.
 - No interface change to `ISymbolStore` — `GetSymbolsByKindsAsync` already existed
   (added in PHASE-06-03 for `codemap.export`).
+
+## ADR-029: VB.NET Language Support via Parallel Extractor Classes
+
+**Date:** 2026-04-01
+**Status:** Accepted
+
+**Context:**
+Users requested VB.NET support for mixed C#/VB.NET solutions. Roslyn provides
+language-agnostic `ISymbol` APIs, so the query layer requires zero changes. Only
+the extraction layer — which uses C#-specific `SyntaxNode` types — needed adaptation.
+
+**Decision:**
+1. All VB.NET extraction code lives in `CodeMap.Roslyn/Extraction/VbNet/`.
+2. Each C# extractor's `ExtractAll` dispatches to a parallel `VbXxxExtractor`
+   when `compilation.Language == LanguageNames.VisualBasic`.
+3. `VbSyntacticExtractor` handles degraded mode for VB.NET projects using
+   `VisualBasicSyntaxWalker`.
+4. A separate `testdata/SampleVbSolution/` fixture mirrors SampleSolution in VB.NET.
+5. No new MCP tools. No `IQueryEngine` or `ISymbolStore` interface changes.
+
+**Consequences:**
+- VB.NET projects in mixed solutions are indexed transparently.
+- All 26 MCP tools work for VB.NET symbols without agent changes.
+- VB.NET-specific patterns (Modules, `Implements` keyword, VB property syntax,
+  VB indexer `_config("key")`) are handled in the VbNet/ extractors without
+  polluting C# extraction code.
+- `VbLogExtractor` value format is `"Level|template"` (level-first); C# is
+  `"template|Level"`. Similarly `VbRetryPolicyExtractor` uses `"framework|desc"`.
+  These are intentional divergences for easier consumer filtering.
+- Known limitation: raw SQL table extraction for VB.NET is not implemented —
+  string literal regex is language-agnostic but the extractor uses C# syntax
+  trees to locate call sites. Deferred to a future phase.
+
+## ADR-030: File Content Storage in SQLite for code.search_text Performance
+
+**Date:** 2026-04-02
+**Status:** Accepted
+
+**Context:**
+`code.search_text` was scanning files from disk at query time. On large repos such as
+dotnet/roslyn with 1,973 source files, this produced `ranking_ms = 636ms` — over 1,000
+individual disk reads per query. VB.NET files had no special treatment and were included
+in the disk scan, making the problem equally bad for mixed-language solutions.
+
+**Decision:**
+1. Add `content TEXT` column to the `files` table. Populated at index time by
+   `BaselineStore.InsertFilesAsync` from `ExtractedFile.Content`.
+2. Add `Content? string = null` field to `ExtractedFile` record. `RoslynCompiler.ExtractFiles`
+   already called `File.ReadAllText` to compute the sha256 hash — that content is now passed
+   through instead of being discarded.
+3. Add `files_fts` external content FTS5 virtual table over `files.content`. Rebuilt in
+   `BaselineStore.RebuildFtsAsync` alongside `symbols_fts` after bulk inserts.
+4. Add `ISymbolStore.GetAllFileContentsAsync` returning `IReadOnlyList<(FilePath, string?)>`.
+   SQL: `SELECT path, content FROM files ORDER BY path`.
+5. `QueryEngine.SearchTextAsync` calls `GetAllFileContentsAsync` instead of
+   `GetAllFilePathsAsync`. For entries with stored content, lines are split in-memory (no
+   disk I/O). For entries with `content IS NULL` (old baselines), falls back to
+   `File.ReadAllLinesAsync` for backward compatibility.
+
+**Consequences:**
+- `ranking_ms` drops from 636ms → 144ms on dotnet/roslyn (4.4× speedup). Remaining
+  time is CPU-bound regex matching, not I/O.
+- `db_query_ms` increases slightly (~72ms) to return file content in one SELECT.
+- Old baselines without the `content` column are handled transparently via the null fallback.
+- VB.NET and C# files are stored and searched identically — the content column is
+  language-agnostic.
+- `ISymbolStore` method count: 26 → 27. `InterfaceContractTests` updated accordingly.
+- Database size grows proportionally to total source file size. For dotnet/roslyn
+  VbPortable.sln (~5,907 file rows across 3 TFMs), this is acceptable. Compression
+  deferred to a future milestone if needed.

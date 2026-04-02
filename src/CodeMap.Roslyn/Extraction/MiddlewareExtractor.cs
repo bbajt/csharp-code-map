@@ -29,6 +29,8 @@ internal static class MiddlewareExtractor
         string solutionDir,
         IReadOnlyDictionary<string, StableId>? stableIdMap = null)
     {
+        if (compilation.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
+            return VbNet.VbMiddlewareExtractor.ExtractAll(compilation, solutionDir, stableIdMap);
         var facts = new List<ExtractedFact>();
         string normalizedDir = solutionDir.Replace('\\', '/').TrimEnd('/') + '/';
 

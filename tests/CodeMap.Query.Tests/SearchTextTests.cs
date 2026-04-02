@@ -51,8 +51,8 @@ public sealed class SearchTextTests
     [Fact]
     public async Task SearchTextAsync_MissingRepoRoot_ReturnsIndexNotAvailable()
     {
-        _store.GetAllFilePathsAsync(Repo, Sha, Arg.Any<CancellationToken>())
-            .Returns(new List<FilePath> { FilePath.From("src/Foo.cs") });
+        _store.GetAllFileContentsAsync(Repo, Sha, Arg.Any<CancellationToken>())
+            .Returns(new List<(FilePath, string?)> { (FilePath.From("src/Foo.cs"), null) });
         _store.GetRepoRootAsync(Repo, Sha, Arg.Any<CancellationToken>())
             .Returns((string?)null);
 
@@ -72,8 +72,9 @@ public sealed class SearchTextTests
         await File.WriteAllTextAsync(file,
             "using System;\nvar x = new OrderService();\nvar y = 42;");
 
-        _store.GetAllFilePathsAsync(Repo, Sha, Arg.Any<CancellationToken>())
-            .Returns(new List<FilePath> { FilePath.From("src/Foo.cs") });
+        // Return content=null so the disk fallback path is exercised
+        _store.GetAllFileContentsAsync(Repo, Sha, Arg.Any<CancellationToken>())
+            .Returns(new List<(FilePath, string?)> { (FilePath.From("src/Foo.cs"), null) });
         _store.GetRepoRootAsync(Repo, Sha, Arg.Any<CancellationToken>())
             .Returns(dir.Replace('\\', '/'));
 
@@ -98,13 +99,31 @@ public sealed class SearchTextTests
     }
 
     [Fact]
+    public async Task SearchTextAsync_PatternMatchesStoredContent_ReturnsMatches()
+    {
+        // Arrange: stored content in DB (no disk needed)
+        const string storedContent = "using System;\nvar x = new OrderService();\nvar y = 42;";
+        _store.GetAllFileContentsAsync(Repo, Sha, Arg.Any<CancellationToken>())
+            .Returns(new List<(FilePath, string?)> { (FilePath.From("src/Foo.cs"), storedContent) });
+        _store.GetRepoRootAsync(Repo, Sha, Arg.Any<CancellationToken>())
+            .Returns("C:/fake");
+
+        var result = await _engine.SearchTextAsync(CommittedRouting(), "OrderService", null, null);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Data.Matches.Should().HaveCount(1);
+        result.Value.Data.Matches[0].Line.Should().Be(2);
+        result.Value.Data.Matches[0].Excerpt.Should().Contain("OrderService");
+    }
+
+    [Fact]
     public async Task SearchTextAsync_FilePathFilter_OnlyMatchesFilteredFiles()
     {
-        _store.GetAllFilePathsAsync(Repo, Sha, Arg.Any<CancellationToken>())
-            .Returns(new List<FilePath>
+        _store.GetAllFileContentsAsync(Repo, Sha, Arg.Any<CancellationToken>())
+            .Returns(new List<(FilePath, string?)>
             {
-                FilePath.From("src/Foo.cs"),
-                FilePath.From("tests/FooTest.cs"),
+                (FilePath.From("src/Foo.cs"), null),
+                (FilePath.From("tests/FooTest.cs"), null),
             });
         _store.GetRepoRootAsync(Repo, Sha, Arg.Any<CancellationToken>())
             .Returns("C:/fake");
@@ -128,8 +147,8 @@ public sealed class SearchTextTests
         await File.WriteAllTextAsync(Path.Combine(dir, "Foo.cs"),
             string.Join('\n', Enumerable.Range(1, 5).Select(i => $"// match {i}")));
 
-        _store.GetAllFilePathsAsync(Repo, Sha, Arg.Any<CancellationToken>())
-            .Returns(new List<FilePath> { FilePath.From("Foo.cs") });
+        _store.GetAllFileContentsAsync(Repo, Sha, Arg.Any<CancellationToken>())
+            .Returns(new List<(FilePath, string?)> { (FilePath.From("Foo.cs"), null) });
         _store.GetRepoRootAsync(Repo, Sha, Arg.Any<CancellationToken>())
             .Returns(dir.Replace('\\', '/'));
 
@@ -150,10 +169,28 @@ public sealed class SearchTextTests
     }
 
     [Fact]
+    public async Task SearchTextAsync_TruncationWorks_WithStoredContent()
+    {
+        // Same test but using stored content (no disk I/O)
+        var storedContent = string.Join('\n', Enumerable.Range(1, 5).Select(i => $"// match {i}"));
+        _store.GetAllFileContentsAsync(Repo, Sha, Arg.Any<CancellationToken>())
+            .Returns(new List<(FilePath, string?)> { (FilePath.From("Foo.cs"), storedContent) });
+        _store.GetRepoRootAsync(Repo, Sha, Arg.Any<CancellationToken>())
+            .Returns("C:/fake");
+
+        var budgets = new BudgetLimits(maxResults: 2);
+        var result = await _engine.SearchTextAsync(CommittedRouting(), "match", null, budgets);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Data.Truncated.Should().BeTrue();
+        result.Value.Data.Matches.Should().HaveCount(2);
+    }
+
+    [Fact]
     public async Task SearchTextAsync_NoMatches_ReturnsTruncatedFalse()
     {
-        _store.GetAllFilePathsAsync(Repo, Sha, Arg.Any<CancellationToken>())
-            .Returns(new List<FilePath>());
+        _store.GetAllFileContentsAsync(Repo, Sha, Arg.Any<CancellationToken>())
+            .Returns(new List<(FilePath, string?)>());
         _store.GetRepoRootAsync(Repo, Sha, Arg.Any<CancellationToken>())
             .Returns("C:/fake");
 
@@ -189,11 +226,11 @@ public sealed class SearchTextTests
         // Act
         var result = await _engine.SearchTextAsync(CommittedRouting(), "pattern", null, null);
 
-        // Assert: returned cached result; GetAllFilePathsAsync was never called (no disk I/O)
+        // Assert: returned cached result; GetAllFileContentsAsync was never called (no DB I/O)
         result.IsSuccess.Should().BeTrue();
         result.Value.Data.Pattern.Should().Be("x"); // from the cached envelope
         await _store.DidNotReceive()
-            .GetAllFilePathsAsync(Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<CancellationToken>());
+            .GetAllFileContentsAsync(Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -203,8 +240,8 @@ public sealed class SearchTextTests
         _cache.GetAsync<ResponseEnvelope<SearchTextResponse>>(
                 Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((ResponseEnvelope<SearchTextResponse>?)null);
-        _store.GetAllFilePathsAsync(Repo, Sha, Arg.Any<CancellationToken>())
-            .Returns(new List<FilePath>());
+        _store.GetAllFileContentsAsync(Repo, Sha, Arg.Any<CancellationToken>())
+            .Returns(new List<(FilePath, string?)>());
         _store.GetRepoRootAsync(Repo, Sha, Arg.Any<CancellationToken>())
             .Returns("C:/fake");
 

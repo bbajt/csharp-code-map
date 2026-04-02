@@ -1587,32 +1587,41 @@ public sealed class QueryEngine : IQueryEngine
             return Result<ResponseEnvelope<SearchTextResponse>, CodeMapError>.Success(cachedResult);
         }
 
-        // 5. Get indexed file list
+        // 5. Get indexed file list with stored content
         tc.StartPhase();
-        var allPaths = await _store.GetAllFilePathsAsync(routing.RepoId, commitSha, ct);
+        var allFiles = await _store.GetAllFileContentsAsync(routing.RepoId, commitSha, ct) ?? [];
         tc.EndDbQuery();
 
         // 6. Apply file_path filter
-        IReadOnlyList<FilePath> filteredPaths = string.IsNullOrEmpty(filePathFilter)
-            ? allPaths
-            : allPaths.Where(p => p.Value.StartsWith(filePathFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+        IReadOnlyList<(FilePath Path, string? Content)> filteredFiles = string.IsNullOrEmpty(filePathFilter)
+            ? allFiles
+            : allFiles.Where(f => f.Path.Value.StartsWith(filePathFilter, StringComparison.OrdinalIgnoreCase)).ToList();
 
         var matches = new List<TextMatch>();
         bool truncated = false;
 
-        // 7. Scan files
+        // 7. Scan files — use stored content when available; fall back to disk for old baselines
         tc.StartPhase();
-        foreach (var filePath in filteredPaths)
+        foreach (var (filePath, storedContent) in filteredFiles)
         {
             if (ct.IsCancellationRequested) break;
 
-            var absolutePath = Path.Combine(repoRoot,
-                filePath.Value.Replace('/', Path.DirectorySeparatorChar));
-            if (!File.Exists(absolutePath)) continue;
-
             string[] lines;
-            try { lines = await File.ReadAllLinesAsync(absolutePath, ct); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { continue; } // skip unreadable files (binary, locked, etc.)
+            if (storedContent is not null)
+            {
+                lines = storedContent.Split('\n');
+                // Normalise: strip trailing \r so regex matches behave as on disk
+                for (int j = 0; j < lines.Length; j++)
+                    if (lines[j].EndsWith('\r')) lines[j] = lines[j][..^1];
+            }
+            else
+            {
+                var absolutePath = Path.Combine(repoRoot,
+                    filePath.Value.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(absolutePath)) continue;
+                try { lines = await File.ReadAllLinesAsync(absolutePath, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { continue; }
+            }
 
             for (int i = 0; i < lines.Length; i++)
             {
@@ -1638,11 +1647,11 @@ public sealed class QueryEngine : IQueryEngine
         if (truncated) matches.RemoveAt(matches.Count - 1);
 
         // 8. Build response
-        var data = new SearchTextResponse(pattern, matches, filteredPaths.Count, truncated);
+        var data = new SearchTextResponse(pattern, matches, filteredFiles.Count, truncated);
         var answer = AnswerGenerator.ForSearchText(data);
         IReadOnlyList<EvidencePointer> evidence = [];
 
-        var tokensSaved = TokenSavingsEstimator.ForSearchText(filteredPaths.Count, matches.Count);
+        var tokensSaved = TokenSavingsEstimator.ForSearchText(filteredFiles.Count, matches.Count);
         var costAvoided = TokenSavingsEstimator.EstimateCostAvoided(tokensSaved);
         _tracker.RecordSaving(tokensSaved, TokenSavingsEstimator.EstimateCostPerModel(tokensSaved));
 

@@ -17,6 +17,7 @@
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="FluentAssertions" />
     <PackageReference Include="Verify.XunitV3" />
+    <PackageReference Include="Microsoft.CodeAnalysis.VisualBasic" />
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="coverlet.collector" />
   </ItemGroup>

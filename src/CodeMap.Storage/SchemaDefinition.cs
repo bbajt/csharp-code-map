@@ -35,8 +35,10 @@ internal static class SchemaDefinition
             project_id        TEXT,
             is_virtual        INTEGER NOT NULL DEFAULT 0,
             -- 0 = real file on disk; 1 = virtual decompiled source stored in decompiled_source column
-            decompiled_source TEXT
+            decompiled_source TEXT,
             -- NULL for real files; C# source text for virtual decompiled files
+            content           TEXT
+            -- NULL for old baselines; full source text for files indexed after this column was added
         )
         """,
         """
@@ -116,6 +118,13 @@ internal static class SchemaDefinition
             name_tokens,
             content=symbols,
             content_rowid=rowid
+        )
+        """,
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
+            content,
+            content='files',
+            content_rowid='rowid'
         )
         """,
         "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)",

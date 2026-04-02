@@ -2,6 +2,7 @@ namespace CodeMap.Roslyn.Extraction;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using VbSyntax = Microsoft.CodeAnalysis.VisualBasic.Syntax;
 using CodeMapRefKind = CodeMap.Core.Enums.RefKind;
 
 /// <summary>
@@ -82,6 +83,63 @@ internal static class RefKindClassifier
                 return null;
 
             var symbol = model.GetSymbolInfo(identifier).Symbol;
+            if (symbol is IPropertySymbol or IFieldSymbol or IEventSymbol)
+                return (symbol, CodeMapRefKind.Read);
+            return null;
+        }
+
+        // --- VB.NET branches ---
+
+        // VB.NET CALL: method invocation
+        if (node is VbSyntax.InvocationExpressionSyntax vbInvocation)
+        {
+            var symbol = model.GetSymbolInfo(vbInvocation).Symbol;
+            if (symbol is IMethodSymbol method)
+                return (method, CodeMapRefKind.Call);
+            return null;
+        }
+
+        // VB.NET INSTANTIATE: object creation (New Foo(...))
+        if (node is VbSyntax.ObjectCreationExpressionSyntax vbCreation)
+        {
+            var symbol = model.GetSymbolInfo(vbCreation).Symbol;
+            if (symbol is IMethodSymbol ctor)
+                return (ctor.ContainingType, CodeMapRefKind.Instantiate);
+            return null;
+        }
+
+        // VB.NET WRITE: assignment LHS
+        if (node is VbSyntax.AssignmentStatementSyntax vbAssignment)
+        {
+            var leftSymbol = model.GetSymbolInfo(vbAssignment.Left).Symbol;
+            if (leftSymbol is IPropertySymbol or IFieldSymbol)
+                return (leftSymbol, CodeMapRefKind.Write);
+            return null;
+        }
+
+        // VB.NET READ: explicit member access
+        if (node is VbSyntax.MemberAccessExpressionSyntax vbMemberAccess)
+        {
+            if (vbMemberAccess.Parent is VbSyntax.AssignmentStatementSyntax vbAssignExpr &&
+                vbAssignExpr.Left == vbMemberAccess)
+                return null;
+
+            var symbol = model.GetSymbolInfo(vbMemberAccess).Symbol;
+            if (symbol is IPropertySymbol or IFieldSymbol or IEventSymbol)
+                return (symbol, CodeMapRefKind.Read);
+            return null;
+        }
+
+        // VB.NET READ: simple identifier
+        if (node is VbSyntax.IdentifierNameSyntax vbIdentifier)
+        {
+            if (vbIdentifier.Parent is VbSyntax.MemberAccessExpressionSyntax)
+                return null;
+            if (vbIdentifier.Parent is VbSyntax.AssignmentStatementSyntax vbAssignExpr2 &&
+                vbAssignExpr2.Left == vbIdentifier)
+                return null;
+
+            var symbol = model.GetSymbolInfo(vbIdentifier).Symbol;
             if (symbol is IPropertySymbol or IFieldSymbol or IEventSymbol)
                 return (symbol, CodeMapRefKind.Read);
             return null;

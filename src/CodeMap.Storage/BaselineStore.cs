@@ -227,14 +227,15 @@ public sealed class BaselineStore : ISymbolStore
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT OR IGNORE INTO files (file_id, path, sha256, project_id)
-            VALUES ($file_id, $path, $sha256, $project_id)
+            INSERT OR IGNORE INTO files (file_id, path, sha256, project_id, content)
+            VALUES ($file_id, $path, $sha256, $project_id, $content)
             """;
 
         var pFileId = cmd.Parameters.Add("$file_id", SqliteType.Text);
         var pPath = cmd.Parameters.Add("$path", SqliteType.Text);
         var pSha256 = cmd.Parameters.Add("$sha256", SqliteType.Text);
         var pProjectId = cmd.Parameters.Add("$project_id", SqliteType.Text);
+        var pContent = cmd.Parameters.Add("$content", SqliteType.Text);
 
         foreach (var file in files)
         {
@@ -243,6 +244,7 @@ public sealed class BaselineStore : ISymbolStore
             pPath.Value = file.Path.Value;
             pSha256.Value = file.Sha256Hash;
             pProjectId.Value = (object?)file.ProjectName ?? DBNull.Value;
+            pContent.Value = (object?)file.Content ?? DBNull.Value;
             await cmd.ExecuteNonQueryAsync(ct);
         }
     }
@@ -777,6 +779,26 @@ public sealed class BaselineStore : ISymbolStore
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<(FilePath Path, string? Content)>> GetAllFileContentsAsync(
+        RepoId repoId, CommitSha commitSha, CancellationToken ct = default)
+    {
+        using var conn = _factory.OpenExisting(repoId, commitSha);
+        if (conn is null) return [];
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT path, content FROM files ORDER BY path";
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var result = new List<(FilePath, string?)>();
+        while (await reader.ReadAsync(ct))
+        {
+            var path = FilePath.From(reader.GetString(0));
+            var content = reader.IsDBNull(1) ? null : reader.GetString(1);
+            result.Add((path, content));
+        }
+        return result;
+    }
+
+    /// <inheritdoc/>
     public async Task<string?> GetRepoRootAsync(
         RepoId repoId, CommitSha commitSha, CancellationToken ct = default)
     {
@@ -949,6 +971,8 @@ public sealed class BaselineStore : ISymbolStore
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')";
+        await cmd.ExecuteNonQueryAsync(ct);
+        cmd.CommandText = "INSERT INTO files_fts(files_fts) VALUES('rebuild')";
         await cmd.ExecuteNonQueryAsync(ct);
     }
 

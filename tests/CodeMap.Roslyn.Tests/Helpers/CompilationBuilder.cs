@@ -2,6 +2,7 @@ namespace CodeMap.Roslyn.Tests.Helpers;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.VisualBasic;
 
 /// <summary>
 /// Builds in-memory Roslyn compilations for unit testing extractors.
@@ -45,5 +46,18 @@ internal static class CompilationBuilder
             references: _coreRefs,
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
                 .WithNullableContextOptions(NullableContextOptions.Enable));
+    }
+
+    /// <summary>Creates a VB.NET compilation from one or more VB source strings.</summary>
+    public static Compilation CreateVb(string assemblyName, params string[] sources)
+    {
+        var trees = sources.Select((src, i) =>
+            VisualBasicSyntaxTree.ParseText(src, path: $"Test{i}.vb")).ToArray();
+
+        return VisualBasicCompilation.Create(
+            assemblyName: assemblyName,
+            syntaxTrees: trees,
+            references: _coreRefs,
+            options: new VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
     }
 }

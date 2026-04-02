@@ -40,6 +40,57 @@ stdout. Logs go to stderr and `~/.codemap/logs/codemap-{date}.log`.
 
 ---
 
+## Local Test Release (bin-next / swap.bat)
+
+Use this workflow to test a built binary against a live MCP session without touching
+the currently running daemon.
+
+### Binary deployment rules
+
+- **Framework-dependent only** — never self-contained. `MSBuildWorkspace` requires the
+  host .NET SDK at runtime (for MSBuild). SQLite native DLLs (`e_sqlite3`) are resolved
+  from the `runtimes/*/native/` folder inside the tool or alongside the binary — they do
+  **not** need to be placed manually outside.
+- Publish target: `C:\Users\Developer\.codemap\bin-next\`
+- Live binary: `C:\Users\Developer\.codemap\bin\`
+- Previous binary (kept for rollback): `C:\Users\Developer\.codemap\bin-old\`
+
+### Step-by-step
+
+**1. Build and publish to `bin-next`:**
+```bash
+dotnet publish src/CodeMap.Daemon -c Release --no-self-contained \
+  -o /c/Users/Developer/.codemap/bin-next/
+```
+
+**2. Swap** (run manually in a Windows terminal — not inside Claude Code):
+```bat
+C:\Users\Developer\.codemap\swap.bat
+```
+`swap.bat` renames `bin` → `bin-old`, then `bin-next` → `bin`. The previous build is
+preserved in `bin-old` for one-step rollback (rename `bin-old` back to `bin`).
+
+**3. Restart the MCP server** so Claude Code picks up the new binary. In Claude Code,
+run `/mcp` and restart, or restart the Claude Code session entirely.
+
+**4. Verify:**
+```bash
+codemap-mcp --version
+```
+
+### What swap.bat does
+```bat
+@echo off
+if exist "%USERPROFILE%\.codemap\bin-old" rmdir /s /q "%USERPROFILE%\.codemap\bin-old"
+rename "%USERPROFILE%\.codemap\bin" bin-old
+rename "%USERPROFILE%\.codemap\bin-next" bin
+```
+
+The user always runs swap manually — never automate it from a script or agent, as it
+replaces the live daemon while it may be in use.
+
+---
+
 ## Run Tests
 
 ```bash
@@ -500,6 +551,26 @@ No additional wiring needed. `QueryEngine.GetSymbolCardAsync` calls
 `_store.GetFactsForSymbolAsync`, which queries the `facts` table for all
 rows matching the symbol. Your `TestCoverage` facts will appear in
 `SymbolCard.Facts` automatically.
+
+### Step 7: Add VB.NET support (if applicable)
+
+For VB.NET support, create a parallel extractor in
+`src/CodeMap.Roslyn/Extraction/VbNet/VbTestCoverageExtractor.cs` and wire
+it into the C# extractor's `ExtractAll` method:
+
+```csharp
+// In TestCoverageExtractor.ExtractAll:
+if (compilation.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
+    return VbNet.VbTestCoverageExtractor.ExtractAll(compilation, solutionDir, stableIdMap);
+```
+
+The VB.NET extractor uses `VisualBasicSyntaxWalker` (or `DescendantNodes()` with
+VB-specific syntax types) instead of C# `SyntaxNode` types. Use
+`VbEndpointExtractor` as the canonical example. Key differences:
+- `MethodDeclarationSyntax` → `MethodBlockSyntax` (body) or `MethodStatementSyntax` (header)
+- `AttributeSyntax.ArgumentList.Arguments[0]` → `OfType<SimpleArgumentSyntax>().FirstOrDefault()`
+- `semanticModel.GetDeclaredSymbol(methodBlock)` requires `using Microsoft.CodeAnalysis.VisualBasic;`
+  (not just `.Syntax`) — without it, RS1039 fires and the method returns null
 
 ---
 

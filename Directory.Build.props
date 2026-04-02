@@ -30,7 +30,7 @@
     <!-- GitHub repository -->
     <RepositoryUrl>https://github.com/bbajt/csharp-code-map</RepositoryUrl>
     <PackageProjectUrl>https://github.com/bbajt/csharp-code-map</PackageProjectUrl>
-    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageLicenseFile>LICENSE.MD</PackageLicenseFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>mcp;roslyn;ai-agent;csharp;semantic-search;code-navigation;code-analysis;llm;claude;dotnet</PackageTags>
     <!-- PackageIcon: add icon.png (128x128 PNG) to the repo root and uncomment this line -->

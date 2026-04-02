@@ -69,5 +69,6 @@ public record ExtractedFile(
     string FileId,
     FilePath Path,
     string Sha256Hash,
-    string? ProjectName
+    string? ProjectName,
+    string? Content = null
 );

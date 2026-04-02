@@ -340,10 +340,15 @@ CREATE INDEX idx_refs_from ON refs(from_symbol_id, ref_kind);
 **files**
 ```sql
 CREATE TABLE files (
-    file_id     TEXT PRIMARY KEY,
-    path        TEXT NOT NULL,
-    sha256      TEXT NOT NULL,
-    project_id  TEXT
+    file_id           TEXT PRIMARY KEY,
+    path              TEXT NOT NULL,
+    sha256            TEXT NOT NULL,
+    project_id        TEXT,
+    is_virtual        INTEGER NOT NULL DEFAULT 0,
+    -- 0 = real source file; 1 = virtual decompiled source (stored in decompiled_source)
+    decompiled_source TEXT,
+    content           TEXT
+    -- NULL for old baselines; full source text for files indexed after commit 7f54adb
 );
 ```
 
@@ -364,17 +369,31 @@ CREATE INDEX idx_facts_symbol ON facts(symbol_id);
 CREATE INDEX idx_facts_kind   ON facts(fact_kind);
 ```
 
-**FTS5 index**
+**FTS5 symbol index**
 ```sql
 CREATE VIRTUAL TABLE symbols_fts USING fts5(
     fqname,
     signature,
     documentation,
-    identifiers,
+    name_tokens,
     content=symbols,
     content_rowid=rowid
 );
 ```
+
+**FTS5 file content index**
+```sql
+CREATE VIRTUAL TABLE files_fts USING fts5(
+    content,
+    content='files',
+    content_rowid='rowid'
+);
+```
+Used by `code.search_text` for candidate file pre-filtering. Both FTS5 tables are
+external content tables — rebuilt explicitly via
+`INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')` and
+`INSERT INTO files_fts(files_fts) VALUES('rebuild')` in `BaselineStore.RebuildFtsAsync`
+after each bulk insert. No triggers (SQLite limitation).
 
 ### Overlay Revision Model (Milestone 02)
 

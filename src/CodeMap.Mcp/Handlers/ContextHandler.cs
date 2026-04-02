@@ -88,8 +88,8 @@ public sealed class ContextHandler
         if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
         if (string.IsNullOrEmpty(symbolIdStr)) return InvalidArg("symbol_id is required");
 
-        var calleeDepth = args?["callee_depth"]?.GetValue<int>() ?? DefaultCalleeDepth;
-        var maxCallees = args?["max_callees"]?.GetValue<int>() ?? DefaultMaxCallees;
+        var calleeDepth = args.GetInt("callee_depth", DefaultCalleeDepth);
+        var maxCallees = args.GetInt("max_callees", DefaultMaxCallees);
         var includeCode = args?["include_code"]?.GetValue<bool>() ?? true;
 
         calleeDepth = Math.Clamp(calleeDepth, 0, 2);

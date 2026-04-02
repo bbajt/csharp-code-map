@@ -1620,9 +1620,8 @@ public class MergedQueryEngine : IQueryEngine
 
     /// <inheritdoc/>
     /// <remarks>
-    /// <b>Workspace/Ephemeral merge:</b> file content is read from disk (working copy).
-    /// The baseline file inventory is used to enumerate files; new files not yet indexed
-    /// will not be searched. Delegates to inner engine with committed routing.
+    /// <b>Workspace/Ephemeral merge:</b> file content is read from the baseline DB (stored at index time).
+    /// New files added since the last index are not searched. Delegates to inner engine with committed routing.
     /// </remarks>
     public Task<Result<ResponseEnvelope<SearchTextResponse>, CodeMapError>> SearchTextAsync(
         RoutingContext routing,

@@ -122,8 +122,24 @@ internal static class SymbolExtractor
         // Roslyn's primary Location for named symbols (types AND members) points to the
         // identifier token, not the full declaration node. Use the declaring syntax reference
         // to get the full span from keyword/modifier to closing brace/semicolon.
-        var lineSpan = symbol.DeclaringSyntaxReferences.Length > 0
-            ? symbol.DeclaringSyntaxReferences[0].GetSyntax().GetLocation().GetLineSpan()
+        // VB.NET: DeclaringSyntaxReferences[0] points to the header statement
+        // (e.g. FunctionStatementSyntax), not the full MethodBlockSyntax. Walk to
+        // the parent when it starts on the same line but ends later (encompasses the body).
+        SyntaxNode? declSyntax = symbol.DeclaringSyntaxReferences.Length > 0
+            ? symbol.DeclaringSyntaxReferences[0].GetSyntax()
+            : null;
+        if (declSyntax?.Parent is { } blockParent)
+        {
+            var childLineSpan = declSyntax.GetLocation().GetLineSpan();
+            var parentLineSpan = blockParent.GetLocation().GetLineSpan();
+            if (parentLineSpan.StartLinePosition == childLineSpan.StartLinePosition
+                && parentLineSpan.EndLinePosition > childLineSpan.EndLinePosition)
+            {
+                declSyntax = blockParent;
+            }
+        }
+        var lineSpan = declSyntax is not null
+            ? declSyntax.GetLocation().GetLineSpan()
             : location.GetLineSpan();
         int spanStart = lineSpan.StartLinePosition.Line + 1;
         int spanEnd = lineSpan.EndLinePosition.Line + 1;
