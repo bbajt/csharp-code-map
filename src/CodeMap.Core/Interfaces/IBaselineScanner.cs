@@ -5,7 +5,7 @@ using CodeMap.Core.Types;
 
 /// <summary>
 /// Manages the cached baseline .db files for a repository on disk.
-/// Implemented by <c>BaselineDbFactory</c> in <c>CodeMap.Storage</c>.
+/// Implemented by <c>EngineBaselineScanner</c> in <c>CodeMap.Storage.Engine</c>.
 /// Kept separate from <see cref="ISymbolStore"/> because these are filesystem operations,
 /// not database queries.
 /// </summary>
@@ -17,6 +17,19 @@ public interface IBaselineScanner
     /// </summary>
     Task<IReadOnlyList<BaselineInfo>> ListBaselinesAsync(
         RepoId repoId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes ALL baselines for the given repository, freeing all disk space.
+    /// Unlike <see cref="CleanupBaselinesAsync"/>, this ignores protection rules —
+    /// HEAD and workspace-referenced baselines are also deleted.
+    /// </summary>
+    /// <param name="repoId">Repository whose entire baseline store to remove.</param>
+    /// <param name="dryRun">If true, report what would be deleted without deleting (default true).</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<RemoveRepoResponse> RemoveRepoAsync(
+        RepoId repoId,
+        bool dryRun = true,
         CancellationToken ct = default);
 
     /// <summary>

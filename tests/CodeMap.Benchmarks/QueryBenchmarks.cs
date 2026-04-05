@@ -7,7 +7,7 @@ using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Query;
 using CodeMap.Roslyn;
-using CodeMap.Storage;
+using CodeMap.Storage.Engine;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
@@ -114,8 +114,7 @@ public class QueryBenchmarks
         _repoId = RepoId.From("qbench-repo");
         var commitSha = CommitSha.From(new string('c', 40));
 
-        var factory = new BaselineDbFactory(_tempDir, NullLogger<BaselineDbFactory>.Instance);
-        var store = new BaselineStore(factory, NullLogger<BaselineStore>.Instance);
+        var store = new CustomSymbolStore(_tempDir);
         var compiler = new RoslynCompiler(NullLogger<RoslynCompiler>.Instance);
         var cache = new InMemoryCacheService();
         var tracker = new TokenSavingsTracker();
@@ -148,8 +147,7 @@ public class QueryBenchmarks
         // WorkspaceManager for ListWorkspaces benchmark
         var overlayDir = Path.Combine(_tempDir, "overlays");
         Directory.CreateDirectory(overlayDir);
-        var overlayFactory = new OverlayDbFactory(overlayDir, NullLogger<OverlayDbFactory>.Instance);
-        var overlayStore = new OverlayStore(overlayFactory, NullLogger<OverlayStore>.Instance);
+        var overlayStore = new CustomEngineOverlayStore(store, _tempDir);
         _wsMgr = new WorkspaceManager(
             overlayStore, new NoopIncrementalCompiler(), store,
             new NoopGitService(commitSha), cache,
@@ -164,7 +162,6 @@ public class QueryBenchmarks
     [GlobalCleanup]
     public void Cleanup()
     {
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
     }
 

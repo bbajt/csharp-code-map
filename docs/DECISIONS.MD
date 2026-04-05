@@ -897,7 +897,262 @@ in the disk scan, making the problem equally bad for mixed-language solutions.
 - Old baselines without the `content` column are handled transparently via the null fallback.
 - VB.NET and C# files are stored and searched identically — the content column is
   language-agnostic.
+
+---
+
+## ADR-031: v2 Custom Storage Engine — Key Design Decisions
+
+**Date:** 2026-04-02 (Milestone 14, Phases 2–6)
+**Status:** Accepted
+
+**Context:**
+The v2 custom storage engine replaces SQLite with memory-mapped binary segment files
+for baseline storage and a WAL-backed overlay for workspace mutations. The engine is
+a drop-in replacement at the `ISymbolStore` + `IOverlayStore` boundary — all code
+above the storage layer (QueryEngine, MergedQueryEngine, MCP handlers) is unchanged.
+
+**Key decisions made during implementation:**
+
+1. **All engine-internal types are `internal` (not `public` per spec).**
+   Record structs (SymbolRecord, EdgeRecord, etc.) and engine interfaces
+   (IEngineBaselineReader, IEngineSearchIndex, etc.) are internal because
+   `IEngineBaselineReader.GetSymbolByIntId` returns `ref readonly SymbolRecord`.
+   A public interface returning an internal type is a compile error. Only
+   `CustomSymbolStore`, `CustomEngineOverlayStore`, exception types, and
+   `StorageTelemetry` are public.
+
+2. **Degraded FQN-based StableId for Phase 3 (DD-1).**
+   `SymbolCard` does not have discrete `ReturnType`, `ParamTypes[]`, `IsStatic`
+   fields needed by the v2 fingerprint algorithm. Phase 3 uses a degraded
+   fingerprint: SHA-256 of `Kind + FQN + ProjectName`. This produces unique
+   deterministic IDs but loses rename-survival. Full semantic fingerprint
+   deferred to a later phase when Roslyn extraction is extended.
+
+3. **Overlay directories keyed by workspaceId (not commitSha).**
+   Initial implementation keyed overlays by commitSha, which broke workspace
+   isolation when multiple workspaces shared the same baseline commit. Fixed
+   in Phase 6 review to key by workspaceId, with a separate `_wsToCommit`
+   dictionary tracking baseline commit per workspace.
+
+4. **Separate IntId counters for symbols, edges, files, facts in overlay.**
+   Initially all overlay entities shared `NextOverlayEdgeIntId`. This caused
+   ID space collisions (a FileRecord and EdgeRecord could have the same IntId).
+   Fixed in Phase 6 review with dedicated `NextOverlayFileIntId` and
+   `NextOverlayFactIntId` counters. Snapshot format bumped to v2.
+
+5. **Contiguous packed records (no page headers) for baseline segments.**
+   Per design review resolution C-003, baseline `.seg` files use contiguous
+   packed record arrays directly after the 16-byte SegmentFileHeader. Page
+   headers are reserved for WAL and overlay snapshot only. Record `i` is at
+   byte offset `16 + i * sizeof(T)`.
+
+6. **Graceful shutdown checkpoint (C-019).**
+   `EngineOverlay.Dispose()` triggers a WAL checkpoint before releasing file
+   handles. This ensures the overlay is clean for next session startup,
+   making WAL recovery a no-op in the normal case.
+
+7. **Pointer leak safety in mmap reader constructors.**
+   All readers that call `AcquirePointer` wrap post-acquire initialization
+   in try/catch. On exception, the pointer is released and all mmap handles
+   are disposed before re-throwing. This prevents memory leaks when segment
+   file headers fail validation.
+
+**Consequences:**
+- The custom engine is a complete `ISymbolStore` + `IOverlayStore` implementation
+  with all 27 + 22 methods functional.
+- Two code reviews (Phases 2-5 and Phase 6) found and fixed 10 critical + 8
+  important issues before the engine reached production readiness.
+- The feature branch `feature/v2-storage-engine` is ready for merge to `main`
+  behind the `CODEMAP_ENGINE=custom` environment variable guard.
 - `ISymbolStore` method count: 26 → 27. `InterfaceContractTests` updated accordingly.
 - Database size grows proportionally to total source file size. For dotnet/roslyn
   VbPortable.sln (~5,907 file rows across 3 TFMs), this is acceptable. Compression
   deferred to a future milestone if needed.
+
+---
+
+## ADR-032: v2 Overlay Store Repo ID Routing Fix
+
+**Date:** 2026-04-03
+**Status:** Accepted
+
+**Context:**
+After swapping to the v2 engine binary (v2.0.0), `workspace.create` failed with
+`"No baseline found for repo _default commit <sha>"`. The baseline existed under
+the correct repo ID (`local-b73d0e677cfb93f6`) but the overlay store was looking
+for it under `"_default"`.
+
+**Root cause:**
+`CustomSymbolStore.GetOrOpenBaseline(string commitSha)` hardcoded `"_default"` as
+the repo ID and ignored the actual repo ID passed through `CreateOverlayAsync`.
+The `_wsToCommit` dictionary stored only `commitSha` per workspace, discarding
+the `repoId` argument.
+
+**Fix:**
+1. Changed `_wsToCommit` from `Dictionary<string, string>` to
+   `Dictionary<string, (string CommitSha, string RepoId)>`.
+2. Updated `GetOrOpenBaseline` to require an explicit `repoId` parameter
+   (removed hardcoded `"_default"`).
+3. Updated all four call sites in `CustomEngineOverlayStore` (`CreateOverlayAsync`,
+   `ResetOverlayAsync`, `UpgradeOverlayEdgeAsync`, `GetOverlayAndReader`) to
+   pass the stored repo ID through.
+
+**Consequences:**
+- Workspace creation works correctly for all repo ID formats.
+- No interface changes — fix is entirely within the v2 engine internals.
+- All 1,556 unit + integration tests pass.
+
+---
+
+## ADR-033: v2 Overlay StringId Resolution in ToSymbolCard
+
+**Date:** 2026-04-03
+**Status:** Accepted
+
+**Context:**
+`symbols.get_card` in workspace mode crashed with `StorageFormatException:
+StringId 42459 out of range [0..42414]` when looking up overlay-local symbols
+(symbols added by `index.refresh_overlay` that don't exist in the baseline).
+
+**Root cause:**
+`RecordToCoreMappings.ToSymbolCard(sym, reader)` resolved all StringIds through
+`EngineBaselineReader.ResolveString()`, which only knows baseline dictionary
+entries (IDs 0..42,414). Overlay-local symbols have StringIds in the overlay's
+extended range (42,415+), interned in the overlay dictionary during
+`ApplyDeltaAsync`. The overlay's `ResolveString` method handles both ranges
+(baseline IDs fall through to baseline dictionary, overlay IDs resolve from
+overlay dictionary), but it was not being used for card building.
+
+**Fix:**
+1. Added `Func<int, string> resolveString` overloads to all four record-to-core
+   mapping methods: `ToSymbolCard`, `ToStoredReference`, `ToOutgoingReference`,
+   `ToStoredFact`. Original single-arg overloads delegate with `reader.ResolveString`.
+2. `CustomEngineOverlayStore` overlay read paths (`GetOverlaySymbolAsync`,
+   `GetSymbolByStableIdAsync`, `GetOverlayReferencesAsync`,
+   `GetOutgoingOverlayReferencesAsync`, `GetOverlayFactsForSymbolAsync`) now
+   pass `overlay.ResolveString` which handles both baseline and overlay string pools.
+
+---
+
+## ADR-034: F# Language Support via FSharp.Compiler.Service
+
+**Date:** 2026-04-03
+**Status:** Accepted
+
+**Context:**
+Adding F# as the third supported language in CodeMap (after C# and VB.NET).
+
+**Key finding:**
+`MSBuildWorkspace.OpenSolutionAsync` cannot load `.fsproj` files — the error is
+"file extension '.fsproj' is not associated with a language." No
+`Microsoft.CodeAnalysis.FSharp.Workspaces` NuGet package exists.
+
+**Decision:**
+Use `FSharp.Compiler.Service` (FCS) directly for F# projects:
+- `FSharpChecker.ParseFile` + `CheckFileInProject` for parsing and type-checking
+- `PartialAssemblySignature.Entities` for symbol extraction
+- `GetAllUsesOfAllSymbolsInFile` for reference extraction
+- `entity.XmlDocSig` produces standard doc-comment IDs (`T:`, `M:`, `P:`) —
+  compatible with existing `SymbolId` and all storage/query layers
+
+**Architecture:**
+- `RoslynCompiler.FindFSharpProjects` scans `.sln` for `.fsproj` entries
+  (MSBuildWorkspace never loads them into `solution.Projects`)
+- F# projects processed in Pass 0 (before C#/VB Pass 1)
+- Bridge classes in `src/CodeMap.Roslyn/FSharp/`:
+  `FSharpProjectAnalyzer`, `FSharpSymbolMapper`, `FSharpReferenceMapper`,
+  `FSharpTypeRelationMapper`, `FSharpFileExtractor`, `FSharpSyntacticFallback`
+- Zero changes to Core, Storage, Query, Mcp, Daemon
+
+**Scope:**
+- Symbols, references, type hierarchy — fully supported
+- Architectural fact extractors (endpoints, config, DI) — deferred (F# codebases
+  rarely use ASP.NET controllers or EF Core DbSets)
+- F# scripts (`.fsx`) — not supported
+
+**NuGet dependency:** `FSharp.Compiler.Service` 43.9.100 (~43MB)
+
+**Consequences:**
+- F# projects in mixed-language solutions indexed in a single pass
+- All 26 MCP tools work for F# symbols
+- Package size increases by ~43MB due to FCS dependency
+
+---
+
+## ADR-035: v2 GetFileSpanAsync Out-of-Range Guard
+
+**Date:** 2026-04-03
+**Status:** Accepted
+
+**Context:**
+`code.get_span` on a file that has been edited since the baseline was built
+crashes with `ArgumentOutOfRangeException` in `CustomSymbolStore.GetFileSpanAsync`.
+The stored content (from baseline) has fewer lines than the requested range
+(which refers to the current working copy).
+
+**Fix:**
+Clamp both `start` and `end` against `totalLines` before slicing:
+```csharp
+var start = Math.Max(0, Math.Min(startLine - 1, totalLines));
+var end = Math.Max(start, Math.Min(totalLines, endLine));
+```
+Returns a truncated span (with `truncated: true`) rather than crashing.
+
+**Consequences:**
+- `code.get_span` no longer crashes on modified files
+- Returns partial content when baseline is stale (agent sees truncation flag)
+
+---
+
+## ADR-036: FSharpSymbolMapper Namespace Entity Recursion
+
+**Date:** 2026-04-03
+**Status:** Accepted
+
+**Context:**
+`FSharpSymbolMapper.WalkEntity` returned early when `entity.IsNamespace` was true or
+when `entity.XmlDocSig` was empty or threw. This prevented recursion into nested
+modules inside namespace declarations (e.g. `namespace Fake.Core` → `module Target =`),
+causing those modules and all their symbols to be silently dropped from the index.
+
+**Decision:**
+Add explicit early-exit branches for namespace entities and empty/throwing XmlDocSig,
+each of which still recurses into `entity.NestedEntities` before returning. No entity
+card is created for these entities (they have no usable XmlDocSig), but descendant
+modules that do have valid XmlDocSigs are still reached and indexed.
+
+**Consequences:**
+- Namespace-scoped F# module hierarchies are now fully traversed.
+- Defensive: fixes partial indexing of any repo that uses `namespace Foo` + module pattern.
+- 378/378 Roslyn tests pass.
+
+---
+
+## ADR-037: FSharpSymbolMapper [RequireQualifiedAccess] Member Indexing
+
+**Date:** 2026-04-03
+**Status:** Accepted
+
+**Context:**
+`[<RequireQualifiedAccess>]` on an F# module causes FCS to return an empty string for
+`entity.XmlDocSig`. Even after ADR-036, the empty-XmlDocSig branch only recursed into
+`entity.NestedEntities` — not `entity.MembersFunctionsAndValues`. So module-level `let`
+functions (e.g. `Fake.Core.Target.runOrDefault`) were never indexed: the entity card was
+skipped AND the member walk was skipped.
+
+Crucially, even when a module has no XmlDocSig, its individual member functions *do* have
+valid independent XmlDocSigs (e.g. `M:Fake.Core.Target.runOrDefault(System.String)`).
+
+**Decision:**
+Restructure `WalkEntity` so that `entity.MembersFunctionsAndValues` and
+`entity.NestedEntities` are always walked, regardless of whether a valid `XmlDocSig`
+was obtained. The XmlDocSig only controls whether an entity-level SymbolCard is emitted.
+Entity metadata (`FullName`, `AccessPath`, `DisplayName`) is retrieved before the
+XmlDocSig guard so it is available for member card construction even when no entity card
+is created.
+
+**Consequences:**
+- `[<RequireQualifiedAccess>]` module members are now correctly indexed.
+- FAKE's `Fake.Core.Target` module functions (`run`, `runOrDefault`, etc.) appear in index.
+- Generalises: any future FCS case where entity XmlDocSig is unavailable still indexes members.
+- 379/379 Roslyn tests pass (new test: `ExtractSymbols_FindsMembersOfRequireQualifiedAccessModule`).

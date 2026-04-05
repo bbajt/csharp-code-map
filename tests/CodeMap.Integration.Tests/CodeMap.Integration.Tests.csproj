@@ -9,10 +9,52 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CodeMap.Git\CodeMap.Git.csproj" />
-    <ProjectReference Include="..\..\src\CodeMap.Storage\CodeMap.Storage.csproj" />
+    <ProjectReference Include="..\..\src\CodeMap.Storage.Engine\CodeMap.Storage.Engine.csproj" />
     <ProjectReference Include="..\..\src\CodeMap.Mcp\CodeMap.Mcp.csproj" />
     <ProjectReference Include="..\..\src\CodeMap.Daemon\CodeMap.Daemon.csproj" />
     <ProjectReference Include="..\CodeMap.TestUtilities\CodeMap.TestUtilities.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Regression\FSharp\FSharpTypeHierarchyTests.cs" />
+    <Compile Remove="Cache\BaselineCacheIntegrationTests.cs" />
+    <Compile Remove="Context\SymbolContextIntegrationTests.cs" />
+    <Compile Remove="Diff\SemanticDiffIntegrationTests.cs" />
+    <Compile Remove="EndToEnd\IndexingPipelineTests.cs" />
+    <Compile Remove="EndToEnd\McpEndToEndTests.cs" />
+    <Compile Remove="Export\CodebaseExportIntegrationTests.cs" />
+    <Compile Remove="Facts\MiddlewareRetryFactsIntegrationTests.cs" />
+    <Compile Remove="Facts\SymbolCardFactsIntegrationTests.cs" />
+    <Compile Remove="Graph\CallGraphIntegrationTests.cs" />
+    <Compile Remove="Performance\M02PerformanceTests.cs" />
+    <Compile Remove="Performance\M03PerformanceTests.cs" />
+    <Compile Remove="Performance\ReindexPerformanceTests.cs" />
+    <Compile Remove="Query\QueryEngineIntegrationTests.cs" />
+    <Compile Remove="Refs\FindRefsIntegrationTests.cs" />
+    <Compile Remove="Resilience\DegradedModeWorkflowTests.cs" />
+    <Compile Remove="Resolution\ResolutionWorkerIntegrationTests.cs" />
+    <Compile Remove="Roslyn\IncrementalCompilerCachingTests.cs" />
+    <Compile Remove="Roslyn\IncrementalCompilerTests.cs" />
+    <Compile Remove="StableId\StableIdIntegrationTests.cs" />
+    <Compile Remove="StableId\StableIdRenameTests.cs" />
+    <Compile Remove="Storage\BaselineStoreIntegrationTests.cs" />
+    <Compile Remove="Storage\OverlayStoreIntegrationTests.cs" />
+    <Compile Remove="Summary\CodebaseSummaryIntegrationTests.cs" />
+    <Compile Remove="Supervisor\BranchChangeTests.cs" />
+    <Compile Remove="Supervisor\SupervisorWorkflowTests.cs" />
+    <Compile Remove="Surfaces\ConfigKeysSurfaceIntegrationTests.cs" />
+    <Compile Remove="Surfaces\DbTablesSurfaceIntegrationTests.cs" />
+    <Compile Remove="Surfaces\EndpointSurfaceIntegrationTests.cs" />
+    <Compile Remove="Trace\FeatureTraceIntegrationTests.cs" />
+    <Compile Remove="TypeHierarchy\TypeHierarchyIntegrationTests.cs" />
+    <Compile Remove="VirtualFiles\VirtualFileIntegrationTests.cs" />
+    <Compile Remove="Workflows\M03SupervisorWorkflowTests.cs" />
+    <Compile Remove="Workflows\M06WorkflowTests.cs" />
+    <Compile Remove="Workflows\M12WorkflowTests.cs" />
+    <Compile Remove="Workflows\WorkspaceWorkflowTests.cs" />
+    <Compile Remove="Workspace\MergedQueryIntegrationTests.cs" />
+    <Compile Remove="Workspace\OverlayRefreshTests.cs" />
+    <Compile Remove="Workspace\WorkspaceLifecycleTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

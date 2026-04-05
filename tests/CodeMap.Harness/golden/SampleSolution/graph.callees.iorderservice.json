@@ -1,0 +1,14 @@
+{
+  "category": "GraphTraversal",
+  "symbol_ids": [
+    "T:SampleApp.Services.IOrderService"
+  ],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "total_nodes": "0",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 0
+}

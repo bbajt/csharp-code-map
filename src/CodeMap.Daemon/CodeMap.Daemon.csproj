@@ -7,13 +7,13 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>codemap-mcp</ToolCommandName>
     <PackageId>codemap-mcp</PackageId>
-    <Version>1.4.0</Version>
+    <Version>2.1.0</Version>
     <PackageOutputPath>..\..\dist\nupkg</PackageOutputPath>
 
     <!-- NuGet package description (overrides Directory.Build.props for the tool package) -->
-    <PackageDescription>CodeMap is a Roslyn-powered MCP (Model Context Protocol) server that turns any MCP-compatible AI agent into a semantic code navigator for C# and VB.NET solutions.
+    <PackageDescription>CodeMap is a Roslyn-powered MCP (Model Context Protocol) server that turns any MCP-compatible AI agent into a semantic code navigator for C#, VB.NET, and F# solutions.
 
-Instead of reading source files, agents call 26 focused MCP tools to query symbols, call graphs, type hierarchies, and architectural facts (HTTP endpoints, config keys, DB tables, DI registrations, middleware, retry policies, log templates) — directly from a Roslyn-built semantic index. Mixed-language solutions (.sln / .slnx containing both C# and VB.NET projects) are indexed in a single pass.
+Instead of reading source files, agents call 26 focused MCP tools to query symbols, call graphs, type hierarchies, and architectural facts (HTTP endpoints, config keys, DB tables, DI registrations, middleware, retry policies, log templates) — directly from a Roslyn-built semantic index stored in memory-mapped binary segments (v2 engine, zero native DLL dependencies). Mixed-language solutions (.sln / .slnx containing both C# and VB.NET projects) are indexed in a single pass. SQLite fallback available via CODEMAP_ENGINE=sqlite.
 
 Average token savings: 90%+ vs raw file reading. On production codebases: 95–99%+.
 
@@ -47,9 +47,9 @@ Usage: add 'codemap-mcp' as an MCP server in your AI agent config. See README fo
     <ProjectReference Include="..\CodeMap.Core\CodeMap.Core.csproj" />
     <ProjectReference Include="..\CodeMap.Git\CodeMap.Git.csproj" />
     <ProjectReference Include="..\CodeMap.Roslyn\CodeMap.Roslyn.csproj" />
-    <ProjectReference Include="..\CodeMap.Storage\CodeMap.Storage.csproj" />
     <ProjectReference Include="..\CodeMap.Query\CodeMap.Query.csproj" />
     <ProjectReference Include="..\CodeMap.Mcp\CodeMap.Mcp.csproj" />
+    <ProjectReference Include="..\CodeMap.Storage.Engine\CodeMap.Storage.Engine.csproj" />
   </ItemGroup>
 
   <ItemGroup>

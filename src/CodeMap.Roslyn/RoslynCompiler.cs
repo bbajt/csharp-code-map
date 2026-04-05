@@ -113,6 +113,11 @@ public sealed class RoslynCompiler : IRoslynCompiler
         IReadOnlyList<DiagnosticSeverity> ErrorSeverities,
         IReadOnlyList<string> ErrorMessages);
 
+    private sealed record FSharpPassData(
+        string ProjectName,
+        IReadOnlyList<FSharp.FSharpFileAnalysis> Analyses,
+        IReadOnlyDictionary<string, StableId> StableIdMap);
+
     private async Task<CompilationResult> ExtractSolutionAsync(
         Solution solution, string solutionDir, CancellationToken ct)
     {
@@ -132,6 +137,64 @@ public sealed class RoslynCompiler : IRoslynCompiler
         // CompilationReference. solution.Projects order follows the .sln file, not
         // build-dependency order, so a streaming accumulation cannot work.
         var passData = new List<ProjectPassData>();
+        var fsPassData = new List<FSharpPassData>();
+
+        // ── Pass 0: F# projects (MSBuildWorkspace doesn't load them at all).
+        // Scan the .sln for .fsproj entries and process via FCS bridge.
+        var fsprojPaths = FindFSharpProjects(solution);
+        foreach (var fsprojPath in fsprojPaths)
+        {
+            ct.ThrowIfCancellationRequested();
+            var projectName = Path.GetFileNameWithoutExtension(fsprojPath);
+            try
+            {
+                _logger.LogInformation("F# project detected: {Project}, using FCS", projectName);
+                var fsAnalyses = FSharp.FSharpProjectAnalyzer.AnalyzeProject(fsprojPath, solutionDir, ct);
+                var sourceFiles = fsAnalyses.Select(a => a.FilePath).ToList();
+                var fsFiles = FSharp.FSharpFileExtractor.ExtractFiles(sourceFiles, projectName, solutionDir);
+                var (fsSymbols, fsStableIdMap) = FSharp.FSharpSymbolMapper.ExtractSymbols(fsAnalyses, projectName, solutionDir);
+                var fsTypeRelations = FSharp.FSharpTypeRelationMapper.ExtractTypeRelations(fsAnalyses, fsStableIdMap);
+
+                allSymbols.AddRange(fsSymbols);
+                allFiles.AddRange(fsFiles);
+                allTypeRelations.AddRange(fsTypeRelations);
+
+                bool allChecked = fsAnalyses.All(a => a.CheckResults != null);
+                projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
+                    ProjectName: projectName,
+                    Compiled: allChecked,
+                    SymbolCount: fsSymbols.Count,
+                    ReferenceCount: 0,
+                    Errors: allChecked ? [] : ["Some F# files failed type-check"]));
+
+                fsPassData.Add(new FSharpPassData(projectName, fsAnalyses, fsStableIdMap));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to analyze F# project {Project}", projectName);
+                try
+                {
+                    _logger.LogInformation("F# syntactic fallback for {Project}", projectName);
+                    var (fallbackSymbols, fallbackRefs) =
+                        FSharp.FSharpSyntacticFallback.ExtractAll(fsprojPath, solutionDir);
+                    allSymbols.AddRange(fallbackSymbols);
+                    allReferences.AddRange(fallbackRefs);
+                    projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
+                        ProjectName: projectName, Compiled: false,
+                        SymbolCount: fallbackSymbols.Count, ReferenceCount: fallbackRefs.Count,
+                        Errors: [$"F# analysis failed (syntactic fallback): {ex.Message}"]));
+                }
+                catch (Exception fallbackEx)
+                {
+                    _logger.LogError(fallbackEx, "F# syntactic fallback also failed for {Project}", projectName);
+                    projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
+                        ProjectName: projectName, Compiled: false,
+                        SymbolCount: 0, ReferenceCount: 0,
+                        Errors: [ex.Message, $"Syntactic fallback also failed: {fallbackEx.Message}"]));
+                }
+                confidence = Confidence.Low;
+            }
+        }
 
         foreach (var project in solution.Projects)
         {
@@ -289,6 +352,23 @@ public sealed class RoslynCompiler : IRoslynCompiler
                 Errors: pd.ErrorMessages.Count > 0 ? pd.ErrorMessages : null));
         }
 
+        // ── Pass 2b: extract F# references now that allSymbolIds is complete.
+        foreach (var fsPd in fsPassData)
+        {
+            ct.ThrowIfCancellationRequested();
+            var fsRefs = FSharp.FSharpReferenceMapper.ExtractReferences(
+                fsPd.Analyses, solutionDir, fsPd.StableIdMap, allSymbolIds);
+            allReferences.AddRange(fsRefs);
+
+            // Update the diagnostic with the ref count (was 0 in Pass 1)
+            var existingDiag = projectDiagnostics.FindIndex(d => d.ProjectName == fsPd.ProjectName);
+            if (existingDiag >= 0)
+            {
+                var old = projectDiagnostics[existingDiag];
+                projectDiagnostics[existingDiag] = old with { ReferenceCount = fsRefs.Count };
+            }
+        }
+
         // Compute SemanticLevel from per-project outcomes
         int compiledCount = projectDiagnostics.Count(d => d.Compiled);
         int totalCount = projectDiagnostics.Count;
@@ -394,5 +474,64 @@ public sealed class RoslynCompiler : IRoslynCompiler
     {
         byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(content));
         return Convert.ToHexStringLower(bytes);
+    }
+
+    /// <summary>
+    /// Scans the .sln file for .fsproj entries. MSBuildWorkspace doesn't load F# projects,
+    /// so we detect them from the solution file directly and process via FCS.
+    /// </summary>
+    private static IReadOnlyList<string> FindFSharpProjects(Solution solution)
+    {
+        var solutionPath = solution.FilePath;
+        if (string.IsNullOrEmpty(solutionPath)) return [];
+
+        var solutionDir = Path.GetDirectoryName(solutionPath)!;
+        var fsprojPaths = new List<string>();
+
+        try
+        {
+            if (solutionPath.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
+            {
+                // .slnx format: XML with <Project Path="relative/path.fsproj" />
+                var xml = System.Xml.Linq.XDocument.Load(solutionPath);
+                foreach (var proj in xml.Descendants().Where(e => e.Name.LocalName == "Project"))
+                {
+                    var pathAttr = proj.Attribute("Path")?.Value;
+                    if (pathAttr != null && pathAttr.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var fullPath = Path.GetFullPath(Path.Combine(solutionDir, pathAttr.Replace('\\', Path.DirectorySeparatorChar)));
+                        if (File.Exists(fullPath))
+                            fsprojPaths.Add(fullPath);
+                    }
+                }
+            }
+            else
+            {
+                // .sln format: Project("{...}") = "Name", "relative\path.fsproj", "{...}"
+                var lines = File.ReadAllLines(solutionPath);
+                foreach (var line in lines)
+                {
+                    if (!line.Contains(".fsproj", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    var parts = line.Split('"');
+                    foreach (var part in parts)
+                    {
+                        if (part.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var fullPath = Path.GetFullPath(Path.Combine(solutionDir, part.Replace('\\', Path.DirectorySeparatorChar)));
+                            if (File.Exists(fullPath))
+                                fsprojPaths.Add(fullPath);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // If we can't read the solution file, return empty — F# projects just won't be indexed
+        }
+
+        return fsprojPaths;
     }
 }

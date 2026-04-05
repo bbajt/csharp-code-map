@@ -5,6 +5,5 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CodeMap.Core\CodeMap.Core.csproj" />
-    <ProjectReference Include="..\CodeMap.Storage\CodeMap.Storage.csproj" />
   </ItemGroup>
 </Project>

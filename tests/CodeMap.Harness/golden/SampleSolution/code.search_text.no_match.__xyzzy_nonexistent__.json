@@ -1,0 +1,13 @@
+{
+  "category": "TextSearch",
+  "symbol_ids": [],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "total_files": "56",
+    "match_count": "0",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 0
+}

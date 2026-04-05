@@ -6,7 +6,7 @@ using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Query;
 using CodeMap.Roslyn;
-using CodeMap.Storage;
+using CodeMap.Storage.Engine;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
@@ -51,7 +51,7 @@ public class ExtractionBenchmarks
 
     // FullIndex iteration state
     private string _iterDir = null!;
-    private BaselineStore _iterStore = null!;
+    private ISymbolStore _iterStore = null!;
 
     // IncrementalReindex state
     private WorkspaceManager _wsMgr = null!;
@@ -107,20 +107,18 @@ public class ExtractionBenchmarks
         // Build a baseline to power IncrementalReindex and CachePull setup
         var baselineDir = Path.Combine(_tempDir, "baseline");
         Directory.CreateDirectory(baselineDir);
-        var baseFactory = new BaselineDbFactory(baselineDir, NullLogger<BaselineDbFactory>.Instance);
-        var baseStore = new BaselineStore(baseFactory, NullLogger<BaselineStore>.Instance);
+        var baseStore = new CustomSymbolStore(baselineDir);
         var compiled = await _compiler.CompileAndExtractAsync(SampleSolutionPath).ConfigureAwait(false);
         await baseStore.CreateBaselineAsync(_repoId, _commitSha, compiled, SampleSolutionDir).ConfigureAwait(false);
 
         // Pre-populate shared cache for CachePull benchmark
-        var cacheMgr = new BaselineCacheManager(baseFactory, _cacheDir, NullLogger<BaselineCacheManager>.Instance);
+        var cacheMgr = new EngineBaselineCacheManager(baselineDir, _cacheDir);
         await cacheMgr.PushAsync(_repoId, _commitSha).ConfigureAwait(false);
 
         // Set up WorkspaceManager for IncrementalReindex benchmark
         var overlayDir = Path.Combine(_tempDir, "overlays");
         Directory.CreateDirectory(overlayDir);
-        var overlayFactory = new OverlayDbFactory(overlayDir, NullLogger<OverlayDbFactory>.Instance);
-        var overlayStore = new OverlayStore(overlayFactory, NullLogger<OverlayStore>.Instance);
+        var overlayStore = new CustomEngineOverlayStore(baseStore, baselineDir);
         var differ = new SymbolDiffer(NullLogger<SymbolDiffer>.Instance);
         var incCompiler = new IncrementalCompiler(differ, NullLogger<IncrementalCompiler>.Instance);
         var cache = new InMemoryCacheService();
@@ -142,7 +140,6 @@ public class ExtractionBenchmarks
     [GlobalCleanup]
     public void Cleanup()
     {
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
     }
 
@@ -153,14 +150,12 @@ public class ExtractionBenchmarks
     {
         _iterDir = Path.Combine(_tempDir, "iter-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_iterDir);
-        var factory = new BaselineDbFactory(_iterDir, NullLogger<BaselineDbFactory>.Instance);
-        _iterStore = new BaselineStore(factory, NullLogger<BaselineStore>.Instance);
+        _iterStore = new CustomSymbolStore(_iterDir);
     }
 
     [IterationCleanup(Target = nameof(FullIndex))]
     public void CleanupFullIndex()
     {
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try { Directory.Delete(_iterDir, recursive: true); } catch { /* best-effort */ }
     }
 
@@ -201,7 +196,6 @@ public class ExtractionBenchmarks
     [IterationCleanup(Target = nameof(CachePull))]
     public void CleanupCachePull()
     {
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try { Directory.Delete(_pullDir, recursive: true); } catch { /* best-effort */ }
     }
 
@@ -212,8 +206,7 @@ public class ExtractionBenchmarks
     [Benchmark(OperationsPerInvoke = 1)]
     public async Task CachePull()
     {
-        var pullFactory = new BaselineDbFactory(_pullDir, NullLogger<BaselineDbFactory>.Instance);
-        var pullMgr = new BaselineCacheManager(pullFactory, _cacheDir, NullLogger<BaselineCacheManager>.Instance);
+        var pullMgr = new EngineBaselineCacheManager(_pullDir, _cacheDir);
         await pullMgr.PullAsync(_repoId, _commitSha).ConfigureAwait(false);
     }
 }

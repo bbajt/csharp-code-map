@@ -3,16 +3,17 @@
 
 [![NuGet](https://img.shields.io/nuget/v/codemap-mcp.svg?label=nuget&color=blue)](https://www.nuget.org/packages/codemap-mcp)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/codemap-mcp.svg?color=blue)](https://www.nuget.org/packages/codemap-mcp)
-[![.NET](https://img.shields.io/badge/.NET-9-512BD4)](#)
+[![.NET](https://img.shields.io/badge/.NET-10-512BD4)](#)
 [![MCP Server](https://img.shields.io/badge/MCP-server-1f6feb)](#)
 [![C%23](https://img.shields.io/badge/C%23-Roslyn-239120)](#)
 [![VB.NET](https://img.shields.io/badge/VB.NET-Roslyn-512BD4)](#)
+[![F%23](https://img.shields.io/badge/F%23-FCS-378BBA)](#)
 [![GitHub Stars](https://img.shields.io/github/stars/bbajt/csharp-code-map?style=social)](https://github.com/bbajt/csharp-code-map/stargazers)
 [![License](https://img.shields.io/badge/license-Non--Commercial-orange.svg)](LICENSE)
 
 > *Stop feeding your AI agent raw source files. Give it a semantic index instead.*
 
-CodeMap is a **Roslyn-powered MCP server** that lets AI agents navigate **C# and VB.NET** codebases by **symbol, call graph, and architectural fact** — instead of brute-reading thousands of lines of source code. One tool call. Precise answer. No context flood.
+CodeMap is a **Roslyn-powered MCP server** that lets AI agents navigate **C#, VB.NET, and F#** codebases by **symbol, call graph, and architectural fact** — instead of brute-reading thousands of lines of source code. One tool call. Precise answer. No context flood.
 
 **Average token savings: 90%+** versus reading files directly.
 
@@ -22,20 +23,24 @@ CodeMap is a **Roslyn-powered MCP server** that lets AI agents navigate **C# and
 
 The fastest way to install is to paste the prompt below into a **Claude Code** shell. Claude will check your environment, install the tool, and register it as an MCP server — no manual steps needed.
 
-> Check whether .NET 9 SDK is installed by running `dotnet --version`. If the reported version is below 9.0, install it: on Windows run `winget install Microsoft.DotNet.SDK.9`, on macOS/Linux download from https://dotnet.microsoft.com/download/dotnet/9.0. Verify with `dotnet --version` once done. Once .NET 9 is confirmed, install CodeMap: if `codemap-mcp` is not yet installed run `dotnet tool install --global codemap-mcp`, otherwise run `dotnet tool update --global codemap-mcp` to get the latest version. Verify the binary is reachable with `codemap-mcp --version`. Finally, register it as a global MCP server in Claude Code by running `claude mcp add codemap-mcp codemap-mcp --scope user` and confirm it appears in the output of `claude mcp list`.
+> Check whether .NET 10 SDK is installed by running `dotnet --version`. If the reported version is below 10.0, install it: on Windows run `winget install Microsoft.DotNet.SDK.10`, on macOS/Linux download from https://dotnet.microsoft.com/download/dotnet/10.0. Verify with `dotnet --version` once done. Once .NET 10 is confirmed, install CodeMap: if `codemap-mcp` is not yet installed run `dotnet tool install --global codemap-mcp`, otherwise run `dotnet tool update --global codemap-mcp` to get the latest version. Verify the binary is reachable with `codemap-mcp --version`. Finally, register it as a global MCP server in Claude Code by running `claude mcp add codemap-mcp codemap-mcp --scope user` and confirm it appears in the output of `claude mcp list`.
 
 **Or install manually:**
 
 ```bash
-# Install .NET 9 SDK if needed (Windows)
-winget install Microsoft.DotNet.SDK.9
+# Install .NET 10 SDK if needed (Windows)
+winget install Microsoft.DotNet.SDK.10
 
 dotnet tool install --global codemap-mcp
 codemap-mcp --version
 claude mcp add codemap-mcp codemap-mcp --scope user
 ```
 
-Requires **.NET 9**. If you're working on a C# or VB.NET codebase you almost certainly have it already — check with `dotnet --version`.
+Requires **.NET 10** (LTS). If you're working on a C# or VB.NET codebase you almost certainly have it already — check with `dotnet --version`.
+
+### Upgrading from v1.x
+
+v2.0.0 uses a new binary storage engine (memory-mapped segments instead of SQLite). Your old `.db` baselines are not auto-migrated — run `index.ensure_baseline` once per repo to rebuild. Old baselines are harmless and can be cleaned with `index.cleanup`. If you need the old engine temporarily, set `CODEMAP_ENGINE=sqlite`.
 
 ---
 
@@ -73,7 +78,7 @@ CodeMap builds a **persistent semantic index** from your solution file using Ros
 
 All of this is exposed via **26 MCP tools** that any MCP-compatible AI agent can call. Starting from v1.3, CodeMap also navigates **DLL boundaries** — lazily resolving NuGet and SDK symbols on first access, with optional ICSharpCode.Decompiler source reconstruction and cross-DLL call graphs.
 
-**Supported languages:** C# and VB.NET. Mixed-language solutions (`.sln` / `.slnx` containing both C# and VB.NET projects) are indexed in a single pass. All 26 MCP tools work identically for symbols from either language.
+**Supported languages:** C#, VB.NET, and F#. Mixed-language solutions (`.sln` / `.slnx` containing C#, VB.NET, and F# projects) are indexed in a single pass. All 26 MCP tools work identically for symbols from any language. C# and VB.NET use Roslyn's `MSBuildWorkspace`; F# uses `FSharp.Compiler.Service` (MSBuildWorkspace doesn't support `.fsproj`). F# architectural fact extractors (endpoints, DI, config) are not yet implemented — symbol search, call graphs, references, and type hierarchy all work.
 
 ---
 
@@ -280,12 +285,48 @@ export CODEMAP_CACHE_DIR=/shared/codemap-cache
 
 ---
 
+## v2 Storage Engine — 10x Faster Queries
+
+v2.0.0 replaces SQLite with a **custom binary storage engine** using memory-mapped segment files. The Roslyn extraction pipeline is unchanged — only the on-disk format is new.
+
+**Query speedup** (measured across 15 query types on real repos):
+
+| Query | v1 (SQLite) | v2 (mmap) | Speedup |
+|-------|------------|-----------|---------|
+| `graph.trace_feature` | 13.2ms | 0.5ms | **26x** |
+| `codemap.summarize` | 18.9ms | 0.9ms | **21x** |
+| `surfaces.list_db_tables` | 5.7ms | 0.2ms | **28x** |
+| `surfaces.list_config_keys` | 3.6ms | 0.2ms | **18x** |
+| `types.hierarchy` | 8.7ms | 1.0ms | **9x** |
+| `symbols.get_context` | 28.7ms | 5.3ms | **5x** |
+| `symbols.get_card` | 7.8ms | 2.7ms | **3x** |
+
+**Indexing speedup** (Roslyn compilation dominates, but I/O is faster):
+
+| Repo | v1 | v2 | Speedup |
+|------|-----|-----|---------|
+| eShopOnWeb (278 files) | 16.2s | 5.8s | **2.8x** |
+| Bitwarden (4,466 files) | ~170s | ~110s | **1.5x** |
+| dotnet/roslyn (18,799 files) | 138.2s | 96.8s | **1.4x** |
+
+**What changed:**
+- Baselines stored as contiguous packed binary segments (symbols, edges, files, facts) with mmap reads — no SQL parsing overhead
+- Custom search index with tokenized FTS (CamelCase splitting, signature/documentation indexing)
+- WAL-backed overlay for workspace mutations (same isolation model)
+- Zero native DLL dependencies (no `e_sqlite3.dll`)
+- SQLite fallback available via `CODEMAP_ENGINE=sqlite`
+
+**Validated on 9+ repos** including dotnet/roslyn (174K symbols, 768K references), dotnet/fsharp (157K symbols via FCS), and Bitwarden. Zero functional bugs. See [`docs/ENGINE-COMPARISON-RESULTS.MD`](docs/ENGINE-COMPARISON-RESULTS.MD) for full data.
+
+---
+
 ## Self-Hosting Validated
 
-CodeMap indexes its own 17-project solution (5,112 symbols, 23,540 references).
+CodeMap indexes its own 20-project solution (6,795 symbols, 29,204 references).
 All 26 tools verified against real-world architectural complexity. Self-hosting exposed
-and fixed cross-project reference bugs, CamelCase FTS edge cases, and multi-line SQL
-extraction gaps. Every tool in this README was tested against the codebase that implements it.
+and fixed cross-project reference bugs, CamelCase FTS edge cases, overlay StringId
+resolution issues, and multi-line SQL extraction gaps. Every tool in this README was
+tested against the codebase that implements it.
 
 ---
 
@@ -348,18 +389,18 @@ Your Git repo              CodeMap Server
      ├─────────────────────────►│ GitService         (repo identity, HEAD SHA)
      │                          │      │
      │  solution.sln/.slnx      │      ▼
-     ├─────────────────────────►│ RoslynCompiler     (MSBuildWorkspace → full semantic model)
+     ├─────────────────────────►│ RoslynCompiler     (MSBuildWorkspace for C#/VB, FCS for F#)
      │                          │      │
      │                          │      ▼
      │                          │ Extractors         (Symbols + Refs + TypeRelations + Facts)
      │                          │      │
      │                          │      ▼
-     │                          │ BaselineStore      (SQLite WAL + FTS5, one DB per commit)
+     │                          │ CustomSymbolStore   (v2 binary segments, mmap'd)
      │                          │      │        ↕
      │                          │      │   SharedCache  (file-based, optional)
      │                          │      ▼
      │  your uncommitted edits  │      ▼
-     ├─────────────────────────►│ OverlayStore       (SQLite per workspace, incremental)
+     ├─────────────────────────►│ OverlayStore        (WAL-backed incremental overlay)
      │                          │      │
      │                          │      ▼
      │                          │ MergedQueryEngine  (baseline + overlay, transparent merge)
@@ -377,7 +418,8 @@ Your Git repo              CodeMap Server
 CodeMap.Core      ← zero dependencies (domain types + interfaces)
 CodeMap.Git       ← Core (LibGit2Sharp)
 CodeMap.Roslyn    ← Core (Roslyn 5.x + MSBuildWorkspace)
-CodeMap.Storage   ← Core (SQLite + WAL + FTS5)
+CodeMap.Storage.Engine ← Core (v2 binary segments, default)
+CodeMap.Storage   ← Core (SQLite fallback, CODEMAP_ENGINE=sqlite)
 CodeMap.Query     ← Core + Storage (query engine + cache + overlay merge)
 CodeMap.Mcp       ← Core + Query (MCP tool handlers)
 CodeMap.Daemon    ← ALL (DI composition root, the executable)
@@ -388,14 +430,19 @@ CodeMap.Daemon    ← ALL (DI composition root, the executable)
 ## Observability
 
 Every response includes:
-- **Per-phase timing** — `cache_lookup_ms`, `db_query_ms`, `ranking_ms`
+- **Per-phase timing** — `cache_lookup_ms`, `db_query_ms`, `ranking_ms` (sub-millisecond on v2)
 - **Token savings** — tokens saved and cost avoided vs raw file reading
 - **Semantic level** — `Full` / `Partial` / `SyntaxOnly` (index quality signal)
 - **Overlay revision** — which workspace revision answered the query
+- **Workspace ID** — which workspace context answered (null for committed mode)
 
 Structured logs to `~/.codemap/logs/codemap-{date}.log` (daily rotation, JSON lines).
 Cumulative savings to `~/.codemap/_savings.json` (persists across restarts).
 Config at `~/.codemap/config.json` (log level, cache dir, budget overrides).
+
+### v2 Data Directory
+
+Baselines are stored in `~/.codemap/store/<repoId>/baselines/<commitSha>/` as binary segment files. Overlays in `~/.codemap/store/overlays/<workspaceId>/`. Use `index.list_baselines` to inspect and `index.cleanup` to reclaim space.
 
 ---
 
@@ -433,4 +480,49 @@ cd tests/CodeMap.Benchmarks && dotnet run -c Release
 
 ---
 
-*26 MCP tools. 90%+ token savings. Roslyn-grade semantics. C# and VB.NET, side by side. DLL boundary navigation. `.sln` + `.slnx` support. v1.4.0. Your agent deserves better than grep.*
+## Performance Reference
+
+What to expect when running CodeMap on your codebase. All v2 engine numbers (default since v2.0.0).
+
+### Indexing time by repo size
+
+| Repo | Files | Symbols | Refs | Index time |
+|------|-------|---------|------|-----------|
+| CodeMap (self-hosted) | 585 | 6,800 | 29,200 | ~24s |
+| eShopOnWeb | 278 | — | — | ~6s |
+| dotnet/fsharp | 994 | 157,000 | 58,000 | ~131s |
+| Bitwarden | 4,466 | — | — | ~110s |
+| dotnet/roslyn | 18,799 | 174,000 | 768,000 | ~97s |
+
+Subsequent runs on the same commit return immediately (`already_existed: true`). Incremental overlay refresh (after editing files) takes **~63ms**.
+
+### Query response time (v2 engine)
+
+| Query | Cold (first hit, no L1 cache) | Warm (L1 cache) |
+|-------|------------------------------|-----------------|
+| `symbols.search` | 1–10ms | <1ms |
+| `symbols.get_card` | 2–10ms | <1ms |
+| `symbols.get_context` | 5–30ms | 1–5ms |
+| `refs.find` | 5–20ms | <1ms |
+| `graph.callers / callees` | 10–50ms | 1–5ms |
+| `graph.trace_feature` | 10–100ms | 1–10ms |
+| `types.hierarchy` | 1–5ms | <1ms |
+| `codemap.summarize` | 50–200ms | 5–20ms |
+| `surfaces.list_*` | 1–10ms | <1ms |
+| `index.diff` | 100–500ms | — |
+
+Cold times scale with repo size (more symbols = more BFS/join work). Warm times are nearly flat across all repo sizes — L1 cache caps at 10,000 entries with LRU eviction.
+
+### Memory footprint (v2 engine)
+
+| Repo size | Baseline on disk | Resident memory (mmap) |
+|-----------|-----------------|----------------------|
+| Small (<1K symbols) | ~1–5 MB | ~5–20 MB |
+| Medium (10K symbols) | ~20–50 MB | ~30–80 MB |
+| Large (100K+ symbols) | ~200–500 MB | ~300–600 MB |
+
+mmap pages are demand-loaded by the OS — resident memory stays proportional to queries made, not total index size.
+
+---
+
+*26 MCP tools. 90%+ token savings. Roslyn-grade semantics. C#, VB.NET, and F# — all three .NET languages. DLL boundary navigation. `.sln` + `.slnx` support. v2.2.0 — custom binary storage engine, 10x faster queries, F# via FCS. Validated on dotnet/roslyn (174K symbols) and dotnet/fsharp (157K symbols). Your agent deserves better than grep.*

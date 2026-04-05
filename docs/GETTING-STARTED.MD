@@ -579,6 +579,19 @@ IReadOnlyDictionary<TKey, TValue> to the class declaration.
 
 ## Tips for Getting the Best Results
 
+### Upgrading from v1.x to v2.0
+
+CodeMap v2.0 uses a new binary storage engine (memory-mapped segments instead of SQLite).
+Your existing `.db` baselines are **not auto-migrated** — they're simply ignored by the
+new engine. After upgrading:
+
+1. Run `index.ensure_baseline` once per repo — rebuilds the index in v2 format (~15s)
+2. Old `.db` files are harmless — clean them with `index.cleanup` when ready
+3. Need the old engine? Set `CODEMAP_ENGINE=sqlite` in your environment
+
+v2 baselines live in `~/.codemap/store/<repoId>/baselines/<sha>/` (directories with
+segment files), not `~/.codemap/baselines/<repo>/<sha>.db` (single SQLite files).
+
 ### 1. Always Index First
 
 Before asking the agent to work on your code, tell it to index:
@@ -1153,18 +1166,23 @@ the complete layout:
 ```
 ~/.codemap/
 │
-├── baselines/                           ← Semantic index databases
-│   └── {repo-id}/                       ← One folder per repository
-│       ├── abc123...def.db              ← Baseline for commit abc123 (SQLite)
-│       ├── abc123...def.db-shm          ← SQLite shared memory (WAL mode)
-│       ├── abc123...def.db-wal          ← SQLite write-ahead log
-│       ├── def456...789.db              ← Baseline for commit def456
-│       └── ...                          ← One .db per indexed commit
+├── store/                               ← v2 binary baselines (default engine)
+│   └── {repo-id}/
+│       └── baselines/
+│           └── {commit-sha}/            ← One directory per indexed commit
+│               ├── manifest.json        ← Metadata, checksums
+│               ├── symbols.seg          ← Symbol records (mmap'd)
+│               ├── edges.seg, facts.seg ← References + architectural facts
+│               ├── search.idx           ← Token search index
+│               └── ...                  ← Other segment files
+│
+├── baselines/                           ← SQLite baselines (CODEMAP_ENGINE=sqlite)
+│   └── {repo-id}/
+│       └── {commit-sha}.db             ← One .db per indexed commit
 │
 ├── overlays/                            ← Workspace overlay databases
 │   └── {repo-id}/
-│       ├── agent-1.db                   ← Workspace "agent-1" overlay
-│       └── agent-2.db                   ← Workspace "agent-2" overlay
+│       └── agent-1.db                   ← Workspace overlay
 │
 ├── logs/                                ← Structured JSON log files
 │   ├── codemap-2026-03-05.log           ← One file per day
@@ -1179,18 +1197,19 @@ the complete layout:
 
 ### Understanding Repository IDs
 
-The folder name under `baselines/` is a sanitized repo ID derived from
-your repository's path. For example:
+The folder name under `store/` (v2) or `baselines/` (SQLite) is a sanitized
+repo ID derived from your repository's path. For example:
 
 ```
 C:\Users\Developer\source\repos\MyProject
   → repo ID: local-b73d0e677cfb93f6
-  → baselines at: ~/.codemap/baselines/local-b73d0e677cfb93f6/
+  → v2 baselines at: ~/.codemap/store/local-b73d0e677cfb93f6/baselines/
 ```
 
 ### Understanding Baseline Files
 
-Each `.db` file is a complete SQLite database containing the semantic index
+**v2 (default):** Each baseline is a directory of memory-mapped binary segments.
+**SQLite (fallback):** Each `.db` is a SQLite database with the semantic index
 for one specific commit:
 
 ```

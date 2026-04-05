@@ -796,6 +796,24 @@ export CODEMAP_CACHE_DIR=/mnt/team-cache/codemap
 dotnet run --project src/CodeMap.Daemon
 ```
 
+**Storage engine selection:** `CODEMAP_ENGINE` env var selects the storage backend.
+
+| Value | Engine | Storage location |
+|---|---|---|
+| `sqlite` (default) | SQLite + FTS5 | `~/.codemap/baselines/<repoId>/<sha>.db` |
+| `custom` | v2 binary mmap engine | `~/.codemap/store/baselines/<sha>/` (segments) |
+
+Both engines coexist — different directory structures, no collision. Set
+`CODEMAP_ENGINE=custom` to test the v2 engine:
+
+```bash
+export CODEMAP_ENGINE=custom
+dotnet run --project src/CodeMap.Daemon
+```
+
+The v2 engine uses WAL-backed overlays at `~/.codemap/store/overlays/<workspaceId>/`.
+Overlay-local symbols use negative IntIds. See ADR-031 for design details.
+
 **Log files** are written to `~/.codemap/logs/codemap-{yyyy-MM-dd}.log`
 with daily rotation. Each line is a JSON object:
 

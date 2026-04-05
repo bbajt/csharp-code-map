@@ -7,7 +7,7 @@ using CodeMap.Mcp.Handlers;
 using CodeMap.Query;
 using CodeMap.Roslyn;
 using CodeMap.Roslyn.Extraction;
-using CodeMap.Storage;
+using CodeMap.Storage.Engine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -30,9 +30,9 @@ public static class ServiceRegistration
     /// <list type="number">
     /// <item><b>Git</b> — IGitService singleton (stateless, no deps)</item>
     /// <item><b>Roslyn</b> — IRoslynCompiler + IResolutionWorker (MSBuildWorkspace, expensive, singleton)</item>
-    /// <item><b>Storage</b> — BaselineDbFactory → BaselineStore (registered as both concrete and ISymbolStore per ADR-012)</item>
+    /// <item><b>Storage</b> — CustomSymbolStore (v2 engine) registered as ISymbolStore</item>
     /// <item><b>Cache</b> — IBaselineCacheManager (reads CODEMAP_CACHE_DIR env var; null = disabled)</item>
-    /// <item><b>Overlay</b> — OverlayDbFactory → OverlayStore (registered as both concrete and IOverlayStore)</item>
+    /// <item><b>Overlay</b> — CustomEngineOverlayStore (v2 engine) registered as IOverlayStore</item>
     /// <item><b>IncrementalCompiler</b> — singleton to reuse cached MSBuildWorkspace across RefreshOverlay calls</item>
     /// <item><b>Query</b> — ICacheService + ITokenSavingsTracker (tracker loads savings from disk at startup)</item>
     /// <item><b>WorkspaceManager</b> — singleton registry; CreatedAt is in-memory only (lost on daemon restart)</item>
@@ -60,29 +60,17 @@ public static class ServiceRegistration
         services.AddSingleton<IResolutionWorker, ResolutionWorker>();
 
         // ── Storage ────────────────────────────────────────────────────────────
-        // BaselineStore registered as both concrete type and ISymbolStore (ADR-012):
-        // handlers that need repoRootPath inject ISymbolStore; DI provides BaselineStore.
-        services.AddSingleton(sp => new BaselineDbFactory(
-            Path.Combine(resolvedBaseDir, "baselines"),
-            sp.GetRequiredService<ILogger<BaselineDbFactory>>()));
-        services.AddSingleton<BaselineStore>();
-        services.AddSingleton<ISymbolStore>(sp => sp.GetRequiredService<BaselineStore>());
+        // v2 custom storage engine — all ISymbolStore methods + IOverlayStore adapter.
+        var storeDir = Path.Combine(resolvedBaseDir, "store");
+        var customStore = new CustomSymbolStore(storeDir);
+        services.AddSingleton<ISymbolStore>(customStore);
+        services.AddSingleton<IOverlayStore>(new CustomEngineOverlayStore(customStore, storeDir));
 
         // ── Shared baseline cache ─────────────────────────────────────────────
         // CODEMAP_CACHE_DIR env var sets the shared cache directory (null = disabled).
         var sharedCacheDir = Environment.GetEnvironmentVariable("CODEMAP_CACHE_DIR");
-        services.AddSingleton<IBaselineCacheManager>(sp =>
-            new BaselineCacheManager(
-                sp.GetRequiredService<BaselineDbFactory>(),
-                sharedCacheDir,
-                sp.GetRequiredService<ILogger<BaselineCacheManager>>()));
-
-        // ── Overlay storage ───────────────────────────────────────────────────
-        services.AddSingleton(sp => new OverlayDbFactory(
-            Path.Combine(resolvedBaseDir, "overlays"),
-            sp.GetRequiredService<ILogger<OverlayDbFactory>>()));
-        services.AddSingleton<OverlayStore>();
-        services.AddSingleton<IOverlayStore>(sp => sp.GetRequiredService<OverlayStore>());
+        services.AddSingleton<IBaselineCacheManager>(
+            new EngineBaselineCacheManager(storeDir, sharedCacheDir));
 
         // ── Incremental compiler ──────────────────────────────────────────────
         services.AddSingleton<SymbolDiffer>();
@@ -122,7 +110,7 @@ public static class ServiceRegistration
         // ── MCP server + handlers ─────────────────────────────────────────────
         services.AddMcpServer();
         services.AddSingleton<RepoStatusHandler>();
-        services.AddSingleton<IBaselineScanner>(sp => sp.GetRequiredService<BaselineDbFactory>());
+        services.AddSingleton<IBaselineScanner>(new EngineBaselineScanner(storeDir));
         services.AddSingleton<IndexHandler>(sp => new IndexHandler(
             sp.GetRequiredService<IGitService>(),
             sp.GetRequiredService<IRoslynCompiler>(),
@@ -147,7 +135,7 @@ public static class ServiceRegistration
     }
 
     /// <summary>
-    /// Registers all 25 MCP tools into the ToolRegistry.
+    /// Registers all 27 MCP tools into the ToolRegistry.
     /// Must be called after the DI container is built.
     /// </summary>
     public static void RegisterMcpTools(IServiceProvider sp)

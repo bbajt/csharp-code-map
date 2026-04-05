@@ -1,0 +1,15 @@
+{
+  "category": "SummarizeExport",
+  "symbol_ids": [],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "detail_level": "standard",
+    "symbol_count": "106",
+    "reference_count": "54",
+    "fact_count": "20",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": null
+}

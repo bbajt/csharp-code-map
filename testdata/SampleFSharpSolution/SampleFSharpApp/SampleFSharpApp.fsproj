@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>SampleFSharpApp</RootNamespace>
+    <AssemblyName>SampleFSharpApp</AssemblyName>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Models.fs" />
+    <Compile Include="Interfaces.fs" />
+    <Compile Include="Services.fs" />
+    <Compile Include="Patterns.fs" />
+  </ItemGroup>
+</Project>

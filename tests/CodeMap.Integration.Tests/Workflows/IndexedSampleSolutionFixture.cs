@@ -6,8 +6,7 @@ using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Query;
 using CodeMap.Roslyn;
-using CodeMap.Storage;
-using Microsoft.Data.Sqlite;
+using CodeMap.Storage.Engine;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
@@ -31,7 +30,7 @@ public sealed class IndexedSampleSolutionFixture : IAsyncLifetime
     public RepoId RepoId { get; } = RepoId.From("workflow-fixture-repo");
     public CommitSha Sha { get; } = CommitSha.From(new string('e', 40));
 
-    public BaselineStore BaselineStore { get; private set; } = null!;
+    public ISymbolStore BaselineStore { get; private set; } = null!;
     public QueryEngine QueryEngine { get; private set; } = null!;
     public string OverlayDir { get; private set; } = null!;
     public string BaselineDir { get; private set; } = null!;
@@ -59,8 +58,7 @@ public sealed class IndexedSampleSolutionFixture : IAsyncLifetime
         Directory.CreateDirectory(BaselineDir);
         Directory.CreateDirectory(OverlayDir);
 
-        var factory = new BaselineDbFactory(BaselineDir, NullLogger<BaselineDbFactory>.Instance);
-        BaselineStore = new BaselineStore(factory, NullLogger<BaselineStore>.Instance);
+        BaselineStore = new CustomSymbolStore(BaselineDir);
         var compiler = new RoslynCompiler(NullLogger<RoslynCompiler>.Instance);
         var cache = new InMemoryCacheService();
         var tracker = new TokenSavingsTracker();
@@ -79,7 +77,6 @@ public sealed class IndexedSampleSolutionFixture : IAsyncLifetime
 
     public ValueTask DisposeAsync()
     {
-        SqliteConnection.ClearAllPools();
         if (Directory.Exists(_tempDir))
             try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
         return ValueTask.CompletedTask;

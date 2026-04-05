@@ -279,6 +279,36 @@ public sealed class BaselineDbFactory : IBaselineScanner
         return new CleanupResponse(removed.Count, bytesReclaimed, removed, kept, dryRun);
     }
 
+    /// <inheritdoc/>
+    public async Task<RemoveRepoResponse> RemoveRepoAsync(
+        CodeMap.Core.Types.RepoId repoId,
+        bool dryRun = true,
+        CancellationToken ct = default)
+    {
+        var baselines = await ListBaselinesAsync(repoId, ct).ConfigureAwait(false);
+        long bytesFreed = baselines.Sum(b => b.SizeBytes);
+        var commits = baselines.Select(b => b.CommitSha).ToList();
+
+        if (!dryRun)
+        {
+            var repoDir = Path.Combine(_baseDir, SanitizeSegment(repoId.Value));
+            if (Directory.Exists(repoDir))
+            {
+                try
+                {
+                    Directory.Delete(repoDir, recursive: true);
+                }
+                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+                {
+                    _logger.LogWarning(ex,
+                        "RemoveRepo: could not fully delete repo directory {Dir} (files in use?)", repoDir);
+                }
+            }
+        }
+
+        return new RemoveRepoResponse(repoId, commits.Count, bytesFreed, commits, dryRun);
+    }
+
     private static long DeleteBaselineFiles(string dbPath)
     {
         long size = 0;

@@ -609,7 +609,7 @@ public sealed class QueryEngine : IQueryEngine
                 var refs = await _store.GetReferencesAsync(
                     routing.RepoId, commitSha, sid, null, clampedLimit * 2, token).ConfigureAwait(false);
                 return refs
-                    .Where(r => r.Kind == RefKind.Call || r.Kind == RefKind.Instantiate)
+                    .Where(r => (r.Kind == RefKind.Call || r.Kind == RefKind.Instantiate) && r.FromSymbol != SymbolId.Empty)
                     .Select(r => r.FromSymbol)
                     .Distinct()
                     .Take(clampedLimit)
@@ -632,7 +632,7 @@ public sealed class QueryEngine : IQueryEngine
                 var refs = await _store.GetOutgoingReferencesAsync(
                     routing.RepoId, commitSha, sid, null, clampedLimit * 2, token).ConfigureAwait(false);
                 return refs
-                    .Where(r => r.Kind == RefKind.Call || r.Kind == RefKind.Instantiate)
+                    .Where(r => (r.Kind == RefKind.Call || r.Kind == RefKind.Instantiate) && r.ToSymbol != SymbolId.Empty)
                     .Select(r => r.ToSymbol)
                     .Distinct()
                     .Take(clampedLimit)

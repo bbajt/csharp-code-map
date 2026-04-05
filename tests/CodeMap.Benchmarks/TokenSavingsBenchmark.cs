@@ -7,7 +7,7 @@ using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Query;
 using CodeMap.Roslyn;
-using CodeMap.Storage;
+using CodeMap.Storage.Engine;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -118,8 +118,7 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
         _tempDir = Path.Combine(Path.GetTempPath(), "codemap-bench-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
 
-        var factory = new BaselineDbFactory(_tempDir, NullLogger<BaselineDbFactory>.Instance);
-        var store = new BaselineStore(factory, NullLogger<BaselineStore>.Instance);
+        var store = new CustomSymbolStore(_tempDir);
         var compiler = new RoslynCompiler(NullLogger<RoslynCompiler>.Instance);
         var cache = new InMemoryCacheService();
         var tracker = new TokenSavingsTracker();
@@ -153,8 +152,7 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
         // M02: set up workspace + MergedQueryEngine for task 16 (virtual file span)
         var overlayDir = Path.Combine(_tempDir, "overlays");
         Directory.CreateDirectory(overlayDir);
-        var overlayFactory = new OverlayDbFactory(overlayDir, NullLogger<OverlayDbFactory>.Instance);
-        var overlayStore = new OverlayStore(overlayFactory, NullLogger<OverlayStore>.Instance);
+        var overlayStore = new CustomEngineOverlayStore(store, _tempDir);
 
         _wsMgr = new WorkspaceManager(
             overlayStore, new NoopIncrementalCompiler(), store,
@@ -185,8 +183,7 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
         // M03: pre-populate shared cache dir for task 24 (cache pull timing)
         _cacheDir = Path.Combine(_tempDir, "shared-cache");
         Directory.CreateDirectory(_cacheDir);
-        var cacheFactory = new BaselineDbFactory(_tempDir, NullLogger<BaselineDbFactory>.Instance);
-        var cacheMgr = new BaselineCacheManager(cacheFactory, _cacheDir, NullLogger<BaselineCacheManager>.Instance);
+        var cacheMgr = new EngineBaselineCacheManager(_tempDir, _cacheDir);
         await cacheMgr.PushAsync(repoId, commitSha);
     }
 
@@ -217,7 +214,6 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
 
     public ValueTask DisposeAsync()
     {
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         if (Directory.Exists(_tempDir))
             try { Directory.Delete(_tempDir, recursive: true); } catch { /* best-effort */ }
         return ValueTask.CompletedTask;
@@ -514,9 +510,7 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
         {
             var pullLocalDir = Path.Combine(_tempDir, "cache-pull-bench");
             Directory.CreateDirectory(pullLocalDir);
-            var pullFactory = new BaselineDbFactory(pullLocalDir, NullLogger<BaselineDbFactory>.Instance);
-            var pullMgr = new BaselineCacheManager(
-                pullFactory, _cacheDir, NullLogger<BaselineCacheManager>.Instance);
+            var pullMgr = new EngineBaselineCacheManager(pullLocalDir, _cacheDir);
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var pulled = await pullMgr.PullAsync(

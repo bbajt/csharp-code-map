@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CodeMap.Query\CodeMap.Query.csproj" />
-    <ProjectReference Include="..\..\src\CodeMap.Storage\CodeMap.Storage.csproj" />
+    <ProjectReference Include="..\..\src\CodeMap.Storage.Engine\CodeMap.Storage.Engine.csproj" />
     <ProjectReference Include="..\..\src\CodeMap.Roslyn\CodeMap.Roslyn.csproj" />
     <ProjectReference Include="..\..\src\CodeMap.Git\CodeMap.Git.csproj" />
     <ProjectReference Include="..\CodeMap.TestUtilities\CodeMap.TestUtilities.csproj" />

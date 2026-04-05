@@ -1,0 +1,24 @@
+{
+  "category": "SymbolSearch",
+  "symbol_ids": [
+    "F:SampleApp.Api.Services.OrderCleanupBackgroundService._orderService",
+    "F:SampleApp.Api.Services.OrderOrchestrator._orderService",
+    "F:SampleApp.Api.Services.PaymentProcessor._service",
+    "F:SampleApp.Services.OrderProcessingService._orderService",
+    "M:SampleApp.Api.Services.OrderCleanupBackgroundService.#ctor(SampleApp.Services.IOrderService,Microsoft.Extensions.Logging.ILogger{SampleApp.Api.Services.OrderCleanupBackgroundService})",
+    "M:SampleApp.Api.Services.OrderOrchestrator.#ctor(SampleApp.Services.IOrderService,SampleApp.Services.INotificationService,Microsoft.Extensions.Logging.ILogger{SampleApp.Api.Services.OrderOrchestrator})",
+    "M:SampleApp.Api.Services.PaymentProcessor.#ctor(SampleApp.Services.IOrderService,SampleApp.Api.Services.IPaymentGateway,Microsoft.Extensions.Logging.ILogger{SampleApp.Api.Services.PaymentProcessor})",
+    "M:SampleApp.Services.OrderProcessingService.#ctor(SampleApp.Services.IOrderService)",
+    "T:SampleApp.Api.Services.OrderOrchestrator",
+    "T:SampleApp.Api.Services.PaymentProcessor",
+    "T:SampleApp.Services.IOrderService"
+  ],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "total_count": "11",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 11
+}

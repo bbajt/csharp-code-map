@@ -1,0 +1,15 @@
+{
+  "category": "Surfaces",
+  "symbol_ids": [],
+  "edge_keys": [],
+  "fact_keys": [
+    "Customers",
+    "Orders"
+  ],
+  "scalar_fields": {
+    "total_count": "2",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 2
+}

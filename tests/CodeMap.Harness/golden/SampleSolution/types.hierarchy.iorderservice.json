@@ -1,0 +1,16 @@
+{
+  "category": "TypeHierarchy",
+  "symbol_ids": [
+    "T:SampleApp.Services.OrderService"
+  ],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "target": "T:SampleApp.Services.IOrderService",
+    "base_count": "0",
+    "interface_count": "0",
+    "derived_count": "1"
+  },
+  "is_truncated": false,
+  "total_available": null
+}

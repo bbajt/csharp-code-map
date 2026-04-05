@@ -2,17 +2,17 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.bbajt/codemap-mcp",
   "title": "CodeMap",
-  "description": "Roslyn-powered MCP server for C#/VB.NET. Query symbols, call graphs, and facts. 90%+ token savings.",
+  "description": "Roslyn-powered MCP server for C#. Query symbols, call graphs, and facts. 90%+ token savings.",
   "repository": {
     "url": "https://github.com/bbajt/csharp-code-map",
     "source": "github"
   },
-  "version": "1.4.0",
+  "version": "1.3.2",
   "packages": [
     {
       "registryType": "nuget",
       "identifier": "codemap-mcp",
-      "version": "1.4.0",
+      "version": "1.3.2",
       "transport": {
         "type": "stdio"
       },

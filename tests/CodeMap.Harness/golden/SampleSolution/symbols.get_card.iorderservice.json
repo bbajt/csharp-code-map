@@ -1,0 +1,18 @@
+{
+  "category": "CardAndContext",
+  "symbol_ids": [
+    "T:SampleApp.Services.IOrderService"
+  ],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "fqn": "global::SampleApp.Services.IOrderService",
+    "kind": "Interface",
+    "stable_id": "sym_c0f7161837be0836",
+    "span_start": "7",
+    "span_end": "22",
+    "is_decompiled": "0"
+  },
+  "is_truncated": false,
+  "total_available": null
+}

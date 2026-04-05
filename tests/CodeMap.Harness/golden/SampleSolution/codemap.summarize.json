@@ -1,0 +1,29 @@
+{
+  "category": "SummarizeExport",
+  "symbol_ids": [],
+  "edge_keys": [],
+  "fact_keys": [
+    "API Surface (4 endpoints)",
+    "Configuration (3 keys)",
+    "Data Layer (4 tables)",
+    "Dependency Injection (7 registrations)",
+    "Error Handling (11 throws)",
+    "Key Metrics",
+    "Logging (19 templates)",
+    "Middleware Pipeline",
+    "Resilience (2 policies)",
+    "Solution Overview"
+  ],
+  "scalar_fields": {
+    "symbol_count": "248",
+    "reference_count": "201",
+    "fact_count": "61",
+    "endpoint_count": "4",
+    "config_key_count": "3",
+    "db_table_count": "9",
+    "di_registration_count": "7",
+    "section_count": "10"
+  },
+  "is_truncated": false,
+  "total_available": null
+}

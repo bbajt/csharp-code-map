@@ -1,0 +1,29 @@
+{
+  "category": "TextSearch",
+  "symbol_ids": [],
+  "edge_keys": [],
+  "fact_keys": [
+    "SampleApp.Api/DiSetup.cs:14:services.AddScoped\u003CIOrderService, OrderService\u003E();",
+    "SampleApp.Api/Services/OrderCleanupBackgroundService.cs:13:IOrderService orderService,",
+    "SampleApp.Api/Services/OrderCleanupBackgroundService.cs:8:private readonly IOrderService _orderService;",
+    "SampleApp.Api/Services/OrderOrchestrator.cs:14:private readonly IOrderService _orderService;",
+    "SampleApp.Api/Services/OrderOrchestrator.cs:19:IOrderService orderService,",
+    "SampleApp.Api/Services/OrderOrchestrator.cs:9:/// Depends on IOrderService and INotificationService (SampleApp) and PagedList (SampleApp.Shared).",
+    "SampleApp.Api/Services/PaymentProcessor.cs:12:private readonly IOrderService _service;",
+    "SampleApp.Api/Services/PaymentProcessor.cs:17:IOrderService service,",
+    "SampleApp.Api/Services/PaymentProcessor.cs:29:// Interface-typed call \u2014 ref points to IOrderService.GetByIdAsync (not OrderService)",
+    "SampleApp.Api/Services/PaymentProcessor.cs:8:/// AC-T01-04 \u2014 interface call dispatch: calls IOrderService (interface-typed), not OrderService.",
+    "SampleApp/Services/IOrderService.cs:7:public interface IOrderService",
+    "SampleApp/Services/OrderProcessingService.cs:11:public OrderProcessingService(IOrderService orderService)",
+    "SampleApp/Services/OrderProcessingService.cs:9:private readonly IOrderService _orderService;",
+    "SampleApp/Services/OrderService.cs:7:/// \u003Csummary\u003EDefault implementation of \u003Csee cref=\u0022IOrderService\u0022/\u003E.\u003C/summary\u003E",
+    "SampleApp/Services/OrderService.cs:8:public partial class OrderService : IOrderService"
+  ],
+  "scalar_fields": {
+    "total_files": "56",
+    "match_count": "15",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 15
+}

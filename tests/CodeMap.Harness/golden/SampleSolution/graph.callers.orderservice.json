@@ -1,0 +1,21 @@
+{
+  "category": "GraphTraversal",
+  "symbol_ids": [
+    "M:SampleApp.Tests.OrderServiceTests.CancelAsync_ExistingOrder_ChangesStatus",
+    "M:SampleApp.Tests.OrderServiceTests.SubmitAsync_EmptyCustomerId_Throws",
+    "M:SampleApp.Tests.OrderServiceTests.SubmitAsync_ValidCustomer_ReturnsSuccess",
+    "T:SampleApp.Services.OrderService"
+  ],
+  "edge_keys": [
+    "T:SampleApp.Services.OrderService\u2192M:SampleApp.Tests.OrderServiceTests.CancelAsync_ExistingOrder_ChangesStatus",
+    "T:SampleApp.Services.OrderService\u2192M:SampleApp.Tests.OrderServiceTests.SubmitAsync_EmptyCustomerId_Throws",
+    "T:SampleApp.Services.OrderService\u2192M:SampleApp.Tests.OrderServiceTests.SubmitAsync_ValidCustomer_ReturnsSuccess"
+  ],
+  "fact_keys": [],
+  "scalar_fields": {
+    "total_nodes": "3",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 3
+}

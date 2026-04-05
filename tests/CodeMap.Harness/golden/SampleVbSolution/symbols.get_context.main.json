@@ -1,0 +1,14 @@
+{
+  "category": "CardAndContext",
+  "symbol_ids": [
+    "T:SampleVbApp.Data.AppDbContext"
+  ],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "fqn": "Global.SampleVbApp.Data.AppDbContext",
+    "callee_count": "0"
+  },
+  "is_truncated": false,
+  "total_available": null
+}

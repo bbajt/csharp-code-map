@@ -98,6 +98,21 @@ public sealed class IndexHandler
             HandleCleanupAsync));
 
         registry.Register(new ToolDefinition(
+            "index.remove_repo",
+            "Remove ALL cached baselines for a repository, freeing all disk space. Unlike index.cleanup, this ignores protection rules — HEAD and workspace-referenced baselines are also deleted. Default is dry_run:true.",
+            new JsonObject
+            {
+                ["type"] = "object",
+                ["required"] = new JsonArray((JsonNode?)"repo_path"),
+                ["properties"] = new JsonObject
+                {
+                    ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root" },
+                    ["dry_run"] = new JsonObject { ["type"] = "boolean", ["description"] = "If true, report what would be deleted without deleting (default: true)" },
+                },
+            },
+            HandleRemoveRepoAsync));
+
+        registry.Register(new ToolDefinition(
             "index.ensure_baseline",
             "Build a semantic index for a .NET solution. Idempotent: returns immediately if the current commit is already indexed.",
             new JsonObject
@@ -204,6 +219,32 @@ public sealed class IndexHandler
         {
             _logger.LogError(ex, "index.cleanup failed for {RepoPath}", repoPath);
             return Error($"Cleanup failed: {ex.Message}");
+        }
+    }
+
+    internal async Task<ToolCallResult> HandleRemoveRepoAsync(JsonObject? args, CancellationToken ct)
+    {
+        var repoPath = args?["repo_path"]?.GetValue<string>();
+        if (string.IsNullOrEmpty(repoPath)) return Error("repo_path is required");
+        if (_scanner is null) return Error("index.remove_repo is not available (scanner not configured)");
+
+        var dryRun = args?["dry_run"]?.GetValue<bool>() ?? true;
+
+        try
+        {
+            var repoId = await _git.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
+            var response = await _scanner.RemoveRepoAsync(repoId, dryRun, ct).ConfigureAwait(false);
+
+            var json = JsonSerializer.Serialize(response, CodeMapJsonOptions.Default);
+            if (response.DryRun)
+                json += "\n(Dry run — no files were actually deleted. Pass dry_run:false to delete.)";
+
+            return new ToolCallResult(json);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "index.remove_repo failed for {RepoPath}", repoPath);
+            return Error($"Remove repo failed: {ex.Message}");
         }
     }
 

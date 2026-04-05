@@ -1,0 +1,17 @@
+{
+  "category": "Surfaces",
+  "symbol_ids": [],
+  "edge_keys": [],
+  "fact_keys": [
+    "DELETE:/api/orders/{id}",
+    "GET:/api/orders",
+    "GET:/api/orders/{id}",
+    "POST:/api/orders"
+  ],
+  "scalar_fields": {
+    "total_count": "4",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 4
+}

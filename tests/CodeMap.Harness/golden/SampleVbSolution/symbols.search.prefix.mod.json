@@ -1,0 +1,20 @@
+{
+  "category": "SymbolSearch",
+  "symbol_ids": [
+    "M:SampleVbApp.Stubs.DbContext.OnModelCreating(System.Object)",
+    "T:SampleVbApp.Models.Customer",
+    "T:SampleVbApp.Models.IEntity",
+    "T:SampleVbApp.Models.Money",
+    "T:SampleVbApp.Models.Order",
+    "T:SampleVbApp.Models.OrderStatus",
+    "T:SampleVbApp.Utilities.Calculator"
+  ],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "total_count": "7",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 7
+}
