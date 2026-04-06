@@ -69,8 +69,9 @@ public static class ServiceRegistration
         // ── Shared baseline cache ─────────────────────────────────────────────
         // CODEMAP_CACHE_DIR env var sets the shared cache directory (null = disabled).
         var sharedCacheDir = Environment.GetEnvironmentVariable("CODEMAP_CACHE_DIR");
-        services.AddSingleton<IBaselineCacheManager>(
-            new EngineBaselineCacheManager(storeDir, sharedCacheDir));
+        services.AddSingleton<IBaselineCacheManager>(sp =>
+            new EngineBaselineCacheManager(storeDir, sharedCacheDir,
+                sp.GetRequiredService<ILogger<EngineBaselineCacheManager>>()));
 
         // ── Incremental compiler ──────────────────────────────────────────────
         services.AddSingleton<SymbolDiffer>();

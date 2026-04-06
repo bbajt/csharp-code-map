@@ -45,39 +45,16 @@ goldenBaseDir = Path.GetFullPath(goldenBaseDir);
 
 int exitCode;
 
-// ── Compare mode: needs two separate engine stacks ───────────────────────────
+// ── Compare mode: removed (SQLite engine removed in v2.1.0) ─────────────────
 if (mode == "compare")
 {
-    var repos = KnownRepos.ForTierName(repoTier) ?? [KnownRepos.SampleSolution];
-
-    var sqliteSp = BuildServiceProvider(baseDir, useSqlite: true);
-    var customSp = BuildServiceProvider(baseDir, useSqlite: false);
-
-    var sqliteEngine = sqliteSp.GetRequiredService<IQueryEngine>();
-    var customEngine = customSp.GetRequiredService<IQueryEngine>();
-
-    var sqliteIndexer = new HarnessIndexer(
-        sqliteSp.GetRequiredService<IGitService>(),
-        sqliteSp.GetRequiredService<IRoslynCompiler>(),
-        sqliteSp.GetRequiredService<ISymbolStore>(),
-        sqliteSp.GetRequiredService<IBaselineCacheManager>());
-
-    var customIndexer = new HarnessIndexer(
-        customSp.GetRequiredService<IGitService>(),
-        customSp.GetRequiredService<IRoslynCompiler>(),
-        customSp.GetRequiredService<ISymbolStore>(),
-        customSp.GetRequiredService<IBaselineCacheManager>());
-
-    var compareRunner = new CompareRunner(sqliteEngine, sqliteIndexer, customEngine, customIndexer);
-    exitCode = await compareRunner.RunAsync(repos, reporter, cts.Token);
-    return exitCode;
+    Console.WriteLine("Compare mode is no longer available. SQLite engine was removed in v2.1.0.");
+    Console.WriteLine("Use 'smoke' or 'golden check' to validate the v2 custom engine.");
+    return (int)HarnessExitCode.ConfigurationError;
 }
 
-// ── Standard modes: single engine ────────────────────────────���───────────────
-// Default is v2 custom engine. Set CODEMAP_ENGINE=sqlite for SQLite fallback.
-var engineEnv = Environment.GetEnvironmentVariable("CODEMAP_ENGINE");
-var useSqliteForStandard = string.Equals(engineEnv, "sqlite", StringComparison.OrdinalIgnoreCase);
-var sp = BuildServiceProvider(baseDir, useSqliteForStandard);
+// ── Standard modes: v2 custom engine only ────────────────────────────────────
+var sp = BuildServiceProvider(baseDir);
 
 var engine = sp.GetRequiredService<IQueryEngine>();
 var indexer = new HarnessIndexer(
@@ -129,8 +106,8 @@ switch (mode)
 
 return exitCode;
 
-// ── Helper: builds a complete DI container for the v2 engine ────────────────
-static ServiceProvider BuildServiceProvider(string baseDir, bool useSqlite)
+// ── Helper: builds a complete DI container for the v2 custom engine ──────────
+static ServiceProvider BuildServiceProvider(string baseDir)
 {
     var services = new ServiceCollection();
     services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
@@ -189,12 +166,8 @@ static void PrintUsage()
     Console.WriteLine("  golden check --repo micro|small|all");
     Console.WriteLine("  smoke");
     Console.WriteLine("  correctness  --repo micro|small|medium|large");
-    Console.WriteLine("  compare      --repo micro|small|medium|large|all");
     Console.WriteLine();
     Console.WriteLine("Options:");
     Console.WriteLine("  --output  console|json  (default: console)");
     Console.WriteLine("  --out-file <path>       write report to file");
-    Console.WriteLine();
-    Console.WriteLine("Compare mode indexes the same repo with both SQLite and v2 engines,");
-    Console.WriteLine("runs every query through both, and reports any differences.");
 }

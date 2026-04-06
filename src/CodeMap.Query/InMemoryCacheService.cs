@@ -17,13 +17,18 @@ public sealed class InMemoryCacheService : ICacheService
     {
         public object Value { get; }
         public DateTimeOffset ExpiresAt { get; }
-        public DateTimeOffset LastAccessed { get; set; }
+        private long _lastAccessedTicks;
+        public DateTimeOffset LastAccessed
+        {
+            get => new(Interlocked.Read(ref _lastAccessedTicks), TimeSpan.Zero);
+            set => Interlocked.Exchange(ref _lastAccessedTicks, value.UtcTicks);
+        }
 
         public CacheEntry(object value, DateTimeOffset expiresAt)
         {
             Value = value;
             ExpiresAt = expiresAt;
-            LastAccessed = DateTimeOffset.UtcNow;
+            _lastAccessedTicks = DateTimeOffset.UtcNow.UtcTicks;
         }
     }
 

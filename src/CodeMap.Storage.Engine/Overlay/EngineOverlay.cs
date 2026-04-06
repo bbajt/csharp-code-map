@@ -12,7 +12,7 @@ internal sealed class EngineOverlay : IEngineOverlay
 {
     private readonly string _overlayDir;
     private readonly EngineBaselineReader _baseline;
-    internal readonly ReaderWriterLockSlim _lock = new();
+    private readonly ReaderWriterLockSlim _lock = new();
     private WalWriter? _walWriter;
     private uint _lastWalSequence;
     private uint _walRecordCount;
@@ -148,6 +148,22 @@ internal sealed class EngineOverlay : IEngineOverlay
         }
     }
 
+    /// <summary>Returns a snapshot of all overlay file paths under read lock.</summary>
+    public IReadOnlySet<string> GetFilePathsSnapshot()
+    {
+        _lock.EnterReadLock();
+        try { return FilesByPath.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase); }
+        finally { _lock.ExitReadLock(); }
+    }
+
+    /// <summary>Returns the total number of overlay facts under read lock.</summary>
+    public int GetFactCount()
+    {
+        _lock.EnterReadLock();
+        try { return FactsBySymbol.Values.Sum(l => l.Count); }
+        finally { _lock.ExitReadLock(); }
+    }
+
     public FileRecord? TryGetOverlayFile(string repoRelativePath)
     {
         _lock.EnterReadLock();
@@ -207,6 +223,28 @@ internal sealed class EngineOverlay : IEngineOverlay
             {
                 // Empty file
             }
+            _walRecordCount = 0;
+            _lastWalSequence = 0;
+            OpenWalWriter();
+        }
+        finally { _lock.ExitWriteLock(); }
+    }
+
+    /// <summary>Synchronous checkpoint for use in Dispose — avoids sync-over-async.</summary>
+    private void DoCheckpointSync()
+    {
+        _lock.EnterWriteLock();
+        try
+        {
+            var snapshotPath = Path.Combine(_overlayDir, "overlay.snapshot");
+            var tmpPath = snapshotPath + ".tmp";
+
+            SnapshotSerializer.Write(tmpPath, this);
+            File.Move(tmpPath, snapshotPath, overwrite: true);
+
+            _walWriter?.Dispose();
+            var walPath = Path.Combine(_overlayDir, "overlay.wal");
+            using (var fs = new FileStream(walPath, FileMode.Create, FileAccess.Write)) { }
             _walRecordCount = 0;
             _lastWalSequence = 0;
             OpenWalWriter();
@@ -285,11 +323,18 @@ internal sealed class EngineOverlay : IEngineOverlay
     {
         if (string.IsNullOrEmpty(value)) return 0;
         if (_baseline.Dictionary.TryFind(value, out var baselineId)) return baselineId;
-        if (OverlayDictReverse.TryGetValue(value, out var overlayId)) return overlayId;
-        var id = NextOverlayStringId++;
-        OverlayDictionary[id] = value;
-        OverlayDictReverse[value] = id;
-        return id;
+
+        _lock.EnterWriteLock();
+        try
+        {
+            // Double-check under lock (another batch may have interned the same string)
+            if (OverlayDictReverse.TryGetValue(value, out var overlayId)) return overlayId;
+            var id = NextOverlayStringId++;
+            OverlayDictionary[id] = value;
+            OverlayDictReverse[value] = id;
+            return id;
+        }
+        finally { _lock.ExitWriteLock(); }
     }
 
     internal WalWriter GetWalWriter() => _walWriter!;
@@ -375,6 +420,13 @@ internal sealed class EngineOverlay : IEngineOverlay
         _walWriter = new WalWriter(walPath, _lastWalSequence);
     }
 
+    // ── Lock accessors for OverlayWriteBatch ───────────────────────────────
+
+    internal void EnterReadLock() => _lock.EnterReadLock();
+    internal void ExitReadLock() => _lock.ExitReadLock();
+    internal void EnterWriteLock() => _lock.EnterWriteLock();
+    internal void ExitWriteLock() => _lock.ExitWriteLock();
+
     // ── Dispose (graceful shutdown checkpoint, C-019) ────────────────────────
 
     public void Dispose()
@@ -385,7 +437,7 @@ internal sealed class EngineOverlay : IEngineOverlay
         try
         {
             if (_walRecordCount > 0)
-                DoCheckpointAsync().GetAwaiter().GetResult();
+                DoCheckpointSync();
         }
         catch
         {

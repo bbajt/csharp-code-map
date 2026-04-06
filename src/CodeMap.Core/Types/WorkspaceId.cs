@@ -11,10 +11,14 @@ public readonly record struct WorkspaceId
     private WorkspaceId(string value) => Value = value;
 
     /// <summary>Creates a WorkspaceId from a pre-validated string.</summary>
-    /// <exception cref="ArgumentException">If value is null or whitespace.</exception>
+    /// <exception cref="ArgumentException">If value is null, whitespace, or contains path traversal characters.</exception>
     public static WorkspaceId From(string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        if (value.Contains('/') || value.Contains('\\'))
+            throw new ArgumentException("WorkspaceId must not contain path separators.", nameof(value));
+        if (value.Contains(".."))
+            throw new ArgumentException("WorkspaceId must not contain path traversal sequences.", nameof(value));
         return new WorkspaceId(value);
     }
 

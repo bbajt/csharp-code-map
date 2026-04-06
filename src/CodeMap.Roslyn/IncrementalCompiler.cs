@@ -163,6 +163,12 @@ public class IncrementalCompiler : IIncrementalCompiler
             "Recompiling {Count} affected project(s) for {FileCount} changed file(s)",
             affectedProjectIds.Count, changedFiles.Count);
 
+        // Build cross-project symbol ID set from baseline for cross-project ref detection
+        var baselineSymbols = await baselineStore.GetAllSymbolSummariesAsync(repoId, commitSha, ct)
+            .ConfigureAwait(false);
+        var allSymbolIds = new HashSet<string>(
+            baselineSymbols.Select(s => s.SymbolId.Value), StringComparer.Ordinal);
+
         // Recompile affected projects and collect symbols/refs/files/facts from changed files only
         var newSymbols = new List<SymbolCard>();
         var newRefs = new List<ExtractedReference>();
@@ -184,9 +190,11 @@ public class IncrementalCompiler : IIncrementalCompiler
                 continue;
             }
 
-            // Extract all symbols, refs, and facts from this project
-            var projectSymbols = SymbolExtractor.ExtractAll(compilation, project.Name, repoRootPath);
-            var projectRefs = ReferenceExtractor.ExtractAll(compilation, repoRootPath);
+            // Extract all symbols (with stable IDs) and refs (with cross-project support)
+            var (projectSymbols, stableIdMap) = SymbolExtractor.ExtractAllWithStableIds(
+                compilation, project.Name, repoRootPath);
+            var projectRefs = ReferenceExtractor.ExtractAll(
+                compilation, repoRootPath, stableIdMap, allSymbolIds);
 
             // Skip fact extraction for test/benchmark projects (same logic as RoslynCompiler)
             bool isTestProject = project.Name.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
@@ -222,6 +230,10 @@ public class IncrementalCompiler : IIncrementalCompiler
             newSymbols.AddRange(filteredSymbols);
             newRefs.AddRange(filteredRefs);
             newFacts.AddRange(filteredFacts);
+
+            // Extend cross-project set with newly extracted symbols for subsequent projects
+            foreach (var sym in projectSymbols)
+                allSymbolIds.Add(sym.SymbolId.Value);
 
             // Collect file metadata for changed documents in this project
             foreach (var doc in project.Documents)

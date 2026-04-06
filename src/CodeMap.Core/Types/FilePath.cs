@@ -19,7 +19,19 @@ public readonly record struct FilePath
             throw new ArgumentException("FilePath must use forward slashes only.", nameof(value));
         if (value.StartsWith('/'))
             throw new ArgumentException("FilePath must be repo-relative (no leading slash).", nameof(value));
+        if (ContainsPathTraversal(value))
+            throw new ArgumentException("FilePath must not contain '..' path traversal.", nameof(value));
         return new FilePath(value);
+    }
+
+    private static bool ContainsPathTraversal(string path)
+    {
+        // Reject ".." as a path component: exact match, start, end, or middle segment
+        if (path == "..") return true;
+        if (path.StartsWith("../", StringComparison.Ordinal)) return true;
+        if (path.EndsWith("/..", StringComparison.Ordinal)) return true;
+        if (path.Contains("/../", StringComparison.Ordinal)) return true;
+        return false;
     }
 
     public override string ToString() => Value;

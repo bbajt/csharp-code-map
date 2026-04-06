@@ -144,10 +144,16 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public ContentSegmentReader Content => _content;
 
+    private void ThrowIfDisposed()
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(EngineBaselineReader));
+    }
+
     // ── Symbol access ────────────────────────────────────────────────────────
 
     public ref readonly SymbolRecord GetSymbolByIntId(int symbolIntId)
     {
+        ThrowIfDisposed();
         if (symbolIntId < 1 || symbolIntId > SymbolCount)
             throw new StorageFormatException($"SymbolIntId {symbolIntId} out of range [1..{SymbolCount}]");
         return ref _symbols[symbolIntId - 1]; // 0-based index
@@ -171,6 +177,7 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public IEnumerable<SymbolRecord> EnumerateSymbols()
     {
+        ThrowIfDisposed();
         for (var i = 0; i < SymbolCount; i++)
             yield return _symbols[i];
     }
@@ -179,6 +186,7 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public ref readonly FileRecord GetFileByIntId(int fileIntId)
     {
+        ThrowIfDisposed();
         if (fileIntId < 1 || fileIntId > FileCount)
             throw new StorageFormatException($"FileIntId {fileIntId} out of range [1..{FileCount}]");
         return ref _files[fileIntId - 1];
@@ -192,6 +200,7 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public IEnumerable<FileRecord> EnumerateFiles()
     {
+        ThrowIfDisposed();
         for (var i = 0; i < FileCount; i++)
             yield return _files[i];
     }
@@ -200,6 +209,7 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public ref readonly ProjectRecord GetProjectByIntId(int projectIntId)
     {
+        ThrowIfDisposed();
         if (projectIntId < 1 || projectIntId > ProjectCount)
             throw new StorageFormatException($"ProjectIntId {projectIntId} out of range [1..{ProjectCount}]");
         return ref _projects[projectIntId - 1];
@@ -207,6 +217,7 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public IEnumerable<ProjectRecord> EnumerateProjects()
     {
+        ThrowIfDisposed();
         for (var i = 0; i < ProjectCount; i++)
             yield return _projects[i];
     }
@@ -215,6 +226,7 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public ref readonly EdgeRecord GetEdgeByIntId(int edgeIntId)
     {
+        ThrowIfDisposed();
         if (edgeIntId < 1 || edgeIntId > EdgeCount)
             throw new StorageFormatException($"EdgeIntId {edgeIntId} out of range [1..{EdgeCount}]");
         return ref _edges[edgeIntId - 1];
@@ -249,6 +261,7 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public IEnumerable<EdgeRecord> EnumerateEdges()
     {
+        ThrowIfDisposed();
         for (var i = 0; i < EdgeCount; i++)
             yield return _edges[i];
     }
@@ -257,6 +270,7 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public IReadOnlyList<FactRecord> GetFactsBySymbol(int symbolIntId)
     {
+        ThrowIfDisposed();
         if (!_factsBySymbol.TryGetValue(symbolIntId, out var indices))
             return [];
         var result = new FactRecord[indices.Count];
@@ -267,6 +281,7 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public IReadOnlyList<FactRecord> GetFactsByKind(int factKind)
     {
+        ThrowIfDisposed();
         if (!_factsByKind.TryGetValue(factKind, out var indices))
             return [];
         var result = new FactRecord[indices.Count];
@@ -277,6 +292,7 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     public IEnumerable<FactRecord> EnumerateFacts()
     {
+        ThrowIfDisposed();
         for (var i = 0; i < FactCount; i++)
             yield return _facts[i];
     }
@@ -297,9 +313,17 @@ internal sealed class EngineBaselineReader : IEngineBaselineReader
 
     // ── Resolve helpers (used by merged reader + CustomSymbolStore) ──────────
 
-    public string ResolveString(int stringId) => _dictionary.Resolve(stringId);
+    public string ResolveString(int stringId)
+    {
+        ThrowIfDisposed();
+        return _dictionary.Resolve(stringId);
+    }
 
-    public string ResolveContent(int contentId) => _content.ResolveContent(contentId);
+    public string ResolveContent(int contentId)
+    {
+        ThrowIfDisposed();
+        return _content.ResolveContent(contentId);
+    }
 
     // ── Dispose ──────────────────────────────────────────────────────────────
 

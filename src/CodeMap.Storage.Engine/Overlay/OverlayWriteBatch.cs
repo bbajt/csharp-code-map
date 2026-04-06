@@ -101,14 +101,24 @@ internal sealed class OverlayWriteBatch : IOverlayWriteBatch
         // Step 1: Write WAL records (outside lock — I/O)
         var writer = _overlay.GetWalWriter();
 
-        // Write DictionaryAdd WAL records for all new overlay strings in this batch
-        foreach (var id in _newStringIds)
+        // Snapshot new overlay strings under read lock, then write WAL outside lock
+        List<(int Id, string Value)> newStrings;
+        _overlay.EnterReadLock();
+        try
         {
-            if (_overlay.OverlayDictionary.TryGetValue(id, out var value))
+            newStrings = new(_newStringIds.Count);
+            foreach (var id in _newStringIds)
             {
-                writer.WriteDictionaryAdd(id, value);
-                _overlay.IncrementWalRecordCount();
+                if (_overlay.OverlayDictionary.TryGetValue(id, out var value))
+                    newStrings.Add((id, value));
             }
+        }
+        finally { _overlay.ExitReadLock(); }
+
+        foreach (var (id, value) in newStrings)
+        {
+            writer.WriteDictionaryAdd(id, value);
+            _overlay.IncrementWalRecordCount();
         }
 
         foreach (var walAction in _pendingWal)
@@ -120,14 +130,14 @@ internal sealed class OverlayWriteBatch : IOverlayWriteBatch
         writer.Flush(flushToDisk: true);
 
         // Step 2: Apply to in-memory state (under write lock)
-        _overlay._lock.EnterWriteLock();
+        _overlay.EnterWriteLock();
         try
         {
             foreach (var apply in _pendingApply)
                 apply();
             _overlay.Revision++;
         }
-        finally { _overlay._lock.ExitWriteLock(); }
+        finally { _overlay.ExitWriteLock(); }
 
         return Task.CompletedTask;
     }

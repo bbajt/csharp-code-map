@@ -11,13 +11,14 @@ using CodeMap.Core.Types;
 /// Phase 4: All read-only query methods implemented.
 /// Registered in DI when CODEMAP_ENGINE=custom.
 /// </summary>
-public sealed class CustomSymbolStore : ISymbolStore
+public sealed class CustomSymbolStore : ISymbolStore, IDisposable
 {
     private readonly EngineBaselineBuilder _builder;
     private readonly string _storeBaseDir;
     private readonly Dictionary<string, (EngineBaselineReader Reader, EngineMergedReader Merged)> _cache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, EngineOverlay> _overlays = new(StringComparer.Ordinal);
     private readonly object _cacheLock = new();
+    private bool _disposed;
 
     public CustomSymbolStore(string storeBaseDir)
     {
@@ -331,7 +332,24 @@ public sealed class CustomSymbolStore : ISymbolStore
     // ── Stats/metadata queries ───────────────────────────────────────────────
 
     public Task<SemanticLevel?> GetSemanticLevelAsync(RepoId repoId, CommitSha commitSha, CancellationToken ct = default)
-        => Task.FromResult<SemanticLevel?>(SemanticLevel.Full);
+    {
+        var baselineDir = BaselineDir(repoId.Value, commitSha.Value);
+        var manifestPath = Path.Combine(baselineDir, "manifest.json");
+        var manifest = ManifestWriter.Read(manifestPath);
+        if (manifest?.ProjectDiagnostics is not { Count: > 0 } diags)
+            return Task.FromResult<SemanticLevel?>(null);
+
+        var compiledCount = diags.Count(d => d.Compiled);
+        SemanticLevel level;
+        if (compiledCount == diags.Count)
+            level = SemanticLevel.Full;
+        else if (compiledCount > 0)
+            level = SemanticLevel.Partial;
+        else
+            level = SemanticLevel.SyntaxOnly;
+
+        return Task.FromResult<SemanticLevel?>(level);
+    }
 
     public Task<IReadOnlyList<SymbolSummary>> GetAllSymbolSummariesAsync(RepoId repoId, CommitSha commitSha, CancellationToken ct = default)
     {
@@ -605,5 +623,23 @@ public sealed class CustomSymbolStore : ISymbolStore
                 chars[i] = '_';
         }
         return new string(chars);
+    }
+
+    // ── Dispose ─────────────────────────────────────────────────────────────
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        lock (_cacheLock)
+        {
+            foreach (var (reader, _) in _cache.Values)
+                reader.Dispose();
+            _cache.Clear();
+
+            foreach (var overlay in _overlays.Values)
+                overlay.Dispose();
+            _overlays.Clear();
+        }
     }
 }

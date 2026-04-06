@@ -2,6 +2,8 @@ namespace CodeMap.Storage.Engine;
 
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Types;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
 /// IBaselineCacheManager for the v2 custom storage engine.
@@ -13,6 +15,7 @@ public sealed class EngineBaselineCacheManager : IBaselineCacheManager
 {
     private readonly string _storeBaseDir;
     private readonly string? _sharedCacheDir;
+    private readonly ILogger<EngineBaselineCacheManager> _logger;
 
     /// <param name="storeBaseDir">
     /// Local store directory (same value passed to <see cref="CustomSymbolStore"/>).
@@ -20,10 +23,13 @@ public sealed class EngineBaselineCacheManager : IBaselineCacheManager
     /// <param name="sharedCacheDir">
     /// Shared cache directory, or <c>null</c> to disable caching (all ops become no-ops).
     /// </param>
-    public EngineBaselineCacheManager(string storeBaseDir, string? sharedCacheDir)
+    /// <param name="logger">Optional logger for cache operation warnings.</param>
+    public EngineBaselineCacheManager(string storeBaseDir, string? sharedCacheDir,
+        ILogger<EngineBaselineCacheManager>? logger = null)
     {
         _storeBaseDir = storeBaseDir;
         _sharedCacheDir = sharedCacheDir;
+        _logger = logger ?? NullLogger<EngineBaselineCacheManager>.Instance;
     }
 
     /// <inheritdoc/>
@@ -58,8 +64,8 @@ public sealed class EngineBaselineCacheManager : IBaselineCacheManager
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _logger.LogWarning(ex, "Cache pull failed for {CommitSha}", commitSha.Value[..8]);
             try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
-            _ = ex; // suppress warning
             return null;
         }
     }
@@ -86,8 +92,8 @@ public sealed class EngineBaselineCacheManager : IBaselineCacheManager
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _logger.LogWarning(ex, "Cache push failed for {CommitSha}", commitSha.Value[..8]);
             try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
-            _ = ex; // suppress warning
         }
     }
 

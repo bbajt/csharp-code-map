@@ -1,5 +1,6 @@
 namespace CodeMap.Mcp;
 
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -21,13 +22,22 @@ public sealed class McpServer
     private const string ProtocolVersionMin = "2024-11-05";
     private const string ProtocolVersionMax = "2025-03-26";
 
+    /// <summary>Maximum allowed Content-Length for a single MCP message (10 MB).</summary>
+    internal const int MaxContentLength = 10 * 1024 * 1024;
+
     private readonly ToolRegistry _registry;
     private readonly ILogger<McpServer> _logger;
+    private readonly string _version;
 
-    public McpServer(ToolRegistry registry, ILogger<McpServer> logger)
+    public McpServer(ToolRegistry registry, ILogger<McpServer> logger, string? version = null)
     {
         _registry = registry;
         _logger = logger;
+        _version = version
+            ?? Assembly.GetEntryAssembly()
+                ?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion
+            ?? "1.0.0";
     }
 
     /// <summary>Runs the server loop, reading from <paramref name="input"/> and writing to <paramref name="output"/>.</summary>
@@ -101,7 +111,7 @@ public sealed class McpServer
 
     // ─── Method handlers ──────────────────────────────────────────────────────
 
-    private static JsonObject HandleInitialize(JsonNode? id, JsonObject? @params)
+    private JsonObject HandleInitialize(JsonNode? id, JsonObject? @params)
     {
         // Echo back the client's requested version if it's within our supported range,
         // so newer MCP clients (e.g. 2025-03-26) don't reject the connection.
@@ -114,7 +124,7 @@ public sealed class McpServer
         {
             ["protocolVersion"] = negotiated,
             ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
-            ["serverInfo"] = new JsonObject { ["name"] = "codemap", ["version"] = "1.0.0" },
+            ["serverInfo"] = new JsonObject { ["name"] = "codemap", ["version"] = _version },
         });
     }
 
@@ -218,7 +228,7 @@ public sealed class McpServer
                 contentLength = len2;
         }
 
-        if (contentLength <= 0) return (null, false);
+        if (contentLength <= 0 || contentLength > MaxContentLength) return (null, false);
 
         var buffer = new char[contentLength];
         var totalRead = 0;

@@ -242,7 +242,7 @@ internal sealed class SearchIndexReader : IEngineSearchIndex
         Regex regex;
         try
         {
-            regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(5));
+            regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(2));
         }
         catch (RegexParseException)
         {

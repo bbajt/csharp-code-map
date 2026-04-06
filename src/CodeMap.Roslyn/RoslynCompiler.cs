@@ -451,7 +451,7 @@ public sealed class RoslynCompiler : IRoslynCompiler
             }
             catch (Exception)
             {
-                // Skip unreadable files
+                // Skip unreadable files (permissions, locks, etc.)
             }
         }
 

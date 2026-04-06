@@ -207,10 +207,40 @@ When in doubt, refresh.
 
 ---
 
+## XML Doc Comments — Write Them, CodeMap Uses Them
+
+CodeMap indexes `/// <summary>` XML doc comments and surfaces them in
+`symbols.get_card`, `symbols.get_context`, and `symbols.search` results.
+
+**When writing code, always add XML doc comments** to every public and
+internal class, method, interface, and property. This is not just style —
+it directly improves the quality of every CodeMap query that touches
+that symbol. Without XML docs, agents see only the raw signature.
+
+```csharp
+/// <summary>
+/// Validates the order and submits it to the payment gateway.
+/// Returns a tracking ID on success, or an error if validation fails.
+/// </summary>
+public async Task<Result<string, OrderError>> SubmitOrderAsync(Order order, CancellationToken ct)
+```
+
+**Why this matters:**
+- `symbols.get_card` shows the doc as `DocumentationSnippet` — agents
+  understand intent without reading the implementation
+- `symbols.search` ranks documented symbols higher — better search results
+- `graph.trace_feature` annotates each node with its doc — the feature
+  trace reads like a specification, not just a call chain
+- `codemap.export` includes docs in the portable context — other LLMs
+  benefit too
+
+---
+
 ## What CodeMap Knows vs What It Doesn't
 
 ### CodeMap knows (use it for these):
 - Every symbol in your solution (classes, methods, properties, etc.)
+- XML doc comments (`/// <summary>`) — indexed and shown in card/context results
 - Call relationships (who calls whom)
 - Type hierarchy (inheritance, interfaces)
 - Architectural facts (endpoints, config keys, DB tables, DI, etc.)
@@ -218,10 +248,13 @@ When in doubt, refresh.
 
 ### CodeMap doesn't know (use Grep/Read for these):
 - BCL/NuGet types (only your solution's code is indexed)
-- String literals and comments — use `code.search_text` for these
+- Inline comments and string literals — use `code.search_text` for these
   (returns file:line:excerpt for regex/substring matches across source files)
 - Non-C# files: YAML, JSON, Markdown, `.csproj`, build scripts
 - Runtime behavior (what actually executes at runtime)
+
+Note: XML doc comments (`/// <summary>`) ARE indexed and searchable.
+Inline `//` comments are not indexed as metadata but ARE found by `code.search_text`.
 
 ---
 

@@ -252,8 +252,9 @@ internal sealed class EngineMergedReader : IEngineMergedReader
 
         if (Overlay == null) return baselineResults;
 
-        // TODO Phase 5 full merge: overlay token map + tombstone exclusion
-        // For now, return baseline results filtered by tombstones
+        // Baseline results filtered by tombstones. Overlay-only symbols are
+        // searched separately via CustomEngineOverlayStore.SearchOverlaySymbolsAsync
+        // and merged by MergedQueryEngine.
         var tombstones = Overlay.Tombstones;
         if (tombstones.Count == 0) return baselineResults;
 

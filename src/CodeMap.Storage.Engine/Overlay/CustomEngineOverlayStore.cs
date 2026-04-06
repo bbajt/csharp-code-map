@@ -1,5 +1,6 @@
 namespace CodeMap.Storage.Engine;
 
+using System.Collections.Concurrent;
 using CodeMap.Core.Enums;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
@@ -16,8 +17,7 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
     private readonly string _storeBaseDir;
 
     // workspaceId → (baseCommitSha, repoId) mapping (set on CreateOverlayAsync)
-    private readonly Dictionary<string, (string CommitSha, string RepoId)> _wsToCommit = new(StringComparer.Ordinal);
-    private readonly object _lock = new();
+    private readonly ConcurrentDictionary<string, (string CommitSha, string RepoId)> _wsToCommit = new(StringComparer.Ordinal);
 
     public CustomEngineOverlayStore(CustomSymbolStore symbolStore, string storeBaseDir)
     {
@@ -29,8 +29,7 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
 
     public Task CreateOverlayAsync(RepoId repoId, WorkspaceId workspaceId, CommitSha baselineCommitSha, CancellationToken ct = default)
     {
-        lock (_lock)
-            _wsToCommit[workspaceId.Value] = (baselineCommitSha.Value, repoId.Value);
+        _wsToCommit[workspaceId.Value] = (baselineCommitSha.Value, repoId.Value);
 
         var (reader, _) = _symbolStore.GetOrOpenBaseline(repoId.Value, baselineCommitSha.Value);
         _symbolStore.GetOrCreateOverlay(workspaceId.Value, reader);
@@ -138,10 +137,7 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
 
     public Task ResetOverlayAsync(RepoId repoId, WorkspaceId workspaceId, CancellationToken ct = default)
     {
-        (string CommitSha, string RepoId) entry;
-        bool found;
-        lock (_lock)
-            found = _wsToCommit.TryGetValue(workspaceId.Value, out entry);
+        var found = _wsToCommit.TryGetValue(workspaceId.Value, out var entry);
 
         _symbolStore.DeleteOverlay(workspaceId.Value);
         if (found)
@@ -155,8 +151,7 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
     public Task DeleteOverlayAsync(RepoId repoId, WorkspaceId workspaceId, CancellationToken ct = default)
     {
         _symbolStore.DeleteOverlay(workspaceId.Value);
-        lock (_lock)
-            _wsToCommit.Remove(workspaceId.Value);
+        _wsToCommit.TryRemove(workspaceId.Value, out _);
         return Task.CompletedTask;
     }
 
@@ -195,7 +190,69 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
     }
 
     public Task<IReadOnlyList<SymbolSearchHit>> SearchOverlaySymbolsAsync(RepoId repoId, WorkspaceId workspaceId, string query, SymbolSearchFilters? filters, int limit, CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<SymbolSearchHit>>([]);
+    {
+        var (overlay, reader) = GetOverlayAndReader(workspaceId.Value);
+        if (overlay == null || reader == null)
+            return Task.FromResult<IReadOnlyList<SymbolSearchHit>>([]);
+
+        // Tokenize query the same way symbols are tokenized at index time
+        var queryTokens = query.ToLowerInvariant()
+            .Split([' ', '.'], StringSplitOptions.RemoveEmptyEntries);
+        if (queryTokens.Length == 0)
+            return Task.FromResult<IReadOnlyList<SymbolSearchHit>>([]);
+
+        // Find overlay symbols matching ALL query tokens (AND semantics)
+        HashSet<int>? matchedIntIds = null;
+        foreach (var token in queryTokens)
+        {
+            var tokenHits = overlay.GetOverlaySymbolsForTokenPrefix(token);
+            if (tokenHits.Count == 0)
+                return Task.FromResult<IReadOnlyList<SymbolSearchHit>>([]);
+
+            var hitSet = new HashSet<int>(tokenHits);
+            matchedIntIds = matchedIntIds == null ? hitSet : [.. matchedIntIds.Intersect(hitSet)];
+
+            if (matchedIntIds.Count == 0)
+                return Task.FromResult<IReadOnlyList<SymbolSearchHit>>([]);
+        }
+
+        // Convert matched IntIds to SymbolSearchHit
+        var results = new List<SymbolSearchHit>();
+        foreach (var sym in overlay.GetOverlayNewSymbols())
+        {
+            if (!matchedIntIds!.Contains(sym.SymbolIntId)) continue;
+
+            // Apply kind filter if specified
+            if (filters?.Kinds is { Count: > 0 } kinds)
+            {
+                var symKind = RecordToCoreMappings.ReverseSymbolKind(sym.Kind);
+                if (!kinds.Contains(symKind)) continue;
+            }
+
+            var fqn = overlay.ResolveString(sym.FqnStringId);
+            var displayName = overlay.ResolveString(sym.DisplayNameStringId);
+            var ns = overlay.ResolveString(sym.NamespaceStringId);
+
+            // Apply namespace filter if specified
+            if (filters?.Namespace is { Length: > 0 } nsFilter
+                && !ns.StartsWith(nsFilter, StringComparison.Ordinal))
+                continue;
+
+            results.Add(new SymbolSearchHit(
+                SymbolId: SymbolId.From(fqn),
+                FullyQualifiedName: fqn,
+                Kind: RecordToCoreMappings.ReverseSymbolKind(sym.Kind),
+                Signature: displayName,
+                DocumentationSnippet: null,
+                FilePath: FilePath.From("overlay"),
+                Line: sym.SpanStart,
+                Score: 1.0));
+
+            if (results.Count >= limit) break;
+        }
+
+        return Task.FromResult<IReadOnlyList<SymbolSearchHit>>(results);
+    }
 
     public Task<IReadOnlyList<StoredReference>> GetOverlayReferencesAsync(RepoId repoId, WorkspaceId workspaceId, SymbolId symbolId, RefKind? kind, int limit, CancellationToken ct = default)
     {
@@ -231,14 +288,8 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
     {
         var (overlay, _) = GetOverlayAndReader(workspaceId.Value);
         if (overlay == null) return Task.FromResult<IReadOnlySet<FilePath>>(new HashSet<FilePath>());
-        var paths = new HashSet<FilePath>();
-        overlay._lock.EnterReadLock();
-        try
-        {
-            foreach (var path in overlay.FilesByPath.Keys)
-                paths.Add(FilePath.From(path));
-        }
-        finally { overlay._lock.ExitReadLock(); }
+        var snapshot = overlay.GetFilePathsSnapshot();
+        var paths = new HashSet<FilePath>(snapshot.Select(FilePath.From));
         return Task.FromResult<IReadOnlySet<FilePath>>(paths);
     }
 
@@ -295,12 +346,7 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
     {
         var (overlay, _) = GetOverlayAndReader(workspaceId.Value);
         if (overlay == null) return Task.FromResult(0);
-        overlay._lock.EnterReadLock();
-        try
-        {
-            return Task.FromResult(overlay.FactsBySymbol.Values.Sum(l => l.Count));
-        }
-        finally { overlay._lock.ExitReadLock(); }
+        return Task.FromResult(overlay.GetFactCount());
     }
 
     public Task<IReadOnlyList<UnresolvedEdge>> GetOverlayUnresolvedEdgesAsync(RepoId repoId, WorkspaceId workspaceId, IReadOnlyList<FilePath> filePaths, CancellationToken ct = default)
@@ -308,11 +354,8 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
 
     public Task UpgradeOverlayEdgeAsync(RepoId repoId, WorkspaceId workspaceId, EdgeUpgrade upgrade, CancellationToken ct = default)
     {
-        (string CommitSha, string RepoId) entry;
-        bool found;
-        lock (_lock)
-            found = _wsToCommit.TryGetValue(workspaceId.Value, out entry);
-        if (!found) return Task.CompletedTask;
+        if (!_wsToCommit.TryGetValue(workspaceId.Value, out var entry))
+            return Task.CompletedTask;
         return _symbolStore.UpgradeEdgeAsync(repoId, CommitSha.From(entry.CommitSha), upgrade, ct);
     }
 
@@ -320,11 +363,8 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
 
     private (EngineOverlay? Overlay, EngineBaselineReader? Reader) GetOverlayAndReader(string workspaceId)
     {
-        (string CommitSha, string RepoId) entry;
-        bool found;
-        lock (_lock)
-            found = _wsToCommit.TryGetValue(workspaceId, out entry);
-        if (!found) return (null, null);
+        if (!_wsToCommit.TryGetValue(workspaceId, out var entry))
+            return (null, null);
 
         var (reader, _) = _symbolStore.GetOrOpenBaseline(entry.RepoId, entry.CommitSha);
         var overlay = _symbolStore.TryGetOverlay(workspaceId);

@@ -40,6 +40,26 @@ Without it, queries only see committed code — in-progress edits are invisible.
 
 ---
 
+### XML Doc Comments — Always Write Them
+
+CodeMap indexes `/// <summary>` XML doc comments on all classes, methods,
+interfaces, and properties. These appear in `symbols.get_card`,
+`symbols.get_context`, and `symbols.search` results.
+
+**Always add XML docs** to every public/internal class and method you create.
+Good XML docs dramatically improve the context quality for every downstream
+CodeMap query. Without them, agents see only the signature — no intent.
+
+```csharp
+/// <summary>
+/// Validates the order and submits it to the payment gateway.
+/// Returns a tracking ID on success, or an error if validation fails.
+/// </summary>
+public async Task<Result<string, OrderError>> SubmitOrderAsync(Order order, CancellationToken ct)
+```
+
+---
+
 ### Grep and Read Are Still Correct For
 
 - Non-C# files: `.json`, `.yaml`, `.md`, `.csproj`, `.props`, build scripts

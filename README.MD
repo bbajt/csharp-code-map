@@ -76,9 +76,9 @@ CodeMap builds a **persistent semantic index** from your solution file using Ros
 - Type hierarchy (inheritance chains, interface implementations)
 - Architectural facts extracted from code: HTTP endpoints, config keys, DB tables, DI registrations, middleware pipeline, retry policies, exception throw points, structured log templates
 
-All of this is exposed via **26 MCP tools** that any MCP-compatible AI agent can call. Starting from v1.3, CodeMap also navigates **DLL boundaries** — lazily resolving NuGet and SDK symbols on first access, with optional ICSharpCode.Decompiler source reconstruction and cross-DLL call graphs.
+All of this is exposed via **27 MCP tools** that any MCP-compatible AI agent can call. Starting from v1.3, CodeMap also navigates **DLL boundaries** — lazily resolving NuGet and SDK symbols on first access, with optional ICSharpCode.Decompiler source reconstruction and cross-DLL call graphs.
 
-**Supported languages:** C#, VB.NET, and F#. Mixed-language solutions (`.sln` / `.slnx` containing C#, VB.NET, and F# projects) are indexed in a single pass. All 26 MCP tools work identically for symbols from any language. C# and VB.NET use Roslyn's `MSBuildWorkspace`; F# uses `FSharp.Compiler.Service` (MSBuildWorkspace doesn't support `.fsproj`). F# architectural fact extractors (endpoints, DI, config) are not yet implemented — symbol search, call graphs, references, and type hierarchy all work.
+**Supported languages:** C#, VB.NET, and F#. Mixed-language solutions (`.sln` / `.slnx` containing C#, VB.NET, and F# projects) are indexed in a single pass. All 27 MCP tools work identically for symbols from any language. C# and VB.NET use Roslyn's `MSBuildWorkspace`; F# uses `FSharp.Compiler.Service` (MSBuildWorkspace doesn't support `.fsproj`). F# architectural fact extractors (endpoints, DI, config) are not yet implemented — symbol search, call graphs, references, and type hierarchy all work.
 
 ---
 
@@ -153,7 +153,7 @@ dotnet test --filter "Category=Benchmark" -v normal
 
 ---
 
-## 26 Tools Across Six Categories
+## 27 Tools Across Six Categories
 
 ### Discover
 | Tool | What it does |
@@ -199,6 +199,7 @@ dotnet test --filter "Category=Benchmark" -v normal
 | `index.ensure_baseline` | Build the semantic index (idempotent, cache-aware) |
 | `index.list_baselines` | All cached baselines with size, age, and commit |
 | `index.cleanup` | Remove stale baselines (dry-run default) |
+| `index.remove_repo` | Remove ALL baselines for a repo (ignores protection rules) |
 
 ### Repo
 | Tool | What it does |
@@ -314,7 +315,6 @@ v2.0.0 replaces SQLite with a **custom binary storage engine** using memory-mapp
 - Custom search index with tokenized FTS (CamelCase splitting, signature/documentation indexing)
 - WAL-backed overlay for workspace mutations (same isolation model)
 - Zero native DLL dependencies (no `e_sqlite3.dll`)
-- SQLite fallback available via `CODEMAP_ENGINE=sqlite`
 
 **Validated on 9+ repos** including dotnet/roslyn (174K symbols, 768K references), dotnet/fsharp (157K symbols via FCS), and Bitwarden. Zero functional bugs. See [`docs/ENGINE-COMPARISON-RESULTS.MD`](docs/ENGINE-COMPARISON-RESULTS.MD) for full data.
 
@@ -323,7 +323,7 @@ v2.0.0 replaces SQLite with a **custom binary storage engine** using memory-mapp
 ## Self-Hosting Validated
 
 CodeMap indexes its own 20-project solution (6,795 symbols, 29,204 references).
-All 26 tools verified against real-world architectural complexity. Self-hosting exposed
+All 27 tools verified against real-world architectural complexity. Self-hosting exposed
 and fixed cross-project reference bugs, CamelCase FTS edge cases, overlay StringId
 resolution issues, and multi-line SQL extraction gaps. Every tool in this README was
 tested against the codebase that implements it.
@@ -380,6 +380,22 @@ Drop the instruction block from [`docs/CLAUDE-INSERT.MD`](docs/CLAUDE-INSERT.MD)
 
 ---
 
+## Tip: Write XML Docs — CodeMap Uses Them
+
+CodeMap indexes `/// <summary>` XML doc comments on all classes, methods, and
+interfaces. They appear in `symbols.get_card`, `symbols.get_context`, and
+`symbols.search` results — giving agents intent and context without reading
+implementations.
+
+**When writing C# code with CodeMap enabled, always add XML doc comments.**
+This isn't just style — it directly improves every downstream query. Agents
+using `graph.trace_feature` see annotated call trees that read like specs.
+`codemap.export` includes docs in the portable context for other LLMs.
+
+See [`docs/CODEMAP-AGENT-GUIDE.MD`](docs/CODEMAP-AGENT-GUIDE.MD) for the full agent workflow guide.
+
+---
+
 ## Architecture
 
 ```
@@ -406,7 +422,7 @@ Your Git repo              CodeMap Server
      │                          │ MergedQueryEngine  (baseline + overlay, transparent merge)
      │                          │      │
      │  MCP tool call           │      ▼
-     ├─────────────────────────►│ McpServer          (stdio JSON-RPC 2.0, 26 tools)
+     ├─────────────────────────►│ McpServer          (stdio JSON-RPC 2.0, 27 tools)
      │                          │      │
      │  JSON response           │      ▼
      │◄─────────────────────────│ ResponseEnvelope   (answer + evidence + timing + token savings)
@@ -418,9 +434,8 @@ Your Git repo              CodeMap Server
 CodeMap.Core      ← zero dependencies (domain types + interfaces)
 CodeMap.Git       ← Core (LibGit2Sharp)
 CodeMap.Roslyn    ← Core (Roslyn 5.x + MSBuildWorkspace)
-CodeMap.Storage.Engine ← Core (v2 binary segments, default)
-CodeMap.Storage   ← Core (SQLite fallback, CODEMAP_ENGINE=sqlite)
-CodeMap.Query     ← Core + Storage (query engine + cache + overlay merge)
+CodeMap.Storage.Engine ← Core (v2 binary segments, sole engine since v2.1.0)
+CodeMap.Query     ← Core + Storage.Engine (query engine + cache + overlay merge)
 CodeMap.Mcp       ← Core + Query (MCP tool handlers)
 CodeMap.Daemon    ← ALL (DI composition root, the executable)
 ```
@@ -525,4 +540,4 @@ mmap pages are demand-loaded by the OS — resident memory stays proportional to
 
 ---
 
-*26 MCP tools. 90%+ token savings. Roslyn-grade semantics. C#, VB.NET, and F# — all three .NET languages. DLL boundary navigation. `.sln` + `.slnx` support. v2.2.0 — custom binary storage engine, 10x faster queries, F# via FCS. Validated on dotnet/roslyn (174K symbols) and dotnet/fsharp (157K symbols). Your agent deserves better than grep.*
+*27 MCP tools. 90%+ token savings. Roslyn-grade semantics. C#, VB.NET, and F# — all three .NET languages. DLL boundary navigation. `.sln` + `.slnx` support. v2.2.0 — custom binary storage engine, 10x faster queries, F# via FCS. Validated on dotnet/roslyn (174K symbols) and dotnet/fsharp (157K symbols). Your agent deserves better than grep.*

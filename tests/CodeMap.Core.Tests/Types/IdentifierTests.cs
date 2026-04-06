@@ -73,6 +73,27 @@ public sealed class IdentifierTests
     public void WorkspaceId_EqualityByValue_TwoDifferentValues_AreNotEqual() =>
         WorkspaceId.From("ws-1").Should().NotBe(WorkspaceId.From("ws-2"));
 
+    [Theory]
+    [InlineData("../../etc")]
+    [InlineData("..")]
+    [InlineData("foo/..")]
+    [InlineData("foo/../bar")]
+    public void WorkspaceId_From_PathTraversal_ThrowsArgumentException(string value) =>
+        FluentActions.Invoking(() => WorkspaceId.From(value)).Should().Throw<ArgumentException>();
+
+    [Theory]
+    [InlineData("my/workspace")]
+    [InlineData("ws\\bad")]
+    public void WorkspaceId_From_PathSeparators_ThrowsArgumentException(string value) =>
+        FluentActions.Invoking(() => WorkspaceId.From(value)).Should().Throw<ArgumentException>();
+
+    [Theory]
+    [InlineData("session")]
+    [InlineData("agent-1")]
+    [InlineData("my_workspace_123")]
+    public void WorkspaceId_From_ValidValues_Succeed(string value) =>
+        WorkspaceId.From(value).Value.Should().Be(value);
+
     // ─── CommitSha ────────────────────────────────────────────────────────────
 
     private const string ValidSha = "aabbccddee00112233445566778899aabbccddee";
@@ -203,4 +224,19 @@ public sealed class IdentifierTests
     [Fact]
     public void FilePath_EqualityByValue_TwoDifferentValues_AreNotEqual() =>
         FilePath.From("src/A.cs").Should().NotBe(FilePath.From("src/B.cs"));
+
+    [Theory]
+    [InlineData("../etc/passwd")]
+    [InlineData("src/../../etc/passwd")]
+    [InlineData("src/..")]
+    [InlineData("..")]
+    public void FilePath_From_PathTraversal_ThrowsArgumentException(string value) =>
+        FluentActions.Invoking(() => FilePath.From(value)).Should().Throw<ArgumentException>();
+
+    [Theory]
+    [InlineData("src/foo..bar/file.cs")]
+    [InlineData("src/...hidden/file.cs")]
+    [InlineData("src/file..cs")]
+    public void FilePath_From_DoubleDotInName_NotTraversal_Succeeds(string value) =>
+        FilePath.From(value).Value.Should().Be(value);
 }

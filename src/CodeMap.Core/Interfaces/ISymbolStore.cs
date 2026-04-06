@@ -6,7 +6,7 @@ using CodeMap.Core.Types;
 
 /// <summary>
 /// Persistence layer for baseline and overlay indexes.
-/// Implementation: CodeMap.Storage.
+/// Implementation: CodeMap.Storage.Engine.
 ///</summary>
 public interface ISymbolStore
 {
