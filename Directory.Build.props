@@ -24,7 +24,7 @@
   <PropertyGroup>
     <Authors>Branimir Bajt</Authors>
     <Product>CodeMap</Product>
-    <Description>Roslyn-powered semantic code index for AI agents. 27 MCP tools that let AI agents navigate C# codebases by symbol, call graph, and architectural fact instead of brute-reading source files. Average 90%+ token savings.</Description>
+    <Description>Roslyn-powered semantic code index for AI agents. 28 MCP tools that let AI agents navigate C# codebases by symbol, call graph, and architectural fact instead of brute-reading source files. Average 90%+ token savings.</Description>
     <Copyright>Copyright © 2026 CodeMap Branimir Bajt</Copyright>
     <RepositoryType>git</RepositoryType>
     <!-- GitHub repository -->

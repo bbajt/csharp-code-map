@@ -131,12 +131,13 @@ public static class ServiceRegistration
         services.AddSingleton<ExportHandler>();
         services.AddSingleton<DiffHandler>();
         services.AddSingleton<ContextHandler>();
+        services.AddSingleton<GuideHandler>();
 
         return services;
     }
 
     /// <summary>
-    /// Registers all 27 MCP tools into the ToolRegistry.
+    /// Registers all 28 MCP tools into the ToolRegistry.
     /// Must be called after the DI container is built.
     /// </summary>
     public static void RegisterMcpTools(IServiceProvider sp)
@@ -155,5 +156,6 @@ public static class ServiceRegistration
         sp.GetRequiredService<ExportHandler>().Register(registry);
         sp.GetRequiredService<DiffHandler>().Register(registry);
         sp.GetRequiredService<ContextHandler>().Register(registry);
+        sp.GetRequiredService<GuideHandler>().Register(registry);
     }
 }
