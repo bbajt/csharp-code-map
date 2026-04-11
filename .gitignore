@@ -78,6 +78,7 @@ NUL
 *_token.txt
 *.secret
 .mcpregistry*
+clean.ps1
 
 ############################
 # Resharper

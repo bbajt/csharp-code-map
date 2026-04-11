@@ -451,6 +451,11 @@ public sealed class QueryEngine : IQueryEngine
             return Result<ResponseEnvelope<SpanResponse>, CodeMapError>.Failure(
                 CodeMapError.NotFound("Symbol", symbolId.Value));
 
+        if (card.FilePath.Value == "unknown")
+            return Result<ResponseEnvelope<SpanResponse>, CodeMapError>.Failure(
+                CodeMapError.NotFound("Symbol source",
+                    $"Symbol '{symbolId.Value}' has no source location (metadata or decompiled assembly). Use symbols.get_card with include_code=true instead."));
+
         // 4. Compute span boundaries (clamp to maxLines)
         var spanStart = card.SpanStart;
         var spanEnd = card.SpanEnd;

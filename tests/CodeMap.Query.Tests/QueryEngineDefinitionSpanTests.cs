@@ -118,6 +118,22 @@ public class QueryEngineDefinitionSpanTests
         await _store.Received(1).GetFileSpanAsync(Repo, Sha, File, Arg.Any<int>(), Arg.Any<int>());
     }
 
+    [Fact]
+    public async Task GetDefinitionSpan_UnknownFilePath_ReturnsNotFoundWithGuidance()
+    {
+        var unknownFile = FilePath.From("unknown");
+        _store.GetSymbolAsync(Repo, Sha, SymId).Returns(
+            SymbolCard.CreateMinimal(SymId, "NS.Service", SymbolKind.Class, "Service()",
+                "NS", unknownFile, 1, 10, "public", Confidence.High));
+
+        var result = await _engine.GetDefinitionSpanAsync(Routing, SymId, 200, 0);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(ErrorCodes.NotFound);
+        result.Error.Message.Should().Contain("no source location");
+        result.Error.Message.Should().Contain("symbols.get_card");
+    }
+
     // ─── Factory ─────────────────────────────────────────────────────────────
 
     private static SymbolCard MakeCard(int spanStart, int spanEnd) =>

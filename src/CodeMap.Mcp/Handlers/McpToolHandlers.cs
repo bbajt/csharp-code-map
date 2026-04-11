@@ -325,6 +325,8 @@ public sealed class McpToolHandlers
         var filePathStr = args?["file_path"]?.GetValue<string>();
         if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
         if (string.IsNullOrEmpty(filePathStr)) return InvalidArg("file_path is required");
+        if (filePathStr == "unknown")
+            return InvalidArg("File path is 'unknown' — this symbol has no source location (metadata or decompiled assembly). Use symbols.get_card with include_code=true instead.");
 
         int startLine = args.GetInt("start_line", 0);
         int endLine = args.GetInt("end_line", 0);

@@ -150,6 +150,18 @@ public sealed class SpanHandlerTests
         registry.Find("symbols.get_definition_span").Should().NotBeNull();
     }
 
+    [Fact]
+    public async Task GetSpan_UnknownFilePath_ReturnsDescriptiveError()
+    {
+        var result = await _handler.HandleGetSpanAsync(
+            SpanArgs(RepoPath, "unknown", 1, 20),
+            CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Content.Should().Contain("no source location");
+        result.Content.Should().Contain("symbols.get_card");
+    }
+
     private static JsonObject SpanArgs(string repo, string file, int start, int end) =>
         new()
         {

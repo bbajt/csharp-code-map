@@ -69,7 +69,7 @@ That's **93.9% fewer tokens** for a task agents do dozens of times per session. 
 
 ## What It Does
 
-CodeMap builds a **persistent semantic index** from your solution file using Roslyn — the same compiler that powers Visual Studio. Supports both **`.sln`** (all Visual Studio versions) and **`.slnx`** (VS 2022 17.12+ / .NET SDK 9+) solution formats. The index captures:
+CodeMap builds a **persistent semantic index** from your solution file using Roslyn — the same compiler that powers Visual Studio. Supports both **`.sln`** (all Visual Studio versions) and **`.slnx`** (VS 2022 17.12+ / .NET SDK 9+) solution formats — **auto-discovered** when `solution_path` is omitted (prefers `.slnx`). Short commit SHAs are auto-expanded. The index captures:
 
 - Every symbol (classes, methods, properties, interfaces, records)
 - Every call relationship and reference (who calls what, where)
@@ -197,7 +197,7 @@ dotnet test --filter "Category=Benchmark" -v normal
 ### Index Management
 | Tool | What it does |
 |------|-------------|
-| `index.ensure_baseline` | Build the semantic index (idempotent, cache-aware) |
+| `index.ensure_baseline` | Build the semantic index (idempotent, cache-aware, auto-discovers solution) |
 | `index.list_baselines` | All cached baselines with size, age, and commit |
 | `index.cleanup` | Remove stale baselines (dry-run default) |
 | `index.remove_repo` | Remove ALL baselines for a repo (ignores protection rules) |
@@ -323,7 +323,7 @@ v2.0.0 replaces SQLite with a **custom binary storage engine** using memory-mapp
 
 ## Self-Hosting Validated
 
-CodeMap indexes its own 20-project solution (6,795 symbols, 29,204 references).
+CodeMap indexes its own 18-project solution (5,576 symbols, 20,960 references).
 All 28 tools verified against real-world architectural complexity. Self-hosting exposed
 and fixed cross-project reference bugs, CamelCase FTS edge cases, overlay StringId
 resolution issues, and multi-line SQL extraction gaps. Every tool in this README was
@@ -541,4 +541,4 @@ mmap pages are demand-loaded by the OS — resident memory stays proportional to
 
 ---
 
-*28 MCP tools. 90%+ token savings. Roslyn-grade semantics. C#, VB.NET, and F# — all three .NET languages. DLL boundary navigation. `.sln` + `.slnx` support. v2.2.0 — custom binary storage engine, 10x faster queries, F# via FCS. Validated on dotnet/roslyn (174K symbols) and dotnet/fsharp (157K symbols). Your agent deserves better than grep.*
+*28 MCP tools. 90%+ token savings. Roslyn-grade semantics. C#, VB.NET, and F# — all three .NET languages. DLL boundary navigation. `.sln` + `.slnx` auto-discovery. v2.3.0 — solution auto-discovery, short SHA expansion, production bug fixes. Validated on dotnet/roslyn (174K symbols) and dotnet/fsharp (157K symbols). Your agent deserves better than grep.*

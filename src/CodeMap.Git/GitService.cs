@@ -144,6 +144,25 @@ public sealed class GitService : IGitService
         return Task.FromResult(!status.IsDirty);
     }
 
+    /// <inheritdoc/>
+    public Task<CommitSha?> ResolveCommitAsync(string repoPath, string commitish, CancellationToken ct = default)
+    {
+        string validatedPath = GitPathValidator.ValidateAndNormalize(repoPath);
+
+        using var repo = new Repository(validatedPath);
+
+        var obj = repo.Lookup(commitish);
+        if (obj is null)
+            return Task.FromResult<CommitSha?>(null);
+
+        // Peel to commit (handles tags, etc.)
+        var commit = obj.Peel<Commit>();
+        if (commit is null)
+            return Task.FromResult<CommitSha?>(null);
+
+        return Task.FromResult<CommitSha?>(CommitSha.From(commit.Sha));
+    }
+
     // --- Private helpers ---
 
     private static RepoId DeriveRepoId(Repository repo)

@@ -12,12 +12,16 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
-public sealed class WorkspaceHandlerTests
+public sealed class WorkspaceHandlerTests : IDisposable
 {
-    private const string RepoPath = "/fake/repo";
-    private const string SlnPath = "/fake/solution.sln";
     private const string WorkspaceId = "ws-001";
     private const string ValidSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    // Use a real temp directory so File.Exists/Directory.GetFiles work
+    private readonly string _tempDir;
+    private readonly string _tempSlnPath;
+    private readonly string RepoPath;
+    private readonly string SlnPath;
 
     private readonly WorkspaceManager _manager = Substitute.For<WorkspaceManager>(
         Substitute.For<IOverlayStore>(),
@@ -32,6 +36,13 @@ public sealed class WorkspaceHandlerTests
 
     public WorkspaceHandlerTests()
     {
+        _tempDir = Path.Combine(Path.GetTempPath(), $"codemap-ws-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+        _tempSlnPath = Path.Combine(_tempDir, "Test.sln");
+        File.WriteAllText(_tempSlnPath, "");
+        RepoPath = _tempDir;
+        SlnPath = _tempSlnPath;
+
         _git.GetRepoIdentityAsync(RepoPath, Arg.Any<CancellationToken>())
             .Returns(RepoId.From("test-repo"));
         _git.GetCurrentCommitAsync(RepoPath, Arg.Any<CancellationToken>())
@@ -59,6 +70,12 @@ public sealed class WorkspaceHandlerTests
 
     // ── workspace.create ──────────────────────────────────────────────────────
 
+    public void Dispose()
+    {
+        try { if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true); }
+        catch (IOException) { }
+    }
+
     [Fact]
     public async Task Create_ValidParams_DelegatesToWorkspaceManager()
     {
@@ -67,7 +84,7 @@ public sealed class WorkspaceHandlerTests
         result.IsError.Should().BeFalse();
         await _manager.Received(1).CreateWorkspaceAsync(
             Arg.Any<RepoId>(), Arg.Any<Core.Types.WorkspaceId>(), Arg.Any<CommitSha>(),
-            SlnPath, RepoPath, Arg.Any<CancellationToken>());
+            Arg.Any<string>(), RepoPath, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -89,12 +106,12 @@ public sealed class WorkspaceHandlerTests
     }
 
     [Fact]
-    public async Task Create_MissingSolutionPath_ReturnsInvalidArgument()
+    public async Task Create_MissingSolutionPath_AutoDiscovers()
     {
+        // solution_path omitted — should auto-discover the .sln in temp dir
         var result = await _handler.HandleCreateAsync(Args(RepoPath, WorkspaceId, null), CancellationToken.None);
 
-        result.IsError.Should().BeTrue();
-        result.Content.Should().Contain("solution_path");
+        result.IsError.Should().BeFalse();
     }
 
     [Fact]

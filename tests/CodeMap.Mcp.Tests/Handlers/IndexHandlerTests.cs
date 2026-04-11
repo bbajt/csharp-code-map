@@ -42,7 +42,7 @@ public sealed class IndexHandlerTests : IDisposable
             .Returns(CommitSha.From(ValidSha));
         _store.BaselineExistsAsync(Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<CancellationToken>())
             .Returns(false);
-        _compiler.CompileAndExtractAsync(_tempSolutionPath, Arg.Any<CancellationToken>())
+        _compiler.CompileAndExtractAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(_fakeCompilation);
         _store.CreateBaselineAsync(
             Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<CompilationResult>(),
@@ -213,6 +213,154 @@ public sealed class IndexHandlerTests : IDisposable
         result.IsError.Should().BeFalse();
         var json = JsonDocument.Parse(result.Content).RootElement;
         json.GetProperty("from_cache").GetBoolean().Should().BeFalse();
+    }
+
+    // ── Solution auto-discovery tests ──────────────────────────────────────────
+
+    [Fact]
+    public async Task EnsureBaseline_NoSolutionPath_AutoDiscoversSlnInRepoRoot()
+    {
+        // Create a temp directory with a .sln file
+        var tempDir = Path.Combine(Path.GetTempPath(), $"codemap-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Test.sln"), "");
+            _git.GetRepoIdentityAsync(tempDir, Arg.Any<CancellationToken>())
+                .Returns(RepoId.From("disc-repo"));
+            _git.GetCurrentCommitAsync(tempDir, Arg.Any<CancellationToken>())
+                .Returns(CommitSha.From(ValidSha));
+
+            var result = await _handler.HandleAsync(
+                new JsonObject { ["repo_path"] = tempDir },
+                CancellationToken.None);
+
+            result.IsError.Should().BeFalse();
+        }
+        finally { Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public async Task EnsureBaseline_NoSolutionPath_PrefersSlnx()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"codemap-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Test.sln"), "");
+            File.WriteAllText(Path.Combine(tempDir, "Test.slnx"), "");
+            _git.GetRepoIdentityAsync(tempDir, Arg.Any<CancellationToken>())
+                .Returns(RepoId.From("disc-repo"));
+            _git.GetCurrentCommitAsync(tempDir, Arg.Any<CancellationToken>())
+                .Returns(CommitSha.From(ValidSha));
+
+            var result = await _handler.HandleAsync(
+                new JsonObject { ["repo_path"] = tempDir },
+                CancellationToken.None);
+
+            result.IsError.Should().BeFalse();
+        }
+        finally { Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public async Task EnsureBaseline_WrongExtension_AutoCorrectsSlnToSlnx()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"codemap-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            // Only .slnx exists, but agent passes .sln
+            File.WriteAllText(Path.Combine(tempDir, "Test.slnx"), "");
+            _git.GetRepoIdentityAsync(tempDir, Arg.Any<CancellationToken>())
+                .Returns(RepoId.From("disc-repo"));
+            _git.GetCurrentCommitAsync(tempDir, Arg.Any<CancellationToken>())
+                .Returns(CommitSha.From(ValidSha));
+
+            var result = await _handler.HandleAsync(
+                new JsonObject
+                {
+                    ["repo_path"] = tempDir,
+                    ["solution_path"] = Path.Combine(tempDir, "Test.sln") // wrong extension
+                },
+                CancellationToken.None);
+
+            result.IsError.Should().BeFalse();
+        }
+        finally { Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public async Task EnsureBaseline_NoSolutionFile_ReturnsClearError()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"codemap-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var result = await _handler.HandleAsync(
+                new JsonObject { ["repo_path"] = tempDir },
+                CancellationToken.None);
+
+            result.IsError.Should().BeTrue();
+            result.Content.Should().Contain("No .sln or .slnx file found");
+        }
+        finally { Directory.Delete(tempDir, true); }
+    }
+
+    // ── Short SHA resolution tests ───────────────────────────────────────────
+
+    [Fact]
+    public async Task EnsureBaseline_ShortSha_ResolvesViaGitService()
+    {
+        var fullSha = CommitSha.From(new string('c', 40));
+        _git.ResolveCommitAsync(RepoPath, "abc1234", Arg.Any<CancellationToken>())
+            .Returns(fullSha);
+
+        var result = await _handler.HandleAsync(
+            new JsonObject
+            {
+                ["repo_path"] = RepoPath,
+                ["solution_path"] = _tempSolutionPath,
+                ["commit_sha"] = "abc1234"
+            },
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse();
+        await _git.Received(1).ResolveCommitAsync(RepoPath, "abc1234", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EnsureBaseline_InvalidCommitish_ReturnsHelpfulError()
+    {
+        _git.ResolveCommitAsync(RepoPath, "nonexistent", Arg.Any<CancellationToken>())
+            .Returns((CommitSha?)null);
+
+        var result = await _handler.HandleAsync(
+            new JsonObject
+            {
+                ["repo_path"] = RepoPath,
+                ["solution_path"] = _tempSolutionPath,
+                ["commit_sha"] = "nonexistent"
+            },
+            CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Content.Should().Contain("Could not resolve commit");
+    }
+
+    [Fact]
+    public async Task EnsureBaseline_FullSha_StillWorks()
+    {
+        var result = await _handler.HandleAsync(
+            new JsonObject
+            {
+                ["repo_path"] = RepoPath,
+                ["solution_path"] = _tempSolutionPath,
+                ["commit_sha"] = ValidSha
+            },
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse();
     }
 
     private static JsonObject Args(string repoPath, string solutionPath) =>

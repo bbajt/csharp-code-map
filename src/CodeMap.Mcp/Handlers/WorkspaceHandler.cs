@@ -51,13 +51,13 @@ public sealed class WorkspaceHandler
             "workspace.create",
             "Create an isolated workspace session for incremental overlay indexing.",
             BuildSchema(
-                required: ["repo_path", "workspace_id", "solution_path"],
+                required: ["repo_path", "workspace_id"],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to repository root"),
                     ["workspace_id"] = Prop("string", "Unique workspace identifier for this agent session"),
-                    ["solution_path"] = Prop("string", "Absolute path to .sln file"),
-                    ["commit_sha"] = Prop("string", "Baseline commit (default: HEAD)"),
+                    ["solution_path"] = Prop("string", "Absolute path to .sln/.slnx file (auto-discovered if omitted)"),
+                    ["commit_sha"] = Prop("string", "Baseline commit (default: HEAD). Accepts short SHAs."),
                 }),
             HandleCreateAsync));
 
@@ -107,7 +107,16 @@ public sealed class WorkspaceHandler
 
         if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
         if (string.IsNullOrEmpty(workspaceStr)) return InvalidArg("workspace_id is required");
-        if (string.IsNullOrEmpty(solutionPath)) return InvalidArg("solution_path is required");
+
+        // Auto-discover solution if not provided or not found
+        var resolved = IndexHandler.DiscoverSolutionPath(repoPath, solutionPath);
+        if (resolved is null)
+        {
+            if (!string.IsNullOrEmpty(solutionPath))
+                return InvalidArg($"solution_path not found: {solutionPath} (also tried alternate extension)");
+            return InvalidArg($"No .sln or .slnx file found in {repoPath}. Provide solution_path explicitly.");
+        }
+        solutionPath = resolved;
 
         try
         {
@@ -116,7 +125,19 @@ public sealed class WorkspaceHandler
             CommitSha sha;
             var commitShaStr = args?["commit_sha"]?.GetValue<string>();
             if (!string.IsNullOrEmpty(commitShaStr))
-                sha = CommitSha.From(commitShaStr);
+            {
+                if (commitShaStr.Length == 40 && commitShaStr.All(c => char.IsAsciiHexDigitLower(c)))
+                {
+                    sha = CommitSha.From(commitShaStr);
+                }
+                else
+                {
+                    var resolvedSha = await _gitService.ResolveCommitAsync(repoPath, commitShaStr, ct).ConfigureAwait(false);
+                    if (resolvedSha is null)
+                        return InvalidArg($"Could not resolve commit '{commitShaStr}'. Provide a full 40-char SHA or omit commit_sha to use HEAD.");
+                    sha = resolvedSha.Value;
+                }
+            }
             else
                 sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
 

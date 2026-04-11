@@ -119,13 +119,12 @@ public sealed class IndexHandler
             {
                 ["type"] = "object",
                 ["required"] = new JsonArray(
-                    (JsonNode?)"repo_path",
-                    (JsonNode?)"solution_path"),
+                    (JsonNode?)"repo_path"),
                 ["properties"] = new JsonObject
                 {
                     ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root" },
-                    ["solution_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the .sln file" },
-                    ["commit_sha"] = new JsonObject { ["type"] = "string", ["description"] = "Optional: specific commit to index (default: HEAD)" },
+                    ["solution_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the .sln/.slnx file (auto-discovered if omitted)" },
+                    ["commit_sha"] = new JsonObject { ["type"] = "string", ["description"] = "Optional: specific commit to index (default: HEAD). Accepts short SHAs." },
                 },
             },
             HandleAsync));
@@ -253,8 +252,16 @@ public sealed class IndexHandler
         var repoPath = args?["repo_path"]?.GetValue<string>();
         var solutionPath = args?["solution_path"]?.GetValue<string>();
         if (string.IsNullOrEmpty(repoPath)) return Error("repo_path is required");
-        if (string.IsNullOrEmpty(solutionPath)) return Error("solution_path is required");
-        if (!File.Exists(solutionPath)) return Error($"solution_path not found: {solutionPath}");
+
+        // Auto-discover solution if not provided or not found
+        var resolved = DiscoverSolutionPath(repoPath, solutionPath);
+        if (resolved is null)
+        {
+            if (!string.IsNullOrEmpty(solutionPath))
+                return Error($"solution_path not found: {solutionPath} (also tried alternate extension)");
+            return Error($"No .sln or .slnx file found in {repoPath}. Provide solution_path explicitly.");
+        }
+        solutionPath = resolved;
 
         try
         {
@@ -262,7 +269,21 @@ public sealed class IndexHandler
             CommitSha commitSha;
             var commitShaStr = args?["commit_sha"]?.GetValue<string>();
             if (!string.IsNullOrEmpty(commitShaStr))
-                commitSha = CommitSha.From(commitShaStr);
+            {
+                // Try direct parse first (full 40-char SHA)
+                if (commitShaStr.Length == 40 && commitShaStr.All(c => char.IsAsciiHexDigitLower(c)))
+                {
+                    commitSha = CommitSha.From(commitShaStr);
+                }
+                else
+                {
+                    // Resolve short SHA, branch name, tag, etc.
+                    var resolvedSha = await _git.ResolveCommitAsync(repoPath, commitShaStr, ct).ConfigureAwait(false);
+                    if (resolvedSha is null)
+                        return Error($"Could not resolve commit '{commitShaStr}'. Provide a full 40-char SHA or omit commit_sha to use HEAD.");
+                    commitSha = resolvedSha.Value;
+                }
+            }
             else
                 commitSha = await _git.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
 
@@ -319,6 +340,45 @@ public sealed class IndexHandler
             _logger.LogError(ex, "index.ensure_baseline failed for {SolutionPath}", solutionPath);
             return Error($"Indexing failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Discovers the solution file path. Handles three cases:
+    /// 1. Provided path exists → return it.
+    /// 2. Provided path doesn't exist → try alternate extension (.sln ↔ .slnx).
+    /// 3. No path provided → scan repo root for *.slnx then *.sln.
+    /// Returns null if no solution file is found.
+    /// </summary>
+    internal static string? DiscoverSolutionPath(string repoPath, string? providedPath)
+    {
+        // Case 1: Provided and exists
+        if (!string.IsNullOrEmpty(providedPath) && File.Exists(providedPath))
+            return providedPath;
+
+        // Case 2: Provided but doesn't exist — try alternate extension
+        if (!string.IsNullOrEmpty(providedPath))
+        {
+            var ext = Path.GetExtension(providedPath);
+            var altExt = ext.Equals(".slnx", StringComparison.OrdinalIgnoreCase) ? ".sln" : ".slnx";
+            var altPath = Path.ChangeExtension(providedPath, altExt);
+            if (File.Exists(altPath))
+                return altPath;
+            return null;
+        }
+
+        // Case 3: Not provided — scan repo root (prefer .slnx)
+        if (!Directory.Exists(repoPath))
+            return null;
+
+        var slnxFiles = Directory.GetFiles(repoPath, "*.slnx", SearchOption.TopDirectoryOnly);
+        if (slnxFiles.Length > 0)
+            return slnxFiles[0];
+
+        var slnFiles = Directory.GetFiles(repoPath, "*.sln", SearchOption.TopDirectoryOnly);
+        if (slnFiles.Length > 0)
+            return slnFiles[0];
+
+        return null;
     }
 
     private static ToolCallResult Error(string message) =>

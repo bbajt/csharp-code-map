@@ -375,4 +375,44 @@ public class GitServiceTests
 
         result.Should().BeTrue();
     }
+
+    // ===== ResolveCommitAsync =====
+
+    [Fact]
+    public async Task ResolveCommitAsync_ShortSha_ReturnsFullSha()
+    {
+        using var repo = TempGitRepo.Create();
+        string fullSha = repo.CommitFile("README.md", "hello");
+        var svc = CreateService();
+
+        var result = await svc.ResolveCommitAsync(repo.Path, fullSha[..7]);
+
+        result.Should().NotBeNull();
+        result!.Value.Value.Should().Be(fullSha);
+    }
+
+    [Fact]
+    public async Task ResolveCommitAsync_FullSha_ReturnsSame()
+    {
+        using var repo = TempGitRepo.Create();
+        string fullSha = repo.CommitFile("README.md", "hello");
+        var svc = CreateService();
+
+        var result = await svc.ResolveCommitAsync(repo.Path, fullSha);
+
+        result.Should().NotBeNull();
+        result!.Value.Value.Should().Be(fullSha);
+    }
+
+    [Fact]
+    public async Task ResolveCommitAsync_InvalidCommitish_ReturnsNull()
+    {
+        using var repo = TempGitRepo.Create();
+        repo.CommitFile("README.md", "hello");
+        var svc = CreateService();
+
+        var result = await svc.ResolveCommitAsync(repo.Path, "nonexistent_ref_xyz");
+
+        result.Should().BeNull();
+    }
 }

@@ -77,6 +77,7 @@ public class QueryBenchmarks
         public Task<IReadOnlyList<FileChange>> GetChangedFilesAsync(string r, CommitSha b, CancellationToken ct)
             => Task.FromResult<IReadOnlyList<FileChange>>([]);
         public Task<bool> IsCleanAsync(string r, CancellationToken ct) => Task.FromResult(true);
+        public Task<CommitSha?> ResolveCommitAsync(string r, string c, CancellationToken ct) => Task.FromResult<CommitSha?>(null);
     }
 
     private sealed class NoopIncrementalCompiler : IIncrementalCompiler

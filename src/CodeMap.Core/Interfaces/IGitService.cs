@@ -34,4 +34,10 @@ public interface IGitService
     /// Returns true if the working tree has no uncommitted changes.
     /// </summary>
     Task<bool> IsCleanAsync(string repoPath, CancellationToken ct = default);
+
+    /// <summary>
+    /// Resolves a commitish (short SHA, branch name, tag, etc.) to a full 40-char commit SHA.
+    /// Returns null if the commitish cannot be resolved.
+    /// </summary>
+    Task<CommitSha?> ResolveCommitAsync(string repoPath, string commitish, CancellationToken ct = default);
 }

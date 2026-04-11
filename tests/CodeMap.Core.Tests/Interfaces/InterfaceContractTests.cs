@@ -61,8 +61,8 @@ public sealed class InterfaceContractTests
     }
 
     [Fact]
-    public void IGitService_Defines5Methods() =>
-        typeof(IGitService).GetMethods().Should().HaveCount(5);
+    public void IGitService_Defines6Methods() =>
+        typeof(IGitService).GetMethods().Should().HaveCount(6);
 
     // ─── IRoslynCompiler ──────────────────────────────────────────────────────
 

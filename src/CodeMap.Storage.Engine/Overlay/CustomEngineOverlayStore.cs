@@ -289,7 +289,8 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
         var (overlay, _) = GetOverlayAndReader(workspaceId.Value);
         if (overlay == null) return Task.FromResult<IReadOnlySet<FilePath>>(new HashSet<FilePath>());
         var snapshot = overlay.GetFilePathsSnapshot();
-        var paths = new HashSet<FilePath>(snapshot.Select(FilePath.From));
+        var paths = new HashSet<FilePath>(
+            snapshot.Where(p => !string.IsNullOrWhiteSpace(p)).Select(FilePath.From));
         return Task.FromResult<IReadOnlySet<FilePath>>(paths);
     }
 

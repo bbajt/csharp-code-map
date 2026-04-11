@@ -201,6 +201,53 @@ public sealed class EngineOverlayTests : IAsyncLifetime
         var edges = merged.GetOutgoingEdges(doWork.Value.SymbolIntId);
         edges.Count.Should().BeGreaterThan(1); // baseline + overlay
     }
+
+    [Fact]
+    public async Task GetFilePathsSnapshot_WithEmptyPath_IncludesEmptyKey()
+    {
+        // Simulate an empty file path entering the overlay (from WAL corruption or orphaned string ID)
+        using var overlay = new EngineOverlay(_overlayDir, "test-ws", _reader);
+        var emptyPathSid = overlay.InternStringInternal("");
+        var fileRecord = new FileRecord(-1, emptyPathSid, emptyPathSid, 0, 0, 0, 0, 0, 0);
+
+        using var batch = overlay.BeginBatch();
+        batch.UpsertFile(fileRecord);
+        await batch.CommitAsync();
+
+        var snapshot = overlay.GetFilePathsSnapshot();
+        snapshot.Should().Contain(""); // Empty key is present in raw snapshot
+
+        // The fix in CustomEngineOverlayStore.GetOverlayFilePathsAsync filters these out
+        // before calling FilePath.From(), preventing ArgumentException
+        var filtered = snapshot.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        filtered.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetFilePathsSnapshot_MixedValidAndEmpty_FilterRetainsValid()
+    {
+        using var overlay = new EngineOverlay(_overlayDir, "test-ws", _reader);
+
+        // Add a valid file
+        var validPathSid = overlay.InternStringInternal("src/App.cs");
+        var validNormSid = overlay.InternStringInternal("src/app.cs");
+        var validFile = new FileRecord(-1, validPathSid, validNormSid, 0, 0, 0, 0, 0, 0);
+
+        // Add an empty file (corruption scenario)
+        var emptyPathSid = overlay.InternStringInternal("");
+        var emptyFile = new FileRecord(-2, emptyPathSid, emptyPathSid, 0, 0, 0, 0, 0, 0);
+
+        using var batch = overlay.BeginBatch();
+        batch.UpsertFile(validFile);
+        batch.UpsertFile(emptyFile);
+        await batch.CommitAsync();
+
+        var snapshot = overlay.GetFilePathsSnapshot();
+        snapshot.Should().HaveCount(2);
+
+        var filtered = snapshot.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        filtered.Should().ContainSingle().Which.Should().Be("src/App.cs");
+    }
 }
 
 /// <summary>Shared test data factory.</summary>

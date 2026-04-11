@@ -97,6 +97,8 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
             => Task.FromResult<IReadOnlyList<FileChange>>([]);
         public Task<bool> IsCleanAsync(string repoPath, CancellationToken ct = default)
             => Task.FromResult(true);
+        public Task<CommitSha?> ResolveCommitAsync(string repoPath, string commitish, CancellationToken ct = default)
+            => Task.FromResult<CommitSha?>(null);
     }
 
     private sealed class NullResolutionWorker : IResolutionWorker
