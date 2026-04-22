@@ -541,4 +541,4 @@ mmap pages are demand-loaded by the OS — resident memory stays proportional to
 
 ---
 
-*28 MCP tools. 90%+ token savings. Roslyn-grade semantics. C#, VB.NET, and F# — all three .NET languages. DLL boundary navigation. `.sln` + `.slnx` auto-discovery. v2.3.0 — solution auto-discovery, short SHA expansion, production bug fixes. Validated on dotnet/roslyn (174K symbols) and dotnet/fsharp (157K symbols). Your agent deserves better than grep.*
+*28 MCP tools. 90%+ token savings. Roslyn-grade semantics. C#, VB.NET, and F# — all three .NET languages. DLL boundary navigation. `.sln` + `.slnx` auto-discovery. v2.4.0 — name-based symbol lookup, auto-defaulted `repo_path`/`workspace_id`, AMBIGUOUS candidate hints. Validated on dotnet/roslyn (174K symbols) and dotnet/fsharp (157K symbols). Your agent deserves better than grep.*

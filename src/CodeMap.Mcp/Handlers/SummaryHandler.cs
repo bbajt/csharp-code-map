@@ -7,6 +7,7 @@ using CodeMap.Core.Errors;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
+using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -23,15 +24,21 @@ public sealed class SummaryHandler
 {
     private readonly IQueryEngine _queryEngine;
     private readonly IGitService _gitService;
+    private readonly IRepoRegistry _repoRegistry;
+    private readonly IWorkspaceStickyRegistry _stickyRegistry;
     private readonly ILogger<SummaryHandler> _logger;
 
     public SummaryHandler(
         IQueryEngine queryEngine,
         IGitService gitService,
+        IRepoRegistry repoRegistry,
+        IWorkspaceStickyRegistry stickyRegistry,
         ILogger<SummaryHandler> logger)
     {
         _queryEngine = queryEngine;
         _gitService = gitService;
+        _repoRegistry = repoRegistry;
+        _stickyRegistry = stickyRegistry;
         _logger = logger;
     }
 
@@ -44,7 +51,7 @@ public sealed class SummaryHandler
             new JsonObject
             {
                 ["type"] = "object",
-                ["required"] = new JsonArray { JsonValue.Create("repo_path") },
+                ["required"] = new JsonArray(),
                 ["properties"] = new JsonObject
                 {
                     ["repo_path"] = new JsonObject
@@ -75,9 +82,8 @@ public sealed class SummaryHandler
 
     internal async Task<ToolCallResult> HandleAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath))
-            return Err(CodeMapError.InvalidArgument("repo_path is required"));
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         var maxItems = args.GetInt("max_items_per_section", 50);
 
@@ -85,20 +91,20 @@ public sealed class SummaryHandler
         if (args?["section_filter"] is JsonArray arr)
             sectionFilter = arr.Select(n => n?.GetValue<string>() ?? "").Where(s => s.Length > 0).ToArray();
 
-        var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
-        var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
-        var routing = BuildRouting(repoId, sha, args);
+        var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
+        var sha = await _gitService.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
+        var routing = BuildRouting(repoId, sha, args, repoPath!);
 
-        var result = await _queryEngine.SummarizeAsync(routing, repoPath, sectionFilter, maxItems, ct)
+        var result = await _queryEngine.SummarizeAsync(routing, repoPath!, sectionFilter, maxItems, ct)
                                        .ConfigureAwait(false);
         return result.Match(Ok, Err);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static RoutingContext BuildRouting(RepoId repoId, CommitSha sha, JsonObject? args)
+    private RoutingContext BuildRouting(RepoId repoId, CommitSha sha, JsonObject? args, string repoPath)
     {
-        var workspaceIdStr = args?["workspace_id"]?.GetValue<string>();
+        var workspaceIdStr = HandlerHelpers.ResolveWorkspaceId(args, repoPath, _stickyRegistry);
         if (!string.IsNullOrEmpty(workspaceIdStr))
         {
             var workspaceId = WorkspaceId.From(workspaceIdStr);

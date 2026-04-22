@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Types;
+using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
 using CodeMap.Query;
 using Microsoft.Extensions.Logging;
@@ -32,15 +33,21 @@ public sealed class WorkspaceHandler
 {
     private readonly WorkspaceManager _workspaceManager;
     private readonly IGitService _gitService;
+    private readonly IRepoRegistry _repoRegistry;
+    private readonly IWorkspaceStickyRegistry _stickyRegistry;
     private readonly ILogger<WorkspaceHandler> _logger;
 
     public WorkspaceHandler(
         WorkspaceManager workspaceManager,
         IGitService gitService,
+        IRepoRegistry repoRegistry,
+        IWorkspaceStickyRegistry stickyRegistry,
         ILogger<WorkspaceHandler> logger)
     {
         _workspaceManager = workspaceManager;
         _gitService = gitService;
+        _repoRegistry = repoRegistry;
+        _stickyRegistry = stickyRegistry;
         _logger = logger;
     }
 
@@ -49,12 +56,12 @@ public sealed class WorkspaceHandler
     {
         registry.Register(new ToolDefinition(
             "workspace.create",
-            "Create an isolated workspace session for incremental overlay indexing.",
+            "Create an isolated workspace session for incremental overlay indexing. The newly-created workspace becomes the sticky default for subsequent calls.",
             BuildSchema(
-                required: ["repo_path", "workspace_id"],
+                required: ["workspace_id"],
                 properties: new JsonObject
                 {
-                    ["repo_path"] = Prop("string", "Absolute path to repository root"),
+                    ["repo_path"] = Prop("string", "Absolute path to repository root. Optional when exactly one repo is indexed."),
                     ["workspace_id"] = Prop("string", "Unique workspace identifier for this agent session"),
                     ["solution_path"] = Prop("string", "Absolute path to .sln/.slnx file (auto-discovered if omitted)"),
                     ["commit_sha"] = Prop("string", "Baseline commit (default: HEAD). Accepts short SHAs."),
@@ -65,10 +72,10 @@ public sealed class WorkspaceHandler
             "workspace.reset",
             "Discard all overlay data for a workspace and reset to the baseline state.",
             BuildSchema(
-                required: ["repo_path", "workspace_id"],
+                required: ["workspace_id"],
                 properties: new JsonObject
                 {
-                    ["repo_path"] = Prop("string", "Absolute path to repository root"),
+                    ["repo_path"] = Prop("string", "Absolute path to repository root. Optional when exactly one repo is indexed."),
                     ["workspace_id"] = Prop("string", "Workspace identifier to reset"),
                 }),
             HandleResetAsync));
@@ -77,10 +84,10 @@ public sealed class WorkspaceHandler
             "workspace.list",
             "List all active workspaces for a repository, including staleness and quality metadata.",
             BuildSchema(
-                required: ["repo_path"],
+                required: [],
                 properties: new JsonObject
                 {
-                    ["repo_path"] = Prop("string", "Absolute path to repository root"),
+                    ["repo_path"] = Prop("string", "Absolute path to repository root. Optional when exactly one repo is indexed."),
                 }),
             HandleListAsync));
 
@@ -88,10 +95,10 @@ public sealed class WorkspaceHandler
             "workspace.delete",
             "Permanently delete a workspace and its overlay data. Use workspace.reset to keep the workspace but clear its data.",
             BuildSchema(
-                required: ["repo_path", "workspace_id"],
+                required: ["workspace_id"],
                 properties: new JsonObject
                 {
-                    ["repo_path"] = Prop("string", "Absolute path to repository root"),
+                    ["repo_path"] = Prop("string", "Absolute path to repository root. Optional when exactly one repo is indexed."),
                     ["workspace_id"] = Prop("string", "Workspace identifier to delete"),
                 }),
             HandleDeleteAsync));
@@ -101,15 +108,15 @@ public sealed class WorkspaceHandler
 
     internal async Task<ToolCallResult> HandleCreateAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
+
         var workspaceStr = args?["workspace_id"]?.GetValue<string>();
         var solutionPath = args?["solution_path"]?.GetValue<string>();
-
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
         if (string.IsNullOrEmpty(workspaceStr)) return InvalidArg("workspace_id is required");
 
         // Auto-discover solution if not provided or not found
-        var resolved = IndexHandler.DiscoverSolutionPath(repoPath, solutionPath);
+        var resolved = IndexHandler.DiscoverSolutionPath(repoPath!, solutionPath);
         if (resolved is null)
         {
             if (!string.IsNullOrEmpty(solutionPath))
@@ -120,7 +127,7 @@ public sealed class WorkspaceHandler
 
         try
         {
-            var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
+            var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
 
             CommitSha sha;
             var commitShaStr = args?["commit_sha"]?.GetValue<string>();
@@ -132,19 +139,25 @@ public sealed class WorkspaceHandler
                 }
                 else
                 {
-                    var resolvedSha = await _gitService.ResolveCommitAsync(repoPath, commitShaStr, ct).ConfigureAwait(false);
+                    var resolvedSha = await _gitService.ResolveCommitAsync(repoPath!, commitShaStr, ct).ConfigureAwait(false);
                     if (resolvedSha is null)
                         return InvalidArg($"Could not resolve commit '{commitShaStr}'. Provide a full 40-char SHA or omit commit_sha to use HEAD.");
                     sha = resolvedSha.Value;
                 }
             }
             else
-                sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
+                sha = await _gitService.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
 
             var workspaceId = WorkspaceId.From(workspaceStr);
             var result = await _workspaceManager.CreateWorkspaceAsync(
-                repoId, workspaceId, sha, solutionPath, repoPath, ct).ConfigureAwait(false);
+                repoId, workspaceId, sha, solutionPath, repoPath!, ct).ConfigureAwait(false);
 
+            if (result.IsSuccess)
+            {
+                // Register repo + make this workspace the sticky default for subsequent calls.
+                _repoRegistry.Register(repoPath!);
+                _stickyRegistry.Set(repoPath!, workspaceStr);
+            }
             return result.Match(Ok, Err);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -158,15 +171,15 @@ public sealed class WorkspaceHandler
 
     internal async Task<ToolCallResult> HandleResetAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        var workspaceStr = args?["workspace_id"]?.GetValue<string>();
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
+        var workspaceStr = args?["workspace_id"]?.GetValue<string>();
         if (string.IsNullOrEmpty(workspaceStr)) return InvalidArg("workspace_id is required");
 
         try
         {
-            var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
+            var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
             var workspaceId = WorkspaceId.From(workspaceStr);
             var result = await _workspaceManager.ResetWorkspaceAsync(repoId, workspaceId, ct)
                                                       .ConfigureAwait(false);
@@ -184,15 +197,14 @@ public sealed class WorkspaceHandler
 
     internal async Task<ToolCallResult> HandleListAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         try
         {
-            var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
+            var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
             var workspaces = await _workspaceManager.ListWorkspacesAsync(repoId, ct).ConfigureAwait(false);
-            var currentHead = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
+            var currentHead = await _gitService.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
 
             return Ok(new WorkspaceListResponse(workspaces, currentHead));
         }
@@ -207,19 +219,22 @@ public sealed class WorkspaceHandler
 
     internal async Task<ToolCallResult> HandleDeleteAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        var workspaceStr = args?["workspace_id"]?.GetValue<string>();
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
+        var workspaceStr = args?["workspace_id"]?.GetValue<string>();
         if (string.IsNullOrEmpty(workspaceStr)) return InvalidArg("workspace_id is required");
 
         try
         {
-            var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
+            var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
             var workspaceId = WorkspaceId.From(workspaceStr);
 
             var existed = _workspaceManager.GetWorkspaceInfo(repoId, workspaceId) != null;
             await _workspaceManager.DeleteWorkspaceAsync(repoId, workspaceId, ct).ConfigureAwait(false);
+
+            // Conditionally clear sticky — only if the deleted workspace is the current sticky.
+            _stickyRegistry.Clear(repoPath!, workspaceStr);
 
             return Ok(new WorkspaceDeleteResponse(workspaceId, existed));
         }

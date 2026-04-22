@@ -8,6 +8,8 @@ using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
+using CodeMap.Mcp.Resolution;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -32,7 +34,7 @@ public sealed class CardHandlerIncludeCodeTests
         _git.GetCurrentCommitAsync(RepoPath, Arg.Any<CancellationToken>())
             .Returns(CommitSha.From(ValidSha));
 
-        _handler = new McpToolHandlers(_queryEngine, _git, NullLogger<McpToolHandlers>.Instance);
+        _handler = new McpToolHandlers(_queryEngine, _git, new McpSymbolResolver(_queryEngine), new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<McpToolHandlers>.Instance);
     }
 
     [Fact]

@@ -7,6 +7,7 @@ using CodeMap.Core.Errors;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
+using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -24,17 +25,20 @@ public sealed class DiffHandler
     private readonly IQueryEngine _queryEngine;
     private readonly IGitService _gitService;
     private readonly ISymbolStore _symbolStore;
+    private readonly IRepoRegistry _repoRegistry;
     private readonly ILogger<DiffHandler> _logger;
 
     public DiffHandler(
         IQueryEngine queryEngine,
         IGitService gitService,
         ISymbolStore symbolStore,
+        IRepoRegistry repoRegistry,
         ILogger<DiffHandler> logger)
     {
         _queryEngine = queryEngine;
         _gitService = gitService;
         _symbolStore = symbolStore;
+        _repoRegistry = repoRegistry;
         _logger = logger;
     }
 
@@ -49,7 +53,6 @@ public sealed class DiffHandler
                 ["type"] = "object",
                 ["required"] = new JsonArray
                 {
-                    JsonValue.Create("repo_path"),
                     JsonValue.Create("from_commit"),
                     JsonValue.Create("to_commit"),
                 },
@@ -88,9 +91,8 @@ public sealed class DiffHandler
 
     internal async Task<ToolCallResult> HandleAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath))
-            return Err(CodeMapError.InvalidArgument("repo_path is required"));
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         var fromCommitStr = args?["from_commit"]?.GetValue<string>();
         if (string.IsNullOrEmpty(fromCommitStr))
@@ -104,9 +106,9 @@ public sealed class DiffHandler
 
         // Resolve HEAD
         if (toCommitStr.Equals("HEAD", StringComparison.OrdinalIgnoreCase))
-            toCommitStr = (await _gitService.GetCurrentCommitAsync(repoPath, ct)).Value;
+            toCommitStr = (await _gitService.GetCurrentCommitAsync(repoPath!, ct)).Value;
         if (fromCommitStr.Equals("HEAD", StringComparison.OrdinalIgnoreCase))
-            fromCommitStr = (await _gitService.GetCurrentCommitAsync(repoPath, ct)).Value;
+            fromCommitStr = (await _gitService.GetCurrentCommitAsync(repoPath!, ct)).Value;
 
         CommitSha fromCommit, toCommit;
         try
@@ -119,7 +121,7 @@ public sealed class DiffHandler
             return Err(CodeMapError.InvalidArgument($"Invalid commit SHA: {ex.Message}"));
         }
 
-        var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct);
+        var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct);
 
         // Verify both baselines exist before invoking the differ
         if (!await _symbolStore.BaselineExistsAsync(repoId, fromCommit, ct))

@@ -7,6 +7,8 @@ using CodeMap.Core.Errors;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
+using CodeMap.Mcp.Context;
+using CodeMap.Mcp.Resolution;
 using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -34,16 +36,25 @@ public sealed class ContextHandler
 
     private readonly IQueryEngine _queryEngine;
     private readonly IGitService _gitService;
+    private readonly IMcpSymbolResolver _resolver;
+    private readonly IRepoRegistry _repoRegistry;
+    private readonly IWorkspaceStickyRegistry _stickyRegistry;
     private readonly ILogger<ContextHandler> _logger;
 
     /// <summary>Initializes the ContextHandler with required dependencies.</summary>
     public ContextHandler(
         IQueryEngine queryEngine,
         IGitService gitService,
+        IMcpSymbolResolver resolver,
+        IRepoRegistry repoRegistry,
+        IWorkspaceStickyRegistry stickyRegistry,
         ILogger<ContextHandler> logger)
     {
         _queryEngine = queryEngine;
         _gitService = gitService;
+        _resolver = resolver;
+        _repoRegistry = repoRegistry;
+        _stickyRegistry = stickyRegistry;
         _logger = logger;
     }
 
@@ -55,11 +66,13 @@ public sealed class ContextHandler
             "Get a symbol's full context in one call: card + source code + callee cards with code. " +
             "Replaces the typical search → get_card → get_definition_span → graph.callees chain.",
             BuildSchema(
-                required: ["repo_path", "symbol_id"],
+                required: [],
                 properties: new JsonObject
                 {
-                    ["repo_path"] = Prop("string", "Absolute path to the repository root"),
-                    ["symbol_id"] = Prop("string", "FQN (e.g. M:Namespace.Class.Method) or sym_ stable ID"),
+                    ["repo_path"] = Prop("string", "Absolute path to the repository root. Optional when exactly one repo is indexed in this session."),
+                    ["symbol_id"] = Prop("string", "FQN (e.g. M:Namespace.Class.Method) or sym_ stable ID. Provide either symbol_id (exact) or name (resolved)."),
+                    ["name"] = McpToolHandlers.NameProp(),
+                    ["name_filter"] = McpToolHandlers.NameFilterProp(),
                     ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay-aware context"),
                     ["callee_depth"] = new JsonObject
                     {
@@ -83,10 +96,8 @@ public sealed class ContextHandler
 
     internal async Task<ToolCallResult> HandleGetContextAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        var symbolIdStr = args?["symbol_id"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
-        if (string.IsNullOrEmpty(symbolIdStr)) return InvalidArg("symbol_id is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         var calleeDepth = args.GetInt("callee_depth", DefaultCalleeDepth);
         var maxCallees = args.GetInt("max_callees", DefaultMaxCallees);
@@ -95,21 +106,28 @@ public sealed class ContextHandler
         calleeDepth = Math.Clamp(calleeDepth, 0, 2);
         maxCallees = Math.Clamp(maxCallees, 0, 25);
 
-        var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
+        var routingResult = await BuildRoutingResultAsync(repoPath!, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;
 
-        // sym_ prefix → resolve stable_id to SymbolId first
+        var explicitSymbolId = args?["symbol_id"]?.GetValue<string>();
+
+        // sym_ prefix → resolve stable_id to SymbolId first (bypasses name resolver).
         SymbolId symbolId;
-        if (symbolIdStr.StartsWith("sym_", StringComparison.Ordinal))
+        string symbolIdStr;
+        if (!string.IsNullOrEmpty(explicitSymbolId) && explicitSymbolId.StartsWith("sym_", StringComparison.Ordinal))
         {
-            var stableId = new StableId(symbolIdStr);
+            var stableId = new StableId(explicitSymbolId);
             var stableResult = await _queryEngine.GetSymbolByStableIdAsync(routingResult.Value, stableId, ct).ConfigureAwait(false);
-            if (stableResult.IsFailure) return HandlerHelpers.ErrWithNotFoundSuggestion(stableResult.Error, symbolIdStr);
+            if (stableResult.IsFailure) return HandlerHelpers.ErrWithNotFoundSuggestion(stableResult.Error, explicitSymbolId);
             symbolId = stableResult.Value.Data.SymbolId;
+            symbolIdStr = symbolId.Value;
         }
         else
         {
-            symbolId = SymbolId.From(symbolIdStr);
+            var resolved = await _resolver.ResolveAsync(args, routingResult.Value, ct).ConfigureAwait(false);
+            if (resolved.Error is { } rErr) return Err(rErr);
+            symbolId = resolved.Symbol!.Value;
+            symbolIdStr = symbolId.Value;
         }
 
         var result = await _queryEngine.GetContextAsync(
@@ -166,7 +184,7 @@ public sealed class ContextHandler
     {
         var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
         var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
-        var workspaceIdStr = args?["workspace_id"]?.GetValue<string>();
+        var workspaceIdStr = HandlerHelpers.ResolveWorkspaceId(args, repoPath, _stickyRegistry);
 
         if (!string.IsNullOrEmpty(workspaceIdStr))
             return Result<RoutingContext, ToolCallResult>.Success(

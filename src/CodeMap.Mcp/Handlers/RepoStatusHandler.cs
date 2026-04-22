@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Types;
+using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
 using CodeMap.Query;
 using Microsoft.Extensions.Logging;
@@ -23,17 +24,20 @@ public sealed class RepoStatusHandler
     private readonly IGitService _git;
     private readonly ISymbolStore _store;
     private readonly WorkspaceManager _workspaceManager;
+    private readonly IRepoRegistry _repoRegistry;
     private readonly ILogger<RepoStatusHandler> _logger;
 
     public RepoStatusHandler(
         IGitService git,
         ISymbolStore store,
         WorkspaceManager workspaceManager,
+        IRepoRegistry repoRegistry,
         ILogger<RepoStatusHandler> logger)
     {
         _git = git;
         _store = store;
         _workspaceManager = workspaceManager;
+        _repoRegistry = repoRegistry;
         _logger = logger;
     }
 
@@ -46,8 +50,7 @@ public sealed class RepoStatusHandler
             new System.Text.Json.Nodes.JsonObject
             {
                 ["type"] = "object",
-                ["required"] = new System.Text.Json.Nodes.JsonArray(
-                    (System.Text.Json.Nodes.JsonNode?)"repo_path"),
+                ["required"] = new System.Text.Json.Nodes.JsonArray(),
                 ["properties"] = new System.Text.Json.Nodes.JsonObject
                 {
                     ["repo_path"] = new System.Text.Json.Nodes.JsonObject
@@ -62,16 +65,15 @@ public sealed class RepoStatusHandler
 
     internal async Task<ToolCallResult> HandleAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath))
-            return Error("repo_path is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         try
         {
-            var repoId = await _git.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
-            var commitSha = await _git.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
-            var branch = await _git.GetCurrentBranchAsync(repoPath, ct).ConfigureAwait(false);
-            var isClean = await _git.IsCleanAsync(repoPath, ct).ConfigureAwait(false);
+            var repoId = await _git.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
+            var commitSha = await _git.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
+            var branch = await _git.GetCurrentBranchAsync(repoPath!, ct).ConfigureAwait(false);
+            var isClean = await _git.IsCleanAsync(repoPath!, ct).ConfigureAwait(false);
             var hasIndex = await _store.BaselineExistsAsync(repoId, commitSha, ct).ConfigureAwait(false);
             var workspaces = await _workspaceManager.ListWorkspacesAsync(repoId, ct).ConfigureAwait(false);
 

@@ -7,6 +7,7 @@ using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -52,7 +53,7 @@ public sealed class IndexHandlerTests : IDisposable
         _cache.PullAsync(Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<string?>(null));
 
-        _handler = new IndexHandler(_git, _compiler, _store, _cache, NullLogger<IndexHandler>.Instance);
+        _handler = new IndexHandler(_git, _compiler, _store, _cache, new RepoRegistry(), NullLogger<IndexHandler>.Instance);
     }
 
     public void Dispose() => File.Delete(_tempSolutionPath);

@@ -21,7 +21,7 @@ internal static class RefKindClassifier
         {
             var symbol = model.GetSymbolInfo(invocation).Symbol;
             if (symbol is IMethodSymbol method)
-                return (method, CodeMapRefKind.Call);
+                return (UnwrapMethod(method), CodeMapRefKind.Call);
             return null;
         }
 
@@ -30,7 +30,7 @@ internal static class RefKindClassifier
         {
             var symbol = model.GetSymbolInfo(creation).Symbol;
             if (symbol is IMethodSymbol ctor)
-                return (ctor.ContainingType, CodeMapRefKind.Instantiate);
+                return (ctor.ContainingType.OriginalDefinition, CodeMapRefKind.Instantiate);
             return null;
         }
 
@@ -39,7 +39,7 @@ internal static class RefKindClassifier
         {
             var symbol = model.GetSymbolInfo(implicitCreation).Symbol;
             if (symbol is IMethodSymbol ctor)
-                return (ctor.ContainingType, CodeMapRefKind.Instantiate);
+                return (ctor.ContainingType.OriginalDefinition, CodeMapRefKind.Instantiate);
             return null;
         }
 
@@ -95,7 +95,7 @@ internal static class RefKindClassifier
         {
             var symbol = model.GetSymbolInfo(vbInvocation).Symbol;
             if (symbol is IMethodSymbol method)
-                return (method, CodeMapRefKind.Call);
+                return (UnwrapMethod(method), CodeMapRefKind.Call);
             return null;
         }
 
@@ -104,7 +104,7 @@ internal static class RefKindClassifier
         {
             var symbol = model.GetSymbolInfo(vbCreation).Symbol;
             if (symbol is IMethodSymbol ctor)
-                return (ctor.ContainingType, CodeMapRefKind.Instantiate);
+                return (ctor.ContainingType.OriginalDefinition, CodeMapRefKind.Instantiate);
             return null;
         }
 
@@ -146,5 +146,23 @@ internal static class RefKindClassifier
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Normalize an IMethodSymbol to the form stored by the baseline indexer.
+    /// Reduced extension methods (receiver.Ext()) and closed generics (Foo&lt;int&gt;())
+    /// resolve to the same declaration via OriginalDefinition, so callers map to the
+    /// stored symbol_id of the static/open generic declaration.
+    /// </summary>
+    private static IMethodSymbol UnwrapMethod(IMethodSymbol method)
+    {
+        // ReducedFrom: `receiver.Ext()` → original static method (with `this` parameter).
+        // Must come before OriginalDefinition: a reduced-extension's OriginalDefinition
+        // is itself still a reduced-extension form.
+        if (method.ReducedFrom is { } reducedFrom)
+            method = reducedFrom;
+
+        // OriginalDefinition: `Foo<int>()` → `Foo<T>()`. No-op for non-generic methods.
+        return (IMethodSymbol)method.OriginalDefinition;
     }
 }

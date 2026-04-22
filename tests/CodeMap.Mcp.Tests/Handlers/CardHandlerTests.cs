@@ -7,6 +7,8 @@ using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
+using CodeMap.Mcp.Resolution;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -27,7 +29,7 @@ public sealed class CardHandlerTests
         _git.GetCurrentCommitAsync(RepoPath, Arg.Any<CancellationToken>())
             .Returns(CommitSha.From(ValidSha));
 
-        _handler = new McpToolHandlers(_queryEngine, _git, NullLogger<McpToolHandlers>.Instance);
+        _handler = new McpToolHandlers(_queryEngine, _git, new McpSymbolResolver(_queryEngine), new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<McpToolHandlers>.Instance);
     }
 
     [Fact]
@@ -126,6 +128,98 @@ public sealed class CardHandlerTests
 
         result.IsError.Should().BeTrue();
         result.Content.Should().Contain("symbol_id");
+    }
+
+    [Fact]
+    public async Task GetCard_NameWithSingleMatch_ResolvesAndDelegates()
+    {
+        // Search returns exactly one hit → resolver picks it, handler fetches the card.
+        var targetId = SymbolId.From("M:MyNs.MyClass.DoIt");
+        var card = SymbolCard.CreateMinimal(targetId, "global::MyNs.MyClass.DoIt",
+            SymbolKind.Method, "public void DoIt()", "MyNs",
+            FilePath.From("src/MyClass.cs"), 5, 8, "public", Confidence.High);
+
+        _queryEngine.SearchSymbolsAsync(
+                Arg.Any<RoutingContext>(), "DoIt", Arg.Any<SymbolSearchFilters?>(),
+                Arg.Any<BudgetLimits?>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Success(
+                new ResponseEnvelope<SymbolSearchResponse>(
+                    "ok",
+                    new SymbolSearchResponse([new SymbolSearchHit(
+                        targetId, "global::MyNs.MyClass.DoIt", SymbolKind.Method,
+                        "public void DoIt()", null, FilePath.From("src/MyClass.cs"), 5, 1.0)], 1, false),
+                    [], [], Confidence.High,
+                    new ResponseMeta(new TimingBreakdown(1.0), CommitSha.From(ValidSha),
+                        new Dictionary<string, LimitApplied>(), 0, 0m))));
+
+        _queryEngine.GetSymbolCardAsync(
+                Arg.Any<RoutingContext>(), targetId, Arg.Any<CancellationToken>())
+            .Returns(Result<ResponseEnvelope<SymbolCard>, CodeMapError>.Success(
+                new ResponseEnvelope<SymbolCard>(
+                    "Got card.", card, [], [], Confidence.High,
+                    new ResponseMeta(new TimingBreakdown(1.0), CommitSha.From(ValidSha),
+                        new Dictionary<string, LimitApplied>(), 0, 0m))));
+
+        var result = await _handler.HandleGetCardAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["name"] = "DoIt", ["include_code"] = false },
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse();
+        await _queryEngine.Received(1).GetSymbolCardAsync(
+            Arg.Any<RoutingContext>(), targetId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetCard_NameWithMultipleMatches_ReturnsAmbiguous()
+    {
+        _queryEngine.SearchSymbolsAsync(
+                Arg.Any<RoutingContext>(), "DoIt", Arg.Any<SymbolSearchFilters?>(),
+                Arg.Any<BudgetLimits?>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Success(
+                new ResponseEnvelope<SymbolSearchResponse>(
+                    "ok",
+                    new SymbolSearchResponse(
+                    [
+                        new SymbolSearchHit(SymbolId.From("M:A.DoIt"), "A.DoIt", SymbolKind.Method, "A.DoIt()", null, FilePath.From("a.cs"), 1, 1.0),
+                        new SymbolSearchHit(SymbolId.From("M:B.DoIt"), "B.DoIt", SymbolKind.Method, "B.DoIt()", null, FilePath.From("b.cs"), 1, 0.9),
+                    ], 2, false),
+                    [], [], Confidence.High,
+                    new ResponseMeta(new TimingBreakdown(1.0), CommitSha.From(ValidSha),
+                        new Dictionary<string, LimitApplied>(), 0, 0m))));
+
+        var result = await _handler.HandleGetCardAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["name"] = "DoIt" },
+            CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Content.Should().Contain("AMBIGUOUS");
+        result.Content.Should().Contain("M:A.DoIt");
+        result.Content.Should().Contain("M:B.DoIt");
+        // Card lookup must not have been attempted when resolution is ambiguous.
+        await _queryEngine.DidNotReceive().GetSymbolCardAsync(
+            Arg.Any<RoutingContext>(), Arg.Any<SymbolId>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetCard_NameWithZeroMatches_ReturnsNotFound()
+    {
+        _queryEngine.SearchSymbolsAsync(
+                Arg.Any<RoutingContext>(), "Nonexistent", Arg.Any<SymbolSearchFilters?>(),
+                Arg.Any<BudgetLimits?>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Success(
+                new ResponseEnvelope<SymbolSearchResponse>(
+                    "ok",
+                    new SymbolSearchResponse([], 0, false),
+                    [], [], Confidence.High,
+                    new ResponseMeta(new TimingBreakdown(1.0), CommitSha.From(ValidSha),
+                        new Dictionary<string, LimitApplied>(), 0, 0m))));
+
+        var result = await _handler.HandleGetCardAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["name"] = "Nonexistent" },
+            CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Content.Should().Contain("NOT_FOUND");
     }
 
     [Fact]

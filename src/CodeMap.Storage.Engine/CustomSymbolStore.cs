@@ -91,15 +91,27 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
     public Task<IReadOnlyList<SymbolSearchHit>> SearchSymbolsAsync(RepoId repoId, CommitSha commitSha, string query, SymbolSearchFilters? filters, int limit, CancellationToken ct = default)
     {
         var (reader, merged) = GetOrOpen(repoId.Value, commitSha.Value);
+
+        // Single-kind filter is forwarded into the engine fast path. Multi-kind is
+        // post-filtered below (the engine filter struct holds only one kind).
         var filter = new SymbolSearchFilter(
             Kind: filters?.Kinds?.Count == 1 ? RecordMappers.MapSymbolKind(filters.Kinds[0]) : null,
-            NamespacePrefix: filters?.Namespace,
+            NamespacePrefix: string.IsNullOrEmpty(filters?.Namespace) ? null : filters.Namespace,
+            FilePathPrefix: string.IsNullOrEmpty(filters?.FilePath) ? null : filters.FilePath,
+            ProjectName: string.IsNullOrEmpty(filters?.ProjectName) ? null : filters.ProjectName,
             Limit: limit);
 
         var results = merged.SearchSymbols(query, filter);
         var hits = new List<SymbolSearchHit>(results.Length);
         foreach (var r in results)
+        {
+            if (filters?.Kinds is { Count: > 1 } multiKinds)
+            {
+                var symKind = RecordToCoreMappings.ReverseSymbolKind(r.Symbol.Kind);
+                if (!multiKinds.Contains(symKind)) continue;
+            }
             hits.Add(RecordToCoreMappings.ToSearchHit(r.Symbol, reader, r.Score));
+        }
 
         return Task.FromResult<IReadOnlyList<SymbolSearchHit>>(hits);
     }

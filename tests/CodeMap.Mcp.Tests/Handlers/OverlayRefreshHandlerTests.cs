@@ -6,6 +6,7 @@ using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
 using CodeMap.Query;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -38,7 +39,7 @@ public sealed class OverlayRefreshHandlerTests
                  .Returns(Result<RefreshOverlayResponse, CodeMapError>.Success(
                      new RefreshOverlayResponse(FilesReindexed: 1, SymbolsUpdated: 5, NewOverlayRevision: 2)));
 
-        _handler = new OverlayRefreshHandler(_manager, _git, NullLogger<OverlayRefreshHandler>.Instance);
+        _handler = new OverlayRefreshHandler(_manager, _git, new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<OverlayRefreshHandler>.Instance);
     }
 
     [Fact]

@@ -7,6 +7,8 @@ using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
+using CodeMap.Mcp.Resolution;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -53,7 +55,7 @@ public sealed class GraphHandlerTests
                    Result<ResponseEnvelope<SymbolCard>, CodeMapError>.Success(
                        MakeCardEnvelope(SymbolKind.Method))));
 
-        _handler = new GraphHandler(_engine, _git, NullLogger<GraphHandler>.Instance);
+        _handler = new GraphHandler(_engine, _git, new McpSymbolResolver(_engine), new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<GraphHandler>.Instance);
     }
 
     // ── Callers ───────────────────────────────────────────────────────────────

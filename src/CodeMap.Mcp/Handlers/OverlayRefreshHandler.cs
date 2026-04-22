@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Types;
+using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
 using CodeMap.Query;
 using Microsoft.Extensions.Logging;
@@ -23,15 +24,21 @@ public sealed class OverlayRefreshHandler
 {
     private readonly WorkspaceManager _workspaceManager;
     private readonly IGitService _gitService;
+    private readonly IRepoRegistry _repoRegistry;
+    private readonly IWorkspaceStickyRegistry _stickyRegistry;
     private readonly ILogger<OverlayRefreshHandler> _logger;
 
     public OverlayRefreshHandler(
         WorkspaceManager workspaceManager,
         IGitService gitService,
+        IRepoRegistry repoRegistry,
+        IWorkspaceStickyRegistry stickyRegistry,
         ILogger<OverlayRefreshHandler> logger)
     {
         _workspaceManager = workspaceManager;
         _gitService = gitService;
+        _repoRegistry = repoRegistry;
+        _stickyRegistry = stickyRegistry;
         _logger = logger;
     }
 
@@ -44,7 +51,7 @@ public sealed class OverlayRefreshHandler
             new JsonObject
             {
                 ["type"] = "object",
-                ["required"] = new JsonArray((JsonNode?)"repo_path", (JsonNode?)"workspace_id"),
+                ["required"] = new JsonArray(),
                 ["properties"] = new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to repository root"),
@@ -62,15 +69,15 @@ public sealed class OverlayRefreshHandler
 
     internal async Task<ToolCallResult> HandleAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        var workspaceStr = args?["workspace_id"]?.GetValue<string>();
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
+        var workspaceStr = HandlerHelpers.ResolveWorkspaceId(args, repoPath!, _stickyRegistry);
         if (string.IsNullOrEmpty(workspaceStr)) return InvalidArg("workspace_id is required");
 
         try
         {
-            var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
+            var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
             var workspaceId = WorkspaceId.From(workspaceStr);
 
             // Parse optional file_paths array

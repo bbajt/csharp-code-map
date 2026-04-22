@@ -6,6 +6,7 @@ using CodeMap.Core.Errors;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
+using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
 using CodeMap.Query;
 using Microsoft.Extensions.Logging;
@@ -40,6 +41,7 @@ public sealed class IndexHandler
     private readonly IBaselineCacheManager _cache;
     private readonly IBaselineScanner? _scanner;
     private readonly WorkspaceManager? _workspaceManager;
+    private readonly IRepoRegistry _repoRegistry;
     private readonly ILogger<IndexHandler> _logger;
 
     public IndexHandler(
@@ -47,6 +49,7 @@ public sealed class IndexHandler
         IRoslynCompiler compiler,
         ISymbolStore store,
         IBaselineCacheManager cache,
+        IRepoRegistry repoRegistry,
         ILogger<IndexHandler> logger,
         IBaselineScanner? scanner = null,
         WorkspaceManager? workspaceManager = null)
@@ -55,6 +58,7 @@ public sealed class IndexHandler
         _compiler = compiler;
         _store = store;
         _cache = cache;
+        _repoRegistry = repoRegistry;
         _scanner = scanner;
         _workspaceManager = workspaceManager;
         _logger = logger;
@@ -72,7 +76,7 @@ public sealed class IndexHandler
             new JsonObject
             {
                 ["type"] = "object",
-                ["required"] = new JsonArray((JsonNode?)"repo_path"),
+                ["required"] = new JsonArray(),
                 ["properties"] = new JsonObject
                 {
                     ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root" },
@@ -86,7 +90,7 @@ public sealed class IndexHandler
             new JsonObject
             {
                 ["type"] = "object",
-                ["required"] = new JsonArray((JsonNode?)"repo_path"),
+                ["required"] = new JsonArray(),
                 ["properties"] = new JsonObject
                 {
                     ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root" },
@@ -103,7 +107,7 @@ public sealed class IndexHandler
             new JsonObject
             {
                 ["type"] = "object",
-                ["required"] = new JsonArray((JsonNode?)"repo_path"),
+                ["required"] = new JsonArray(),
                 ["properties"] = new JsonObject
                 {
                     ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root" },
@@ -132,18 +136,18 @@ public sealed class IndexHandler
 
     internal async Task<ToolCallResult> HandleListBaselinesAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return Error("repo_path is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
         if (_scanner is null) return Error("index.list_baselines is not available (scanner not configured)");
 
         try
         {
-            var repoId = await _git.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
+            var repoId = await _git.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
 
             CommitSha? currentHead = null;
             try
             {
-                currentHead = await _git.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
+                currentHead = await _git.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -184,8 +188,8 @@ public sealed class IndexHandler
 
     internal async Task<ToolCallResult> HandleCleanupAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return Error("repo_path is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
         if (_scanner is null) return Error("index.cleanup is not available (scanner not configured)");
 
         var keepCount = args.GetInt("keep_count", 5);
@@ -194,8 +198,8 @@ public sealed class IndexHandler
 
         try
         {
-            var repoId = await _git.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
-            var currentHead = await _git.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
+            var repoId = await _git.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
+            var currentHead = await _git.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
 
             IReadOnlyList<CodeMap.Query.WorkspaceSummary> workspaces = _workspaceManager is not null
                 ? await _workspaceManager.ListWorkspacesAsync(repoId, ct).ConfigureAwait(false)
@@ -223,16 +227,18 @@ public sealed class IndexHandler
 
     internal async Task<ToolCallResult> HandleRemoveRepoAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return Error("repo_path is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
         if (_scanner is null) return Error("index.remove_repo is not available (scanner not configured)");
 
         var dryRun = args?["dry_run"]?.GetValue<bool>() ?? true;
 
         try
         {
-            var repoId = await _git.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
+            var repoId = await _git.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
             var response = await _scanner.RemoveRepoAsync(repoId, dryRun, ct).ConfigureAwait(false);
+
+            if (!dryRun) _repoRegistry.Forget(repoPath!);
 
             var json = JsonSerializer.Serialize(response, CodeMapJsonOptions.Default);
             if (response.DryRun)
@@ -265,7 +271,7 @@ public sealed class IndexHandler
 
         try
         {
-            var repoId = await _git.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
+            var repoId = await _git.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
             CommitSha commitSha;
             var commitShaStr = args?["commit_sha"]?.GetValue<string>();
             if (!string.IsNullOrEmpty(commitShaStr))
@@ -278,20 +284,21 @@ public sealed class IndexHandler
                 else
                 {
                     // Resolve short SHA, branch name, tag, etc.
-                    var resolvedSha = await _git.ResolveCommitAsync(repoPath, commitShaStr, ct).ConfigureAwait(false);
+                    var resolvedSha = await _git.ResolveCommitAsync(repoPath!, commitShaStr, ct).ConfigureAwait(false);
                     if (resolvedSha is null)
                         return Error($"Could not resolve commit '{commitShaStr}'. Provide a full 40-char SHA or omit commit_sha to use HEAD.");
                     commitSha = resolvedSha.Value;
                 }
             }
             else
-                commitSha = await _git.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
+                commitSha = await _git.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
 
             // Step 1: Check local (existing behavior)
             var exists = await _store.BaselineExistsAsync(repoId, commitSha, ct).ConfigureAwait(false);
             if (exists)
             {
                 _logger.LogInformation("index.ensure_baseline: baseline already exists for {Sha}", commitSha.Value[..8]);
+                _repoRegistry.Register(repoPath!);
                 var skipped = new EnsureBaselineResponse(commitSha, AlreadyExisted: true, Stats: null);
                 return new ToolCallResult(JsonSerializer.Serialize(skipped, CodeMapJsonOptions.Default));
             }
@@ -306,6 +313,7 @@ public sealed class IndexHandler
                 {
                     _logger.LogInformation(
                         "index.ensure_baseline: baseline {Sha} pulled from shared cache", commitSha.Value[..8]);
+                    _repoRegistry.Register(repoPath!);
                     var cached = new EnsureBaselineResponse(commitSha, AlreadyExisted: true, Stats: null, FromCache: true);
                     return new ToolCallResult(JsonSerializer.Serialize(cached, CodeMapJsonOptions.Default));
                 }
@@ -332,6 +340,7 @@ public sealed class IndexHandler
             // Step 4: Push to shared cache — fire-and-forget for errors
             await _cache.PushAsync(repoId, commitSha, ct).ConfigureAwait(false);
 
+            _repoRegistry.Register(repoPath!);
             var response = new EnsureBaselineResponse(commitSha, AlreadyExisted: false, Stats: compilationResult.Stats);
             return new ToolCallResult(JsonSerializer.Serialize(response, CodeMapJsonOptions.Default));
         }

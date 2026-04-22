@@ -92,6 +92,40 @@ public sealed class SearchRankingTests : IAsyncLifetime
     }
 
     [Fact]
+    public void FilePathPrefixFilter_Works()
+    {
+        // Test data has symbols in src/App/Foo.cs, src/App/Bar.cs, src/App/IService.cs.
+        // Prefix filter "src/App/Foo" should include only Foo-file symbols.
+        var results = _reader.Search.SearchSymbols("MyApp", new SymbolSearchFilter(FilePathPrefix: "src/App/Foo", Limit: 50));
+        results.Should().NotBeEmpty();
+        foreach (var r in results)
+        {
+            ref readonly var file = ref _reader.GetFileByIntId(r.Symbol.FileIntId);
+            var path = _reader.ResolveString(file.PathStringId);
+            path.Should().StartWith("src/App/Foo");
+        }
+    }
+
+    [Fact]
+    public void FilePathPrefixFilter_NoMatches_ReturnsEmpty()
+    {
+        var results = _reader.Search.SearchSymbols("MyApp", new SymbolSearchFilter(FilePathPrefix: "tests/", Limit: 50));
+        results.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ProjectNameFilter_Works()
+    {
+        // All TestData symbols are in project "MyApp".
+        var results = _reader.Search.SearchSymbols("Foo", new SymbolSearchFilter(ProjectName: "MyApp", Limit: 50));
+        results.Should().NotBeEmpty();
+
+        // Non-matching project should return empty.
+        var noneResults = _reader.Search.SearchSymbols("Foo", new SymbolSearchFilter(ProjectName: "NonexistentProject", Limit: 50));
+        noneResults.Should().BeEmpty();
+    }
+
+    [Fact]
     public void EmptyQuery_ReturnsEmpty()
     {
         var results = _reader.Search.SearchSymbols("", new SymbolSearchFilter(Limit: 50));

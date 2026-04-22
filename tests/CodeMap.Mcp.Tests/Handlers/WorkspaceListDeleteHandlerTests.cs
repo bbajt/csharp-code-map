@@ -6,6 +6,7 @@ using CodeMap.Core.Enums;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
 using CodeMap.Query;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -40,7 +41,7 @@ public sealed class WorkspaceListDeleteHandlerTests
         _git.GetCurrentCommitAsync(RepoPath, Arg.Any<CancellationToken>())
             .Returns(Sha);
 
-        _handler = new WorkspaceHandler(_manager, _git, NullLogger<WorkspaceHandler>.Instance);
+        _handler = new WorkspaceHandler(_manager, _git, new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<WorkspaceHandler>.Instance);
     }
 
     // ── workspace.list ────────────────────────────────────────────────────────

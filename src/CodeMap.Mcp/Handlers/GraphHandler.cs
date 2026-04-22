@@ -7,6 +7,8 @@ using CodeMap.Core.Errors;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
+using CodeMap.Mcp.Context;
+using CodeMap.Mcp.Resolution;
 using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -35,15 +37,24 @@ public sealed class GraphHandler
 
     private readonly IQueryEngine _queryEngine;
     private readonly IGitService _gitService;
+    private readonly IMcpSymbolResolver _resolver;
+    private readonly IRepoRegistry _repoRegistry;
+    private readonly IWorkspaceStickyRegistry _stickyRegistry;
     private readonly ILogger<GraphHandler> _logger;
 
     public GraphHandler(
         IQueryEngine queryEngine,
         IGitService gitService,
+        IMcpSymbolResolver resolver,
+        IRepoRegistry repoRegistry,
+        IWorkspaceStickyRegistry stickyRegistry,
         ILogger<GraphHandler> logger)
     {
         _queryEngine = queryEngine;
         _gitService = gitService;
+        _resolver = resolver;
+        _repoRegistry = repoRegistry;
+        _stickyRegistry = stickyRegistry;
         _logger = logger;
     }
 
@@ -57,14 +68,16 @@ public sealed class GraphHandler
     {
         registry.Register(new ToolDefinition(
             "graph.trace_feature",
-            "Traces a feature end-to-end starting from an entry point method or endpoint handler. Returns a hierarchical call tree annotated with architectural facts (endpoints, config, DB tables, DI registrations) at each node.",
+            "Traces a feature end-to-end starting from an entry point method or endpoint handler. Returns a hierarchical call tree annotated with architectural facts (endpoints, config, DB tables, DI registrations) at each node. Accepts either entry_point (exact symbol ID) or name (resolved via search).",
             BuildSchema(
-                required: ["repo_path", "entry_point"],
+                required: [],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
                     ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay-aware tracing"),
-                    ["entry_point"] = Prop("string", "Symbol ID (FQN) or stable_id (sym_ prefix) of the entry method"),
+                    ["entry_point"] = Prop("string", "Symbol ID (FQN) or stable_id (sym_ prefix) of the entry method. Provide either entry_point (exact) or name (resolved)."),
+                    ["name"] = McpToolHandlers.NameProp(),
+                    ["name_filter"] = McpToolHandlers.NameFilterProp(),
                     ["depth"] = new JsonObject { ["type"] = "integer", ["description"] = $"Max call depth to trace (default: {DefaultTraceDepth}, max: {MaxTraceDepthCap})" },
                     ["limit"] = new JsonObject { ["type"] = "integer", ["description"] = $"Max nodes to traverse (default: {DefaultTraceLimit}, max: {MaxTraceLimitCap})" },
                 }),
@@ -72,14 +85,16 @@ public sealed class GraphHandler
 
         registry.Register(new ToolDefinition(
             "graph.callers",
-            "Find all callers of a C# symbol, traversing the call graph up to the specified depth.",
+            "Find all callers of a C# symbol, traversing the call graph up to the specified depth. Accepts either symbol_id (exact) or name (resolved via search).",
             BuildSchema(
-                required: ["repo_path", "symbol_id"],
+                required: [],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
                     ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay-aware traversal"),
-                    ["symbol_id"] = Prop("string", "Symbol to find callers of (documentation comment ID format)"),
+                    ["symbol_id"] = Prop("string", "Symbol to find callers of (documentation comment ID format). Provide either symbol_id (exact) or name (resolved)."),
+                    ["name"] = McpToolHandlers.NameProp(),
+                    ["name_filter"] = McpToolHandlers.NameFilterProp(),
                     ["depth"] = new JsonObject { ["type"] = "integer", ["description"] = "Max traversal depth (default: 1, max: 6)" },
                     ["limit_per_level"] = new JsonObject { ["type"] = "integer", ["description"] = "Max nodes per BFS level (default: 20, max: 500)" },
                 }),
@@ -87,14 +102,16 @@ public sealed class GraphHandler
 
         registry.Register(new ToolDefinition(
             "graph.callees",
-            "Find all symbols called by a C# symbol, traversing the call graph down to the specified depth.",
+            "Find all symbols called by a C# symbol, traversing the call graph down to the specified depth. Accepts either symbol_id (exact) or name (resolved via search).",
             BuildSchema(
-                required: ["repo_path", "symbol_id"],
+                required: [],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
                     ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay-aware traversal"),
-                    ["symbol_id"] = Prop("string", "Symbol to find callees of (documentation comment ID format)"),
+                    ["symbol_id"] = Prop("string", "Symbol to find callees of (documentation comment ID format). Provide either symbol_id (exact) or name (resolved)."),
+                    ["name"] = McpToolHandlers.NameProp(),
+                    ["name_filter"] = McpToolHandlers.NameFilterProp(),
                     ["depth"] = new JsonObject { ["type"] = "integer", ["description"] = "Max traversal depth (default: 1, max: 6)" },
                     ["limit_per_level"] = new JsonObject { ["type"] = "integer", ["description"] = "Max nodes per BFS level (default: 20, max: 500)" },
                 }),
@@ -103,30 +120,37 @@ public sealed class GraphHandler
 
     internal async Task<ToolCallResult> HandleTraceFeatureAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        var entryPointStr = args?["entry_point"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
-        if (string.IsNullOrEmpty(entryPointStr)) return InvalidArg("entry_point is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         var depth = Math.Clamp(args.GetInt("depth", DefaultTraceDepth), 1, MaxTraceDepthCap);
         var limit = Math.Clamp(args.GetInt("limit", DefaultTraceLimit), 1, MaxTraceLimitCap);
 
-        var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
-        var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
-        var routing = BuildRouting(repoId, sha, args);
+        var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
+        var sha = await _gitService.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
+        var routing = BuildRouting(repoId, sha, args, repoPath!);
 
-        // Resolve entry point: stable_id (sym_ prefix) or FQN
+        // Resolve entry point: stable_id (sym_ prefix), FQN via entry_point, or name via resolver.
+        // entry_point and symbol_id are synonyms here for compatibility with the resolver.
         Core.Types.SymbolId entryPoint;
-        if (entryPointStr.StartsWith("sym_", StringComparison.Ordinal))
+        var entryPointStr = args?["entry_point"]?.GetValue<string>();
+
+        if (!string.IsNullOrEmpty(entryPointStr) && entryPointStr.StartsWith("sym_", StringComparison.Ordinal))
         {
             var stableId = new Core.Types.StableId(entryPointStr);
             var cardResult = await _queryEngine.GetSymbolByStableIdAsync(routing, stableId, ct).ConfigureAwait(false);
             if (cardResult.IsFailure) return Err(cardResult.Error);
             entryPoint = cardResult.Value.Data.SymbolId;
         }
-        else
+        else if (!string.IsNullOrEmpty(entryPointStr))
         {
             entryPoint = Core.Types.SymbolId.From(entryPointStr);
+        }
+        else
+        {
+            var resolved = await _resolver.ResolveAsync(args, routing, ct).ConfigureAwait(false);
+            if (resolved.Error is { } rErr) return Err(rErr);
+            entryPoint = resolved.Symbol!.Value;
         }
 
         var result = await _queryEngine.TraceFeatureAsync(routing, entryPoint, depth, limit, ct).ConfigureAwait(false);
@@ -141,18 +165,20 @@ public sealed class GraphHandler
 
     private async Task<ToolCallResult> HandleGraphAsync(JsonObject? args, CancellationToken ct, bool callers)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        var symbolIdStr = args?["symbol_id"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
-        if (string.IsNullOrEmpty(symbolIdStr)) return InvalidArg("symbol_id is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         var depth = Math.Clamp(args.GetInt("depth", DefaultDepth), 1, MaxDepthHardCap);
         var limitPerLevel = Math.Clamp(args.GetInt("limit_per_level", DefaultLimitPerLevel), 1, MaxLimitHardCap);
 
-        var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
-        var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
-        var routing = BuildRouting(repoId, sha, args);
-        var symbolId = SymbolId.From(symbolIdStr);
+        var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
+        var sha = await _gitService.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
+        var routing = BuildRouting(repoId, sha, args, repoPath!);
+
+        var resolved = await _resolver.ResolveAsync(args, routing, ct).ConfigureAwait(false);
+        if (resolved.Error is { } rErr) return Err(rErr);
+        var symbolId = resolved.Symbol!.Value;
+        var symbolIdStr = symbolId.Value;
         var budgets = new BudgetLimits(maxDepth: depth, maxReferences: limitPerLevel);
 
         // Validate that the symbol is a method-like symbol, not a type.
@@ -180,9 +206,9 @@ public sealed class GraphHandler
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static RoutingContext BuildRouting(RepoId repoId, CommitSha sha, JsonObject? args)
+    private RoutingContext BuildRouting(RepoId repoId, CommitSha sha, JsonObject? args, string repoPath)
     {
-        var workspaceIdStr = args?["workspace_id"]?.GetValue<string>();
+        var workspaceIdStr = HandlerHelpers.ResolveWorkspaceId(args, repoPath, _stickyRegistry);
         if (!string.IsNullOrEmpty(workspaceIdStr))
         {
             var workspaceId = WorkspaceId.From(workspaceIdStr);

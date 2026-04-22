@@ -7,6 +7,7 @@ using CodeMap.Core.Errors;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
+using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -32,15 +33,21 @@ public sealed class SurfacesHandler
 {
     private readonly IQueryEngine _queryEngine;
     private readonly IGitService _gitService;
+    private readonly IRepoRegistry _repoRegistry;
+    private readonly IWorkspaceStickyRegistry _stickyRegistry;
     private readonly ILogger<SurfacesHandler> _logger;
 
     public SurfacesHandler(
         IQueryEngine queryEngine,
         IGitService gitService,
+        IRepoRegistry repoRegistry,
+        IWorkspaceStickyRegistry stickyRegistry,
         ILogger<SurfacesHandler> logger)
     {
         _queryEngine = queryEngine;
         _gitService = gitService;
+        _repoRegistry = repoRegistry;
+        _stickyRegistry = stickyRegistry;
         _logger = logger;
     }
 
@@ -51,7 +58,7 @@ public sealed class SurfacesHandler
             "surfaces.list_endpoints",
             "List HTTP endpoints exposed by the ASP.NET solution (controller-based and minimal API routes).",
             BuildSchema(
-                required: ["repo_path"],
+                required: [],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
@@ -67,7 +74,7 @@ public sealed class SurfacesHandler
             "surfaces.list_config_keys",
             "List configuration keys used by the ASP.NET solution (IConfiguration indexer, GetValue, GetSection, Options pattern).",
             BuildSchema(
-                required: ["repo_path"],
+                required: [],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
@@ -81,7 +88,7 @@ public sealed class SurfacesHandler
             "surfaces.list_db_tables",
             "List database tables referenced by the solution (EF Core DbSet<T>, [Table] attributes, raw SQL strings).",
             BuildSchema(
-                required: ["repo_path"],
+                required: [],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
@@ -94,16 +101,16 @@ public sealed class SurfacesHandler
 
     internal async Task<ToolCallResult> HandleAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         var pathFilter = args?["path_filter"]?.GetValue<string>();
         var httpMethod = args?["http_method"]?.GetValue<string>();
         var limit = args.GetInt("limit", 50);
 
-        var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
-        var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
-        var routing = BuildRouting(repoId, sha, args);
+        var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
+        var sha = await _gitService.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
+        var routing = BuildRouting(repoId, sha, args, repoPath!);
 
         var result = await _queryEngine.ListEndpointsAsync(routing, pathFilter, httpMethod, limit, ct)
                                        .ConfigureAwait(false);
@@ -112,15 +119,15 @@ public sealed class SurfacesHandler
 
     internal async Task<ToolCallResult> HandleConfigKeysAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         var keyFilter = args?["key_filter"]?.GetValue<string>();
         var limit = args.GetInt("limit", 50);
 
-        var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
-        var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
-        var routing = BuildRouting(repoId, sha, args);
+        var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
+        var sha = await _gitService.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
+        var routing = BuildRouting(repoId, sha, args, repoPath!);
 
         var result = await _queryEngine.ListConfigKeysAsync(routing, keyFilter, limit, ct)
                                        .ConfigureAwait(false);
@@ -129,15 +136,15 @@ public sealed class SurfacesHandler
 
     internal async Task<ToolCallResult> HandleDbTablesAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         var tableFilter = args?["table_filter"]?.GetValue<string>();
         var limit = args.GetInt("limit", 50);
 
-        var repoId = await _gitService.GetRepoIdentityAsync(repoPath, ct).ConfigureAwait(false);
-        var sha = await _gitService.GetCurrentCommitAsync(repoPath, ct).ConfigureAwait(false);
-        var routing = BuildRouting(repoId, sha, args);
+        var repoId = await _gitService.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
+        var sha = await _gitService.GetCurrentCommitAsync(repoPath!, ct).ConfigureAwait(false);
+        var routing = BuildRouting(repoId, sha, args, repoPath!);
 
         var result = await _queryEngine.ListDbTablesAsync(routing, tableFilter, limit, ct)
                                        .ConfigureAwait(false);
@@ -146,9 +153,9 @@ public sealed class SurfacesHandler
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static RoutingContext BuildRouting(RepoId repoId, CommitSha sha, JsonObject? args)
+    private RoutingContext BuildRouting(RepoId repoId, CommitSha sha, JsonObject? args, string repoPath)
     {
-        var workspaceIdStr = args?["workspace_id"]?.GetValue<string>();
+        var workspaceIdStr = HandlerHelpers.ResolveWorkspaceId(args, repoPath, _stickyRegistry);
         if (!string.IsNullOrEmpty(workspaceIdStr))
         {
             var workspaceId = WorkspaceId.From(workspaceIdStr);

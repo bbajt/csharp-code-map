@@ -114,4 +114,65 @@ public class ReferenceExtractorTests
         var refs = Extract(source);
         refs.Where(r => r.Kind == RefKind.Call).Should().HaveCountGreaterThanOrEqualTo(2);
     }
+
+    [Fact]
+    public void Extract_ExtensionMethodCall_ReferencesOriginalStaticDeclaration()
+    {
+        // The agent-feedback bug: `receiver.Ext()` was resolving to the reduced-extension
+        // form, whose doc-comment ID didn't match the stored symbol_id of the declaration.
+        // Callers were silently dropped — graph.callers returned 0 results.
+        const string source = """
+            public static class Extensions
+            {
+                public static void MapEndpoints(this string app) {}
+            }
+            public class Program
+            {
+                public void Run()
+                {
+                    "hello".MapEndpoints();
+                }
+            }
+            """;
+        var refs = Extract(source);
+        var callRef = refs.Single(r => r.Kind == RefKind.Call);
+        // Declaration symbol_id includes the `this` parameter type. Stored on the static
+        // method — the call site must resolve to the same ID.
+        callRef.ToSymbol.Value.Should().Be("M:Extensions.MapEndpoints(System.String)");
+    }
+
+    [Fact]
+    public void Extract_GenericMethodCall_ReferencesOpenGenericDeclaration()
+    {
+        // Closed generic at call site (`Foo<int>()`) must map to the open generic declaration
+        // (`M:...Foo``1`) that the baseline indexer stores.
+        const string source = """
+            public class Container
+            {
+                public T Get<T>() => default!;
+            }
+            public class User
+            {
+                public void Run() { new Container().Get<int>(); }
+            }
+            """;
+        var refs = Extract(source);
+        var callRef = refs.Single(r => r.Kind == RefKind.Call);
+        callRef.ToSymbol.Value.Should().Be("M:Container.Get``1");
+    }
+
+    [Fact]
+    public void Extract_GenericTypeInstantiation_ReferencesOpenGenericType()
+    {
+        const string source = """
+            public class Box<T> { public Box(T value) {} }
+            public class User
+            {
+                public void Run() { new Box<int>(42); }
+            }
+            """;
+        var refs = Extract(source);
+        var instRef = refs.Single(r => r.Kind == RefKind.Instantiate);
+        instRef.ToSymbol.Value.Should().Be("T:Box`1");
+    }
 }

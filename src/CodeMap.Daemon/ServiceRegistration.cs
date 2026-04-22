@@ -3,7 +3,9 @@ namespace CodeMap.Daemon;
 using CodeMap.Core.Interfaces;
 using CodeMap.Git;
 using CodeMap.Mcp;
+using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Resolution;
 using CodeMap.Query;
 using CodeMap.Roslyn;
 using CodeMap.Roslyn.Extraction;
@@ -110,6 +112,10 @@ public static class ServiceRegistration
 
         // ── MCP server + handlers ─────────────────────────────────────────────
         services.AddMcpServer();
+        services.AddSingleton<IMcpSymbolResolver, McpSymbolResolver>();
+        // Context registries — in-memory, per-process. No persistence across daemon restarts.
+        services.AddSingleton<IRepoRegistry, RepoRegistry>();
+        services.AddSingleton<IWorkspaceStickyRegistry, WorkspaceStickyRegistry>();
         services.AddSingleton<RepoStatusHandler>();
         services.AddSingleton<IBaselineScanner>(new EngineBaselineScanner(storeDir));
         services.AddSingleton<IndexHandler>(sp => new IndexHandler(
@@ -117,6 +123,7 @@ public static class ServiceRegistration
             sp.GetRequiredService<IRoslynCompiler>(),
             sp.GetRequiredService<ISymbolStore>(),
             sp.GetRequiredService<IBaselineCacheManager>(),
+            sp.GetRequiredService<IRepoRegistry>(),
             sp.GetRequiredService<ILogger<IndexHandler>>(),
             sp.GetRequiredService<IBaselineScanner>(),
             sp.GetRequiredService<WorkspaceManager>()));

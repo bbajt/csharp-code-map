@@ -1,16 +1,51 @@
 namespace CodeMap.Mcp.Handlers;
 
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CodeMap.Core.Errors;
+using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
 
 /// <summary>
 /// Shared static helpers used by multiple MCP tool handler classes.
-/// Centralises NOT_FOUND suggestion logic and FQN parsing so changes
-/// only need to be made in one place.
+/// Centralises NOT_FOUND suggestion logic, FQN parsing, and context-default
+/// resolution so changes only need to be made in one place.
 /// </summary>
 internal static class HandlerHelpers
 {
+    /// <summary>
+    /// Resolves the <c>repo_path</c> argument into a concrete path, using the registry
+    /// to auto-default single-repo sessions.
+    /// <list type="bullet">
+    ///   <item>Non-empty explicit <c>repo_path</c> → returned verbatim (normalized).</item>
+    ///   <item>Omitted and exactly one repo registered → that repo.</item>
+    ///   <item>Omitted and 0 / 2+ repos registered → <see cref="ToolCallResult"/> error.</item>
+    /// </list>
+    /// </summary>
+    internal static (string? RepoPath, ToolCallResult? Error) ResolveRepoPath(
+        JsonObject? args, IRepoRegistry registry)
+    {
+        var explicitPath = args?["repo_path"]?.GetValue<string>();
+        var resolved = registry.Resolve(explicitPath);
+        return resolved.Error is { } err
+            ? ((string?)null, (ToolCallResult?)Err(err))
+            : (resolved.RepoPath, null);
+    }
+
+    /// <summary>
+    /// Resolves the <c>workspace_id</c> argument, falling back to the sticky default
+    /// for the given repo when the key is absent. Explicit empty string
+    /// (<c>"workspace_id": ""</c>) is treated as "committed mode" and does NOT fall
+    /// back to sticky — lets callers opt out of the default explicitly.
+    /// </summary>
+    internal static string? ResolveWorkspaceId(
+        JsonObject? args, string repoPath, IWorkspaceStickyRegistry sticky)
+    {
+        var node = args?["workspace_id"];
+        if (node is not null)
+            return node.GetValue<string>();
+        return sticky.Get(repoPath);
+    }
     /// <summary>
     /// Returns an Err result for NOT_FOUND errors augmented with a
     /// <c>symbols.search</c> suggestion. For all other error codes

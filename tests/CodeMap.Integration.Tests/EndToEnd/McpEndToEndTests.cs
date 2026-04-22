@@ -8,6 +8,8 @@ using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Git;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
+using CodeMap.Mcp.Resolution;
 using CodeMap.Query;
 using CodeMap.Storage;
 using CodeMap.TestUtilities.Helpers;
@@ -91,11 +93,11 @@ public sealed class McpEndToEndTests : IAsyncLifetime
             NullLogger<WorkspaceManager>.Instance);
         overlayStore.GetOverlayFilePathsAsync(Arg.Any<RepoId>(), Arg.Any<WorkspaceId>(), Arg.Any<CancellationToken>())
             .Returns(new HashSet<FilePath>());
-        _repoStatus = new RepoStatusHandler(gitService, _store, wsManager, NullLogger<RepoStatusHandler>.Instance);
+        _repoStatus = new RepoStatusHandler(gitService, _store, wsManager, new RepoRegistry(), NullLogger<RepoStatusHandler>.Instance);
         _indexer = new IndexHandler(gitService, compiler, _store,
             new BaselineCacheManager(new BaselineDbFactory(Path.GetTempPath(), NullLogger<BaselineDbFactory>.Instance), null, NullLogger<BaselineCacheManager>.Instance),
-            NullLogger<IndexHandler>.Instance);
-        _query = new McpToolHandlers(engine, gitService, NullLogger<McpToolHandlers>.Instance);
+            new RepoRegistry(), NullLogger<IndexHandler>.Instance);
+        _query = new McpToolHandlers(engine, gitService, new McpSymbolResolver(engine), new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<McpToolHandlers>.Instance);
 
         // 5. Pre-seed: index using the REAL git repo identity + seeded data
         //    We use a pre-built baseline so tests can query it.
@@ -158,7 +160,7 @@ public sealed class McpEndToEndTests : IAsyncLifetime
                 new InMemoryCacheService(),
                 Substitute.For<IResolutionWorker>(),
                 NullLogger<WorkspaceManager>.Instance);
-            var handler = new RepoStatusHandler(git, store, freshWsMgr, NullLogger<RepoStatusHandler>.Instance);
+            var handler = new RepoStatusHandler(git, store, freshWsMgr, new RepoRegistry(), NullLogger<RepoStatusHandler>.Instance);
 
             var result = await handler.HandleAsync(
                 new JsonObject { ["repo_path"] = freshRepo.Path },

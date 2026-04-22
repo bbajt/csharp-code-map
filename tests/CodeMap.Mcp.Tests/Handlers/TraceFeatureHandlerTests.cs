@@ -8,6 +8,8 @@ using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
+using CodeMap.Mcp.Resolution;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -39,7 +41,7 @@ public sealed class TraceFeatureHandlerTests
                .Returns(Task.FromResult(
                    Result<ResponseEnvelope<FeatureTraceResponse>, CodeMapError>.Success(MakeTraceEnvelope(Entry))));
 
-        _handler = new GraphHandler(_engine, _git, NullLogger<GraphHandler>.Instance);
+        _handler = new GraphHandler(_engine, _git, new McpSymbolResolver(_engine), new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<GraphHandler>.Instance);
     }
 
     [Fact]

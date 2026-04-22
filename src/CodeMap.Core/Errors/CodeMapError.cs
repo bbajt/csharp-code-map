@@ -43,4 +43,12 @@ public record CodeMapError(
                 ? new Dictionary<string, object> { ["failed_projects"] = failedProjects }
                 : null,
             Retryable: true);
+
+    /// <summary>
+    /// A name-based lookup matched multiple symbols. Details carries a "candidates"
+    /// list so the caller can pick one and retry with symbol_id (or narrow with name_filter).
+    /// </summary>
+    public static CodeMapError Ambiguous(string message, IReadOnlyList<string> candidates) =>
+        new(ErrorCodes.Ambiguous, message,
+            new Dictionary<string, object> { ["candidates"] = candidates });
 }

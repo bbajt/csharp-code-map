@@ -7,6 +7,8 @@ using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
+using CodeMap.Mcp.Resolution;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -38,7 +40,7 @@ public sealed class RefsHandlerTests
                .Returns(Task.FromResult(
                    Result<ResponseEnvelope<FindRefsResponse>, CodeMapError>.Success(MakeRefsEnvelope())));
 
-        _handler = new RefsHandler(_engine, _git, NullLogger<RefsHandler>.Instance);
+        _handler = new RefsHandler(_engine, _git, new McpSymbolResolver(_engine), new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<RefsHandler>.Instance);
     }
 
     [Fact]

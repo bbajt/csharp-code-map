@@ -238,6 +238,22 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
                 && !ns.StartsWith(nsFilter, StringComparison.Ordinal))
                 continue;
 
+            // File path filter: resolve from overlay file records or baseline file table.
+            if (filters?.FilePath is { Length: > 0 } fpFilter)
+            {
+                var path = ResolveOverlaySymbolFilePath(overlay, reader, sym.FileIntId);
+                if (path is null || !path.StartsWith(fpFilter, StringComparison.OrdinalIgnoreCase))
+                    continue;
+            }
+
+            // Project name filter: overlay-new symbols inherit project from their file.
+            if (filters?.ProjectName is { Length: > 0 } projFilter)
+            {
+                var projName = ResolveOverlaySymbolProjectName(overlay, reader, sym.FileIntId);
+                if (projName is null || !string.Equals(projName, projFilter, StringComparison.OrdinalIgnoreCase))
+                    continue;
+            }
+
             results.Add(new SymbolSearchHit(
                 SymbolId: SymbolId.From(fqn),
                 FullyQualifiedName: fqn,
@@ -252,6 +268,41 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
         }
 
         return Task.FromResult<IReadOnlyList<SymbolSearchHit>>(results);
+    }
+
+    /// <summary>
+    /// Resolves the file path for an overlay-new symbol. Positive FileIntId points into
+    /// the baseline file table; negative (or zero-miss) means an overlay-local new file
+    /// whose FileRecord is only reachable via the path-keyed dictionary.
+    /// </summary>
+    private static string? ResolveOverlaySymbolFilePath(EngineOverlay overlay, EngineBaselineReader reader, int fileIntId)
+    {
+        if (fileIntId >= 1 && fileIntId <= reader.FileCount)
+        {
+            ref readonly var file = ref reader.GetFileByIntId(fileIntId);
+            return file.PathStringId > 0 ? reader.ResolveString(file.PathStringId) : null;
+        }
+        foreach (var kv in overlay.FilesByPath)
+            if (kv.Value.FileIntId == fileIntId) return kv.Key;
+        return null;
+    }
+
+    private static string? ResolveOverlaySymbolProjectName(EngineOverlay overlay, EngineBaselineReader reader, int fileIntId)
+    {
+        int projectIntId;
+        if (fileIntId >= 1 && fileIntId <= reader.FileCount)
+        {
+            projectIntId = reader.GetFileByIntId(fileIntId).ProjectIntId;
+        }
+        else
+        {
+            projectIntId = 0;
+            foreach (var kv in overlay.FilesByPath)
+                if (kv.Value.FileIntId == fileIntId) { projectIntId = kv.Value.ProjectIntId; break; }
+        }
+        if (projectIntId < 1 || projectIntId > reader.ProjectCount) return null;
+        ref readonly var proj = ref reader.GetProjectByIntId(projectIntId);
+        return proj.NameStringId > 0 ? reader.ResolveString(proj.NameStringId) : null;
     }
 
     public Task<IReadOnlyList<StoredReference>> GetOverlayReferencesAsync(RepoId repoId, WorkspaceId workspaceId, SymbolId symbolId, RefKind? kind, int limit, CancellationToken ct = default)

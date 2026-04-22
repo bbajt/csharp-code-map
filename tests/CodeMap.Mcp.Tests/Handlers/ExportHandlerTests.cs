@@ -7,6 +7,7 @@ using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -42,7 +43,7 @@ public sealed class ExportHandlerTests
                    Result<ResponseEnvelope<ExportResponse>, CodeMapError>.Success(
                        MakeExportEnvelope("standard", "markdown"))));
 
-        _handler = new ExportHandler(_engine, _git, NullLogger<ExportHandler>.Instance);
+        _handler = new ExportHandler(_engine, _git, new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<ExportHandler>.Instance);
     }
 
     [Fact]

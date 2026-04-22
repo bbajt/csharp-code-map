@@ -23,4 +23,7 @@ public static class ErrorCodes
 
     /// <summary>The Roslyn compilation failed during indexing. Retryable after fixing build errors.</summary>
     public const string CompilationFailed = "COMPILATION_FAILED";
+
+    /// <summary>A name-based lookup matched multiple symbols. The error message lists candidate symbol_ids so the caller can pick one.</summary>
+    public const string Ambiguous = "AMBIGUOUS";
 }

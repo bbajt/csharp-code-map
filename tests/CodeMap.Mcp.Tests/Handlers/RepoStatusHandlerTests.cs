@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
 using CodeMap.Query;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -43,7 +44,7 @@ public sealed class RepoStatusHandlerTests
         _workspaceManager.ListWorkspacesAsync(Arg.Any<RepoId>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkspaceSummary>());
 
-        _handler = new RepoStatusHandler(_git, _store, _workspaceManager, NullLogger<RepoStatusHandler>.Instance);
+        _handler = new RepoStatusHandler(_git, _store, _workspaceManager, new RepoRegistry(), NullLogger<RepoStatusHandler>.Instance);
     }
 
     [Fact]

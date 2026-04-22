@@ -9,6 +9,8 @@ using CodeMap.Core.Models;
 internal readonly record struct SymbolSearchFilter(
     short?  Kind               = null,
     string? NamespacePrefix    = null,
+    string? FilePathPrefix     = null,
+    string? ProjectName        = null,
     bool    ExcludeDecompiled  = false,
     bool    ExcludeTestSymbols = false,
     int     Limit              = 50);

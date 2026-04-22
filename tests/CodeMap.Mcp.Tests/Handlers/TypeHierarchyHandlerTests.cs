@@ -7,6 +7,8 @@ using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Handlers;
+using CodeMap.Mcp.Context;
+using CodeMap.Mcp.Resolution;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -39,7 +41,7 @@ public sealed class TypeHierarchyHandlerTests
                    Result<ResponseEnvelope<TypeHierarchyResponse>, CodeMapError>.Success(
                        MakeHierarchyEnvelope(Target))));
 
-        _handler = new TypeHierarchyHandler(_engine, _git, NullLogger<TypeHierarchyHandler>.Instance);
+        _handler = new TypeHierarchyHandler(_engine, _git, new McpSymbolResolver(_engine), new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<TypeHierarchyHandler>.Instance);
     }
 
     [Fact]

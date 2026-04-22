@@ -110,6 +110,24 @@ internal sealed class SearchIndexReader : IEngineSearchIndex
                     continue;
             }
 
+            if (filter.FilePathPrefix != null)
+            {
+                if (sym.FileIntId < 1 || sym.FileIntId > _reader.FileCount) continue;
+                ref readonly var file = ref _reader.GetFileByIntId(sym.FileIntId);
+                var path = file.PathStringId > 0 ? _reader.ResolveString(file.PathStringId) : "";
+                if (!path.StartsWith(filter.FilePathPrefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+            }
+
+            if (filter.ProjectName != null)
+            {
+                if (sym.ProjectIntId < 1 || sym.ProjectIntId > _reader.ProjectCount) continue;
+                ref readonly var proj = ref _reader.GetProjectByIntId(sym.ProjectIntId);
+                var name = proj.NameStringId > 0 ? _reader.ResolveString(proj.NameStringId) : "";
+                if (!string.Equals(name, filter.ProjectName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+            }
+
             var score = ComputeScore(sym, queryLower, queryTokens);
             results.Add(new SymbolSearchResult(sym, score));
         }

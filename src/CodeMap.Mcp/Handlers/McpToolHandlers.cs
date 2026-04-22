@@ -7,6 +7,8 @@ using CodeMap.Core.Errors;
 using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
+using CodeMap.Mcp.Context;
+using CodeMap.Mcp.Resolution;
 using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -36,15 +38,24 @@ public sealed class McpToolHandlers
 {
     private readonly IQueryEngine _queryEngine;
     private readonly IGitService _gitService;
+    private readonly IMcpSymbolResolver _resolver;
+    private readonly IRepoRegistry _repoRegistry;
+    private readonly IWorkspaceStickyRegistry _stickyRegistry;
     private readonly ILogger<McpToolHandlers> _logger;
 
     public McpToolHandlers(
         IQueryEngine queryEngine,
         IGitService gitService,
+        IMcpSymbolResolver resolver,
+        IRepoRegistry repoRegistry,
+        IWorkspaceStickyRegistry stickyRegistry,
         ILogger<McpToolHandlers> logger)
     {
         _queryEngine = queryEngine;
         _gitService = gitService;
+        _resolver = resolver;
+        _repoRegistry = repoRegistry;
+        _stickyRegistry = stickyRegistry;
         _logger = logger;
     }
 
@@ -55,11 +66,11 @@ public sealed class McpToolHandlers
             "symbols.search",
             "Search for C# symbols by name, namespace, kind, or file path using full-text search.",
             BuildSchema(
-                required: ["repo_path"],
+                required: [],
                 properties: new JsonObject
                 {
-                    ["repo_path"] = Prop("string", "Absolute path to the repository root"),
-                    ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay data"),
+                    ["repo_path"] = Prop("string", "Absolute path to the repository root. Optional when exactly one repo is indexed in this session."),
+                    ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay data. Falls back to the sticky workspace set by the most recent workspace.create."),
                     ["virtual_files"] = VirtualFilesProp(),
                     ["query"] = Prop("string", "FTS5 search query (optional when kinds is set). Omit to browse all symbols of the specified kinds. Space = implicit AND. Use OR for alternatives: 'Foo OR Bar'. Use * for prefix matching: 'Order*'."),
                     ["kinds"] = new JsonObject
@@ -68,23 +79,26 @@ public sealed class McpToolHandlers
                         ["items"] = new JsonObject { ["type"] = "string" },
                         ["description"] = "Filter by SymbolKind (e.g. [\"Class\", \"Method\"]). When query is omitted, kinds is required — returns all symbols of those types.",
                     },
-                    ["namespace"] = Prop("string", "Namespace prefix filter"),
+                    ["namespace"] = Prop("string", "Namespace prefix filter (case-insensitive)."),
                     ["file_path"] = Prop("string", "File path prefix filter. E.g., 'src/' for production code only, 'tests/' for test code only."),
+                    ["project_name"] = Prop("string", "Exact project name filter (case-insensitive). E.g., 'CodeMap.Core'."),
                     ["limit"] = new JsonObject { ["type"] = "integer", ["description"] = "Max results (default: 20, max: 100)" },
                 }),
             HandleSearchAsync));
 
         registry.Register(new ToolDefinition(
             "symbols.get_card",
-            "Get a full structured summary of a C# symbol including signature, docs, facts, and source code.",
+            "Get a full structured summary of a C# symbol including signature, docs, facts, and source code. Accepts either symbol_id (exact) or name (resolved via search).",
             BuildSchema(
-                required: ["repo_path", "symbol_id"],
+                required: [],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
                     ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay data"),
                     ["virtual_files"] = VirtualFilesProp(),
-                    ["symbol_id"] = Prop("string", "Fully qualified symbol ID or sym_ stable ID"),
+                    ["symbol_id"] = Prop("string", "Fully qualified symbol ID or sym_ stable ID. Provide either symbol_id (exact) or name (resolved)."),
+                    ["name"] = NameProp(),
+                    ["name_filter"] = NameFilterProp(),
                     ["include_code"] = new JsonObject { ["type"] = "boolean", ["description"] = "Include source code in response (default: true). When true, the symbol's full source is included up to 100 lines; methods are rarely truncated. Set false for metadata-only lookups (faster, no disk read)." },
                 }),
             HandleGetCardAsync));
@@ -93,7 +107,7 @@ public sealed class McpToolHandlers
             "code.get_span",
             "Read a bounded excerpt of source code with line numbers.",
             BuildSchema(
-                required: ["repo_path", "file_path", "start_line", "end_line"],
+                required: ["file_path", "start_line", "end_line"],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
@@ -109,15 +123,17 @@ public sealed class McpToolHandlers
 
         registry.Register(new ToolDefinition(
             "symbols.get_definition_span",
-            "Source code only — no card metadata or fact hydration. Use for batch reads or when you need precise line control. For most uses, prefer symbols.get_card which includes source automatically.",
+            "Source code only — no card metadata or fact hydration. Accepts either symbol_id (exact) or name (resolved via search). Use for batch reads or when you need precise line control. For most uses, prefer symbols.get_card which includes source automatically.",
             BuildSchema(
-                required: ["repo_path", "symbol_id"],
+                required: [],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
                     ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay data"),
                     ["virtual_files"] = VirtualFilesProp(),
-                    ["symbol_id"] = Prop("string", "Fully qualified symbol ID"),
+                    ["symbol_id"] = Prop("string", "Fully qualified symbol ID. Provide either symbol_id (exact) or name (resolved)."),
+                    ["name"] = NameProp(),
+                    ["name_filter"] = NameFilterProp(),
                     ["max_lines"] = new JsonObject { ["type"] = "integer", ["description"] = "Max lines to return (default: 120)" },
                     ["context_lines"] = new JsonObject { ["type"] = "integer", ["description"] = "Context around definition (default: 2)" },
                 }),
@@ -127,7 +143,7 @@ public sealed class McpToolHandlers
             "code.search_text",
             "Search indexed source file content by regex pattern. Returns file:line:excerpt for each match. Searches only indexed files (no bin/obj). Use file_path to restrict to a subtree.",
             BuildSchema(
-                required: ["repo_path", "pattern"],
+                required: ["pattern"],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
@@ -145,14 +161,14 @@ public sealed class McpToolHandlers
 
     internal async Task<ToolCallResult> HandleSearchAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         // Treat bare "*" as no query — engine routes to kinds-browse path
         var query = args?["query"]?.GetValue<string>();
         if (query == "*") query = null;
 
-        var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
+        var routingResult = await BuildRoutingResultAsync(repoPath!, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;
 
         var limit = args.GetInt("limit", 20);
@@ -165,26 +181,31 @@ public sealed class McpToolHandlers
 
     internal async Task<ToolCallResult> HandleGetCardAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        var symbolIdStr = args?["symbol_id"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
-        if (string.IsNullOrEmpty(symbolIdStr)) return InvalidArg("symbol_id is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         var includeCode = args?["include_code"]?.GetValue<bool>() ?? true;
 
-        var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
+        var routingResult = await BuildRoutingResultAsync(repoPath!, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;
 
-        // sym_ prefix → stable_id lookup (stable symbol identity)
-        if (symbolIdStr.StartsWith("sym_", StringComparison.Ordinal))
+        var explicitSymbolId = args?["symbol_id"]?.GetValue<string>();
+
+        // sym_ prefix → stable_id lookup (stable symbol identity). Kept on the explicit
+        // symbol_id path — sym_ IDs never come from name resolution.
+        if (!string.IsNullOrEmpty(explicitSymbolId) && explicitSymbolId.StartsWith("sym_", StringComparison.Ordinal))
         {
-            var stableId = new StableId(symbolIdStr);
+            var stableId = new StableId(explicitSymbolId);
             var stableResult = await _queryEngine.GetSymbolByStableIdAsync(routingResult.Value, stableId, ct).ConfigureAwait(false);
-            if (stableResult.IsFailure) return HandlerHelpers.ErrWithNotFoundSuggestion(stableResult.Error, symbolIdStr);
+            if (stableResult.IsFailure) return HandlerHelpers.ErrWithNotFoundSuggestion(stableResult.Error, explicitSymbolId);
             return await AppendSourceCodeAsync(stableResult.Value.Data.SymbolId, stableResult.Value, routingResult.Value, includeCode, ct).ConfigureAwait(false);
         }
 
-        var symbolId = SymbolId.From(symbolIdStr);
+        var resolved = await _resolver.ResolveAsync(args, routingResult.Value, ct).ConfigureAwait(false);
+        if (resolved.Error is { } rErr) return Err(rErr);
+        var symbolId = resolved.Symbol!.Value;
+        var symbolIdStr = symbolId.Value;
+
         var result = await _queryEngine.GetSymbolCardAsync(routingResult.Value, symbolId, ct).ConfigureAwait(false);
         if (result.IsFailure)
         {
@@ -321,9 +342,9 @@ public sealed class McpToolHandlers
 
     internal async Task<ToolCallResult> HandleGetSpanAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
         var filePathStr = args?["file_path"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
         if (string.IsNullOrEmpty(filePathStr)) return InvalidArg("file_path is required");
         if (filePathStr == "unknown")
             return InvalidArg("File path is 'unknown' — this symbol has no source location (metadata or decompiled assembly). Use symbols.get_card with include_code=true instead.");
@@ -337,7 +358,7 @@ public sealed class McpToolHandlers
         var maxLines = args.GetInt("max_lines", 120);
         var budgets = new BudgetLimits(maxLines: Math.Clamp(maxLines, 1, 400));
 
-        var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
+        var routingResult = await BuildRoutingResultAsync(repoPath!, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;
 
         var filePath = FilePath.From(filePathStr);
@@ -347,30 +368,31 @@ public sealed class McpToolHandlers
 
     internal async Task<ToolCallResult> HandleGetDefinitionSpanAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
-        var symbolIdStr = args?["symbol_id"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
-        if (string.IsNullOrEmpty(symbolIdStr)) return InvalidArg("symbol_id is required");
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
 
         var maxLines = args.GetInt("max_lines", 120);
         var contextLines = args.GetInt("context_lines", 2);
 
-        var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
+        var routingResult = await BuildRoutingResultAsync(repoPath!, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;
 
-        var symbolId = SymbolId.From(symbolIdStr);
+        var resolved = await _resolver.ResolveAsync(args, routingResult.Value, ct).ConfigureAwait(false);
+        if (resolved.Error is { } rErr) return Err(rErr);
+        var symbolId = resolved.Symbol!.Value;
+
         var result = await _queryEngine.GetDefinitionSpanAsync(routingResult.Value, symbolId, maxLines, contextLines, ct).ConfigureAwait(false);
         return result.Match(Ok, Err);
     }
 
     internal async Task<ToolCallResult> HandleSearchTextAsync(JsonObject? args, CancellationToken ct)
     {
-        var repoPath = args?["repo_path"]?.GetValue<string>();
+        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        if (repoErr is { } re) return re;
         var pattern = args?["pattern"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(repoPath)) return InvalidArg("repo_path is required");
         if (string.IsNullOrEmpty(pattern)) return InvalidArg("pattern is required");
 
-        var routingResult = await BuildRoutingResultAsync(repoPath, args, ct).ConfigureAwait(false);
+        var routingResult = await BuildRoutingResultAsync(repoPath!, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;
 
         var limit = args.GetInt("limit", 50);
@@ -411,7 +433,9 @@ public sealed class McpToolHandlers
             }
         }
 
-        var workspaceIdStr = args?["workspace_id"]?.GetValue<string>();
+        // Read workspace_id with sticky-default fallback. Empty string (explicit opt-out)
+        // is passed through so the committed-mode branch below still fires.
+        var workspaceIdStr = HandlerHelpers.ResolveWorkspaceId(args, repoPath, _stickyRegistry);
 
         // Ephemeral mode: virtual files present
         if (virtualFiles is { Count: > 0 })
@@ -470,8 +494,9 @@ public sealed class McpToolHandlers
 
         var ns = args?["namespace"]?.GetValue<string>();
         var filePath = args?["file_path"]?.GetValue<string>();
-        if (kinds is null && ns is null && filePath is null) return null;
-        return new SymbolSearchFilters(Kinds: kinds?.AsReadOnly(), Namespace: ns, FilePath: filePath);
+        var projectName = args?["project_name"]?.GetValue<string>();
+        if (kinds is null && ns is null && filePath is null && projectName is null) return null;
+        return new SymbolSearchFilters(Kinds: kinds?.AsReadOnly(), Namespace: ns, FilePath: filePath, ProjectName: projectName);
     }
 
     private static ToolCallResult Ok<T>(T value) =>
@@ -496,6 +521,37 @@ public sealed class McpToolHandlers
         if (description is not null) obj["description"] = description;
         return obj;
     }
+
+    /// <summary>
+    /// Shared <c>name</c> schema property for symbol-scoped tools. Keeps the description
+    /// consistent so agents learn one rule: "either symbol_id or name".
+    /// </summary>
+    internal static JsonObject NameProp() => Prop("string",
+        "Symbol name (class, method, property). Resolved via search on the server. " +
+        "Use this shorthand when you don't already have a symbol_id. " +
+        "On 2+ matches the error lists candidates — pass one as symbol_id or narrow with name_filter.");
+
+    /// <summary>
+    /// Shared <c>name_filter</c> schema property — same shape as symbols.search filters.
+    /// Lets callers disambiguate without resorting to a separate search call.
+    /// </summary>
+    internal static JsonObject NameFilterProp() => new()
+    {
+        ["type"] = "object",
+        ["description"] = "Optional scope for name resolution. Narrows matches when a name is ambiguous.",
+        ["properties"] = new JsonObject
+        {
+            ["namespace"] = Prop("string", "Namespace prefix filter (case-insensitive)."),
+            ["file_path"] = Prop("string", "File path prefix filter, e.g. 'src/'."),
+            ["project_name"] = Prop("string", "Exact project name filter (case-insensitive)."),
+            ["kinds"] = new JsonObject
+            {
+                ["type"] = "array",
+                ["items"] = new JsonObject { ["type"] = "string" },
+                ["description"] = "Restrict to these SymbolKinds, e.g. [\"Method\"]."
+            },
+        },
+    };
 
     private static JsonObject VirtualFilesProp() => new()
     {
