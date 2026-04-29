@@ -1,0 +1,16 @@
+{
+  "category": "SymbolSearch",
+  "symbol_ids": [
+    "F:SampleBlazorApp.Components.Pages.Counter.currentCount",
+    "M:SampleBlazorApp.Components.Pages.Counter.IncrementCount",
+    "T:SampleBlazorApp.Components.Pages.Counter"
+  ],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "total_count": "3",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 3
+}

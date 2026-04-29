@@ -48,14 +48,21 @@ public sealed class McpSymbolResolver : IMcpSymbolResolver
 
         var filters = ParseNameFilter(args);
 
-        // Fetch one past the display cap so we can report "X+ candidates" accurately when
-        // the actual match count is huge.
-        var budgets = new BudgetLimits(maxResults: MaxCandidates + 1);
+        // Fetch a wider pool than the display cap so de-duplication has raw material:
+        // multi-targeted libraries can return the same SymbolId N times (one per target
+        // framework). 4× covers the typical net8/9/10 + netstandard2.1 case; the M20
+        // compilation-collapse work removes the need for this padding.
+        var budgets = new BudgetLimits(maxResults: MaxCandidates * 4 + 1);
         var searchResult = await _queryEngine.SearchSymbolsAsync(routing, name, filters, budgets, ct).ConfigureAwait(false);
         if (searchResult.IsFailure)
             return new ResolveResult(null, searchResult.Error);
 
-        var hits = searchResult.Value.Data.Hits;
+        // Collapse identical SymbolIds before counting candidates — otherwise a
+        // multi-targeted type appears N times and trips AMBIGUOUS even though it's
+        // one symbol. Preserves search-rank order via DistinctBy first-wins.
+        var hits = searchResult.Value.Data.Hits
+            .DistinctBy(h => h.SymbolId.Value, StringComparer.Ordinal)
+            .ToList();
 
         if (hits.Count == 0)
         {

@@ -64,11 +64,41 @@ public static class KnownRepos
         SyntheticRepoId: "harness-samplevbsolution"
     );
 
+    /// <summary>Micro tier — testdata/SampleBlazorSolution. Blazor Server with @page, @inject, [Parameter].</summary>
+    public static readonly RepoDescriptor SampleBlazorSolution = new(
+        Name: "SampleBlazorSolution",
+        SolutionPath: Path.Combine(RepoRoot, "testdata", "SampleBlazorSolution", "SampleBlazorSolution.slnx"),
+        Tier: RepoTier.Micro,
+        Anchors:
+        [
+            new("Counter", "Counter", SymbolKind.Class),
+            new("MainLayout", "MainLayout", SymbolKind.Class),
+            new("Greeting", "Greeting", SymbolKind.Class),
+        ],
+        CountExpectation: new(
+            SymbolCountMin: 5,
+            SymbolCountMax: 500,
+            EdgeCountMin: 0,
+            EdgeCountMax: 5000,
+            FactCountMin: 5
+        ),
+        KnownQueryInputs:
+        [
+            "Counter",
+            "Home",
+            "Weather",
+            "IncrementCount",
+        ],
+        GitRoot: RepoRoot,
+        SyntheticRepoId: "harness-sampleblazorsolution"
+    );
+
     /// <summary>All Micro + Small repos (Committed — always available).</summary>
     public static IReadOnlyList<RepoDescriptor> Committed =>
     [
         SampleSolution,
         SampleVbSolution,
+        SampleBlazorSolution,
     ];
 
     /// <summary>
@@ -104,11 +134,11 @@ public static class KnownRepos
         var configured = LoadConfigured();
         return tierName.ToLowerInvariant() switch
         {
-            "micro" => [SampleSolution],
+            "micro" => [SampleSolution, SampleBlazorSolution],
             "small" => [SampleVbSolution],
             "medium" => configured.Where(r => r.Tier == RepoTier.Medium).ToList(),
             "large" => configured.Where(r => r.Tier == RepoTier.Large).ToList(),
-            "all" => [SampleSolution, SampleVbSolution, .. configured],
+            "all" => [SampleSolution, SampleVbSolution, SampleBlazorSolution, .. configured],
             _ => null,
         };
     }

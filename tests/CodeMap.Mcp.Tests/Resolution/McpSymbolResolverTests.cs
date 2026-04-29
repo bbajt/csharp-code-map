@@ -209,6 +209,52 @@ public sealed class McpSymbolResolverTests
         result.Error!.Code.Should().Be(ErrorCodes.IndexNotAvailable);
     }
 
+    // ── M19.x.1 #2: multi-target dedup ──────────────────────────────────────
+
+    [Fact]
+    public async Task MultiTargetDuplicates_CollapseToSingleMatch()
+    {
+        // Multi-targeted libraries (e.g. Radzen.Blazor net7/8/9/10) return the
+        // same SymbolId once per target framework. Pre-fix this raised AMBIGUOUS;
+        // the resolver must DistinctBy SymbolId and treat as a unique match.
+        var engine = EngineReturning(
+            Hit("T:Radzen.RadzenComponent", "RadzenComponent"),
+            Hit("T:Radzen.RadzenComponent", "RadzenComponent"),
+            Hit("T:Radzen.RadzenComponent", "RadzenComponent"),
+            Hit("T:Radzen.RadzenComponent", "RadzenComponent"));
+        var resolver = new McpSymbolResolver(engine);
+        var args = new JsonObject { ["name"] = "RadzenComponent" };
+
+        var result = await resolver.ResolveAsync(args, Routing(), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("identical SymbolIds collapse to one logical match");
+        result.Symbol!.Value.Value.Should().Be("T:Radzen.RadzenComponent");
+    }
+
+    [Fact]
+    public async Task GenuineAmbiguity_StillFlagged_WhenMixedWithMultiTargetDupes()
+    {
+        // Two real distinct symbols, each duplicated by multi-targeting. Post-dedup
+        // we have 2 candidates → still AMBIGUOUS, both must appear in the message.
+        var engine = EngineReturning(
+            Hit("T:Admin.Controllers.CustomerController", "CustomerController"),
+            Hit("T:Admin.Controllers.CustomerController", "CustomerController"),
+            Hit("T:Admin.Controllers.CustomerController", "CustomerController"),
+            Hit("T:Frontend.Controllers.CustomerController", "CustomerController"),
+            Hit("T:Frontend.Controllers.CustomerController", "CustomerController"));
+        var resolver = new McpSymbolResolver(engine);
+        var args = new JsonObject { ["name"] = "CustomerController" };
+
+        var result = await resolver.ResolveAsync(args, Routing(), CancellationToken.None);
+
+        result.Error!.Code.Should().Be(ErrorCodes.Ambiguous);
+        var candidates = (IReadOnlyList<string>)result.Error!.Details!["candidates"]!;
+        candidates.Should().HaveCount(2, "two distinct SymbolIds remain after dedup");
+        candidates.Should().BeEquivalentTo(
+            "T:Admin.Controllers.CustomerController",
+            "T:Frontend.Controllers.CustomerController");
+    }
+
     [Fact]
     public async Task ExplicitSymbolIdWinsOverName_WhenBothProvided()
     {

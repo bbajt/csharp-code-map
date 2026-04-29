@@ -75,9 +75,11 @@ public sealed class EnumTests
         values.Should().Contain("Exception");
         values.Should().Contain("Log");
         values.Should().Contain("RetryPolicy");
+        values.Should().Contain("RazorInject");
+        values.Should().Contain("RazorParameter");
     }
 
     [Fact]
-    public void FactKind_Count_Is8() =>
-        Enum.GetValues<FactKind>().Should().HaveCount(8);
+    public void FactKind_Count_Is10() =>
+        Enum.GetValues<FactKind>().Should().HaveCount(10);
 }

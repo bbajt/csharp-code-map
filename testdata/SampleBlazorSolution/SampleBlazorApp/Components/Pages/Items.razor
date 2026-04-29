@@ -1,0 +1,13 @@
+@page "/items/{Id:int}"
+@page "/items/{Id:int}/details"
+@layout MainLayout
+
+<PageTitle>Item @Id</PageTitle>
+
+<h1>Item @Id</h1>
+
+@code {
+    /// <summary>Item identifier from the route.</summary>
+    [Parameter]
+    public int Id { get; set; }
+}

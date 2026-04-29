@@ -5,6 +5,7 @@ using System.Text;
 using CodeMap.Core.Enums;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
+using CodeMap.Roslyn.Extraction.Razor;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -94,6 +95,65 @@ internal static class SymbolExtractor
                 return true;
         }
 
+        if (IsRazorGeneratedBoilerplate(symbol)) return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Suppresses symbols emitted by the Razor source generator that have no
+    /// agent-relevant content: synthetic _Imports classes, BuildRenderTree methods
+    /// on ComponentBase derivatives, and double-underscore-prefixed nested attribute
+    /// types (e.g. __PrivateComponentRenderModeAttribute). Keeps user-written @code
+    /// methods intact.
+    /// </summary>
+    private static bool IsRazorGeneratedBoilerplate(ISymbol symbol)
+    {
+        // Synthetic _Imports class generated per namespace from _Imports.razor.
+        // The class itself plus its Execute method carry no user code.
+        if (symbol is INamedTypeSymbol importsType
+            && importsType.Name == "_Imports"
+            && IsRazorGeneratedSource(importsType))
+            return true;
+
+        if (symbol is IMethodSymbol importsExec
+            && importsExec.Name == "Execute"
+            && importsExec.ContainingType is { Name: "_Imports" } importsContainer
+            && IsRazorGeneratedSource(importsContainer))
+            return true;
+
+        // Double-underscore-prefixed nested types on ComponentBase derivatives
+        // (e.g. __PrivateComponentRenderModeAttribute). Always SDK plumbing.
+        if (symbol is INamedTypeSymbol nestedType
+            && nestedType.Name.StartsWith("__", StringComparison.Ordinal)
+            && nestedType.ContainingType is { } container
+            && RazorSgHelpers.InheritsComponentBase(container))
+            return true;
+
+        // BuildRenderTree on any ComponentBase derivative — compiler-generated rendering
+        // logic. Match by inheritance to avoid hiding identically-named user methods.
+        if (symbol is IMethodSymbol m
+            && m.Name == "BuildRenderTree"
+            && m.ContainingType is { } owner
+            && RazorSgHelpers.InheritsComponentBase(owner))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Detects whether a type's source location is inside a Razor SG-generated file
+    /// (path ends in _razor.g.cs). Used to scope _Imports filtering safely.
+    /// </summary>
+    private static bool IsRazorGeneratedSource(INamedTypeSymbol type)
+    {
+        foreach (var location in type.Locations)
+        {
+            if (!location.IsInSource) continue;
+            var path = location.SourceTree?.FilePath;
+            if (path is null) continue;
+            if (path.EndsWith("_razor.g.cs", StringComparison.Ordinal)) return true;
+        }
         return false;
     }
 

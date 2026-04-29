@@ -157,6 +157,20 @@ public sealed class GuideHandlerTests
     }
 
     [Fact]
+    public async Task Handle_KnownLimitations_HintAndDocPresent()
+    {
+        var result = await _handler.HandleGetGuideAsync(null, CancellationToken.None);
+
+        var doc = JsonDocument.Parse(result.Content);
+        var hint = doc.RootElement.GetProperty("known_limitations_hint").GetString();
+        var docPath = doc.RootElement.GetProperty("known_limitations_doc").GetString();
+
+        hint.Should().NotBeNullOrEmpty();
+        hint.Should().Contain("KNOWN-LIMITATIONS");
+        docPath.Should().Be("docs/KNOWN-LIMITATIONS.md");
+    }
+
+    [Fact]
     public void Register_ToolName_IsCodeMapGuide()
     {
         var registry = new ToolRegistry();

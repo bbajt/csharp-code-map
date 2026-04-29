@@ -1,0 +1,18 @@
+{
+  "category": "Surfaces",
+  "symbol_ids": [],
+  "edge_keys": [],
+  "fact_keys": [
+    "PAGE:/",
+    "PAGE:/counter",
+    "PAGE:/items/{Id:int}",
+    "PAGE:/items/{Id:int}/details",
+    "PAGE:/weather"
+  ],
+  "scalar_fields": {
+    "total_count": "5",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 5
+}

@@ -17,7 +17,8 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <b>surfaces.list_endpoints</b> params: repo_path (required), workspace_id, path_filter, http_method, limit (all optional).
-/// Detects controller-based ([HttpGet], [Route]) and minimal API (MapGet, MapPost, etc.) endpoints.
+/// Detects controller-based ([HttpGet], [Route]), minimal API (MapGet, MapPost, etc.) endpoints,
+/// and Blazor <c>@page</c> routes (emitted with method <c>PAGE</c>).
 ///
 /// <b>surfaces.list_config_keys</b> params: repo_path (required), workspace_id, key_filter, limit (all optional).
 /// Detects IConfiguration indexer, GetValue, GetSection, and Configure&lt;T&gt; patterns.
@@ -56,7 +57,7 @@ public sealed class SurfacesHandler
     {
         registry.Register(new ToolDefinition(
             "surfaces.list_endpoints",
-            "List HTTP endpoints exposed by the ASP.NET solution (controller-based and minimal API routes).",
+            "List HTTP endpoints and Blazor pages (controller, minimal API, and @page routes). Blazor pages use the synthetic method token PAGE.",
             BuildSchema(
                 required: [],
                 properties: new JsonObject
@@ -64,8 +65,8 @@ public sealed class SurfacesHandler
                     ["repo_path"] = Prop("string", "Absolute path to the repository root"),
                     ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay-aware query"),
                     ["path_filter"] = Prop("string", "Optional: prefix match on route path (e.g. '/api/orders')"),
-                    ["http_method"] = PropEnum("string", "Optional: filter by HTTP method",
-                                          ["GET", "POST", "PUT", "DELETE", "PATCH"]),
+                    ["http_method"] = PropEnum("string", "Optional: filter by HTTP method. PAGE selects Blazor @page routes.",
+                                          ["GET", "POST", "PUT", "DELETE", "PATCH", "PAGE"]),
                     ["limit"] = Prop("integer", "Maximum number of endpoints to return (default: 50)"),
                 }),
             HandleAsync));

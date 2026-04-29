@@ -1,0 +1,25 @@
+{
+  "category": "TextSearch",
+  "symbol_ids": [],
+  "edge_keys": [],
+  "fact_keys": [
+    "SampleBlazorApp/Components/Pages/Counter.razor:4:\u003CPageTitle\u003ECounter\u003C/PageTitle\u003E",
+    "SampleBlazorApp/Components/Pages/Counter.razor:6:\u003Ch1\u003ECounter\u003C/h1\u003E",
+    "SampleBlazorApp/obj/Debug/net10.0/Microsoft.CodeAnalysis.Razor.Compiler/Microsoft.NET.Sdk.Razor.SourceGenerators.RazorSourceGenerator/Components/Pages/Counter_razor.g.cs:1:#pragma checksum \u0022C:\\Users\\Developer\\source\\repos\\CodeMap\\testdata\\SampleBlazorSolution\\SampleBlazorApp\\Components\\Pages\\Counter.razor\u0022 \u0022{8829d00f-11b8-4213-878b-770e8597ac16}\u0022 \u0022b0b33ebbcb823382c4d0da39b902bc2700035e0fd1753c54ff9561ac511b2a12\u0022",
+    "SampleBlazorApp/obj/Debug/net10.0/Microsoft.CodeAnalysis.Razor.Compiler/Microsoft.NET.Sdk.Razor.SourceGenerators.RazorSourceGenerator/Components/Pages/Counter_razor.g.cs:110:#line (10,19)-(10,33) \u0022C:\\Users\\Developer\\source\\repos\\CodeMap\\testdata\\SampleBlazorSolution\\SampleBlazorApp\\Components\\Pages\\Counter.razor\u0022",
+    "SampleBlazorApp/obj/Debug/net10.0/Microsoft.CodeAnalysis.Razor.Compiler/Microsoft.NET.Sdk.Razor.SourceGenerators.RazorSourceGenerator/Components/Pages/Counter_razor.g.cs:122:#line (12,8)-(20,1) \u0022C:\\Users\\Developer\\source\\repos\\CodeMap\\testdata\\SampleBlazorSolution\\SampleBlazorApp\\Components\\Pages\\Counter.razor\u0022",
+    "SampleBlazorApp/obj/Debug/net10.0/Microsoft.CodeAnalysis.Razor.Compiler/Microsoft.NET.Sdk.Razor.SourceGenerators.RazorSourceGenerator/Components/Pages/Counter_razor.g.cs:63:#line (2,9)-(2,19) \u0022C:\\Users\\Developer\\source\\repos\\CodeMap\\testdata\\SampleBlazorSolution\\SampleBlazorApp\\Components\\Pages\\Counter.razor\u0022",
+    "SampleBlazorApp/obj/Debug/net10.0/Microsoft.CodeAnalysis.Razor.Compiler/Microsoft.NET.Sdk.Razor.SourceGenerators.RazorSourceGenerator/Components/Pages/Counter_razor.g.cs:73:#line (1,7)-(1,17) \u0022C:\\Users\\Developer\\source\\repos\\CodeMap\\testdata\\SampleBlazorSolution\\SampleBlazorApp\\Components\\Pages\\Counter.razor\u0022",
+    "SampleBlazorApp/obj/Debug/net10.0/Microsoft.CodeAnalysis.Razor.Compiler/Microsoft.NET.Sdk.Razor.SourceGenerators.RazorSourceGenerator/Components/Pages/Counter_razor.g.cs:81:public partial class Counter : global::Microsoft.AspNetCore.Components.ComponentBase",
+    "SampleBlazorApp/obj/Debug/net10.0/Microsoft.CodeAnalysis.Razor.Compiler/Microsoft.NET.Sdk.Razor.SourceGenerators.RazorSourceGenerator/Components/Pages/Counter_razor.g.cs:89:__builder2.AddContent(2, \u0022Counter\u0022);",
+    "SampleBlazorApp/obj/Debug/net10.0/Microsoft.CodeAnalysis.Razor.Compiler/Microsoft.NET.Sdk.Razor.SourceGenerators.RazorSourceGenerator/Components/Pages/Counter_razor.g.cs:94:__builder.AddMarkupContent(4, \u0022\u003Ch1\u003ECounter\u003C/h1\u003E\\r\\n\\r\\n\u0022);",
+    "SampleBlazorApp/obj/Debug/net10.0/Microsoft.CodeAnalysis.Razor.Compiler/Microsoft.NET.Sdk.Razor.SourceGenerators.RazorSourceGenerator/Components/Pages/Counter_razor.g.cs:98:#line (8,20)-(8,32) 24 \u0022C:\\Users\\Developer\\source\\repos\\CodeMap\\testdata\\SampleBlazorSolution\\SampleBlazorApp\\Components\\Pages\\Counter.razor\u0022"
+  ],
+  "scalar_fields": {
+    "total_files": "21",
+    "match_count": "11",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 11
+}

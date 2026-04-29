@@ -127,7 +127,7 @@ public sealed class IndexHandler
                 ["properties"] = new JsonObject
                 {
                     ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root" },
-                    ["solution_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the .sln/.slnx file (auto-discovered if omitted)" },
+                    ["solution_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to a .sln/.slnx solution OR a .csproj/.vbproj/.fsproj project file. Auto-discovered if omitted: .slnx > .sln > single project at repo root or in a single direct child directory." },
                     ["commit_sha"] = new JsonObject { ["type"] = "string", ["description"] = "Optional: specific commit to index (default: HEAD). Accepts short SHAs." },
                 },
             },
@@ -352,11 +352,14 @@ public sealed class IndexHandler
     }
 
     /// <summary>
-    /// Discovers the solution file path. Handles three cases:
+    /// Discovers the solution file path. Handles four cases:
     /// 1. Provided path exists → return it.
     /// 2. Provided path doesn't exist → try alternate extension (.sln ↔ .slnx).
     /// 3. No path provided → scan repo root for *.slnx then *.sln.
-    /// Returns null if no solution file is found.
+    /// 4. No solution file → fall back to a single project file (.csproj/.vbproj/.fsproj)
+    ///    at repo root, or in the only direct child directory containing one.
+    ///    Multiple ambiguous candidates → null.
+    /// Returns null if no solution or single-project file is found.
     /// </summary>
     internal static string? DiscoverSolutionPath(string repoPath, string? providedPath)
     {
@@ -387,8 +390,33 @@ public sealed class IndexHandler
         if (slnFiles.Length > 0)
             return slnFiles[0];
 
+        // Case 4: Project-file fallback. `dotnet new` templates (e.g. `blazor`)
+        // ship without a solution; recognise a single project at the root or in
+        // a single direct subdirectory.
+        var rootProjects = ListProjectFiles(repoPath);
+        if (rootProjects.Length == 1)
+            return rootProjects[0];
+        if (rootProjects.Length > 1)
+            return null;
+
+        var subdirs = Directory.GetDirectories(repoPath);
+        var allChildProjects = new List<string>();
+        foreach (var subdir in subdirs)
+        {
+            allChildProjects.AddRange(ListProjectFiles(subdir));
+        }
+        if (allChildProjects.Count == 1)
+            return allChildProjects[0];
+
         return null;
     }
+
+    private static string[] ListProjectFiles(string directory) =>
+        [
+            .. Directory.GetFiles(directory, "*.csproj", SearchOption.TopDirectoryOnly),
+            .. Directory.GetFiles(directory, "*.vbproj", SearchOption.TopDirectoryOnly),
+            .. Directory.GetFiles(directory, "*.fsproj", SearchOption.TopDirectoryOnly),
+        ];
 
     private static ToolCallResult Error(string message) =>
         new(JsonSerializer.Serialize(

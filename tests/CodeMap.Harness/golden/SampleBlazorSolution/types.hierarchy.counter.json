@@ -1,0 +1,16 @@
+{
+  "category": "TypeHierarchy",
+  "symbol_ids": [
+    "T:Microsoft.AspNetCore.Components.ComponentBase"
+  ],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "target": "T:SampleBlazorApp.Components.Pages.Counter",
+    "base_count": "1",
+    "interface_count": "0",
+    "derived_count": "0"
+  },
+  "is_truncated": false,
+  "total_available": null
+}

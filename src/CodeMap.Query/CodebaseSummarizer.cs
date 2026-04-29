@@ -44,6 +44,8 @@ internal static class CodebaseSummarizer
         var configRaw     = Include("config")      ? await store.GetFactsByKindAsync(repoId, commitSha, FactKind.Config,         cap + 1, ct) : [];
         var dbRaw         = Include("data")        ? await store.GetFactsByKindAsync(repoId, commitSha, FactKind.DbTable,        cap + 1, ct) : [];
         var diRaw         = Include("di")          ? await store.GetFactsByKindAsync(repoId, commitSha, FactKind.DiRegistration, cap + 1, ct) : [];
+        var razorInjectRaw    = Include("di")      ? await store.GetFactsByKindAsync(repoId, commitSha, FactKind.RazorInject,    cap + 1, ct) : [];
+        var razorParameterRaw = Include("di")      ? await store.GetFactsByKindAsync(repoId, commitSha, FactKind.RazorParameter, cap + 1, ct) : [];
         var middlewareRaw = Include("middleware")  ? await store.GetFactsByKindAsync(repoId, commitSha, FactKind.Middleware,     cap + 1, ct) : [];
         var retryRaw      = Include("resilience")  ? await store.GetFactsByKindAsync(repoId, commitSha, FactKind.RetryPolicy,   cap + 1, ct) : [];
         var exceptionRaw  = Include("exceptions")  ? await store.GetFactsByKindAsync(repoId, commitSha, FactKind.Exception,     cap + 1, ct) : [];
@@ -54,6 +56,8 @@ internal static class CodebaseSummarizer
         var (configFacts,     configTrunc)     = CapFacts(configRaw,     cap);
         var (dbFacts,         dbTrunc)         = CapFacts(dbRaw,         cap);
         var (diFacts,         diTrunc)         = CapFacts(diRaw,         cap);
+        var (razorInjectFacts,    razorInjectTrunc)    = CapFacts(razorInjectRaw,    cap);
+        var (razorParameterFacts, razorParameterTrunc) = CapFacts(razorParameterRaw, cap);
         var (middlewareFacts, middlewareTrunc) = CapFacts(middlewareRaw, cap);
         var (retryFacts,      retryTrunc)      = CapFacts(retryRaw,      cap);
         var (exceptionFacts,  exceptionTrunc)  = CapFacts(exceptionRaw,  cap);
@@ -89,6 +93,14 @@ internal static class CodebaseSummarizer
             sections.Add(WithTruncation(BuildDiSection(diFacts), diTrunc, cap));
         else if (filter is not null && filter.Contains("di"))
             sections.Add(new SummarySection("DI Registrations", "_No dependency injection registrations detected in this codebase._", 0));
+
+        // M19: Blazor [@inject] and [Parameter] surface inside the di section
+        // (kept separate from container registrations so the formats don't mix).
+        if (Include("di") && (razorInjectFacts.Count > 0 || razorParameterFacts.Count > 0))
+            sections.Add(WithTruncation(
+                BuildBlazorComponentsSection(razorInjectFacts, razorParameterFacts),
+                razorInjectTrunc || razorParameterTrunc,
+                cap));
 
         if (Include("middleware") && middlewareFacts.Count > 0)
             sections.Add(WithTruncation(BuildMiddlewareSection(middlewareFacts), middlewareTrunc, cap));
@@ -225,6 +237,54 @@ internal static class CodebaseSummarizer
         }
         return new SummarySection($"Configuration ({facts.Count} key{Plural(facts.Count)})",
             sb.ToString().TrimEnd(), facts.Count);
+    }
+
+    private static SummarySection BuildBlazorComponentsSection(
+        IReadOnlyList<StoredFact> injectFacts,
+        IReadOnlyList<StoredFact> parameterFacts)
+    {
+        var sb = new StringBuilder();
+        if (injectFacts.Count > 0)
+        {
+            sb.AppendLine("**[@inject] properties**");
+            sb.AppendLine();
+            sb.AppendLine("| Component | Property | Type |");
+            sb.AppendLine("|-----------|----------|------|");
+            foreach (var fact in injectFacts)
+            {
+                var (component, prop, type) = SplitRazorPropertyFact(fact);
+                sb.AppendLine($"| {component} | {prop} | {type} |");
+            }
+            if (parameterFacts.Count > 0) sb.AppendLine();
+        }
+        if (parameterFacts.Count > 0)
+        {
+            sb.AppendLine("**[Parameter] properties**");
+            sb.AppendLine();
+            sb.AppendLine("| Component | Property | Type |");
+            sb.AppendLine("|-----------|----------|------|");
+            foreach (var fact in parameterFacts)
+            {
+                var (component, prop, type) = SplitRazorPropertyFact(fact);
+                sb.AppendLine($"| {component} | {prop} | {type} |");
+            }
+        }
+        var total = injectFacts.Count + parameterFacts.Count;
+        return new SummarySection($"Blazor Components ({total} propert{(total == 1 ? "y" : "ies")})",
+            sb.ToString().TrimEnd(), total);
+    }
+
+    private static (string Component, string Property, string Type) SplitRazorPropertyFact(StoredFact fact)
+    {
+        // Value format: "PropName: TypeFqn" — Component derives from SymbolId.
+        var colonIdx = fact.Value.IndexOf(':');
+        var prop = colonIdx >= 0 ? fact.Value[..colonIdx].Trim() : fact.Value;
+        var type = colonIdx >= 0 ? fact.Value[(colonIdx + 1)..].Trim() : "";
+        var symId = fact.SymbolId.Value;
+        // Doc-comment ID is "T:Namespace.Class" — take everything after the last dot.
+        var lastDot = symId.LastIndexOf('.');
+        var component = lastDot >= 0 ? symId[(lastDot + 1)..] : symId;
+        return (component, prop, type);
     }
 
     private static SummarySection BuildDiSection(IReadOnlyList<StoredFact> facts)

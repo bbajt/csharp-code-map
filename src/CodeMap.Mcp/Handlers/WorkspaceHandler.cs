@@ -63,7 +63,7 @@ public sealed class WorkspaceHandler
                 {
                     ["repo_path"] = Prop("string", "Absolute path to repository root. Optional when exactly one repo is indexed."),
                     ["workspace_id"] = Prop("string", "Unique workspace identifier for this agent session"),
-                    ["solution_path"] = Prop("string", "Absolute path to .sln/.slnx file (auto-discovered if omitted)"),
+                    ["solution_path"] = Prop("string", "Absolute path to a .sln/.slnx solution OR a .csproj/.vbproj/.fsproj project file. Auto-discovered if omitted: .slnx > .sln > single project at repo root or in a single direct child directory."),
                     ["commit_sha"] = Prop("string", "Baseline commit (default: HEAD). Accepts short SHAs."),
                 }),
             HandleCreateAsync));
@@ -121,7 +121,7 @@ public sealed class WorkspaceHandler
         {
             if (!string.IsNullOrEmpty(solutionPath))
                 return InvalidArg($"solution_path not found: {solutionPath} (also tried alternate extension)");
-            return InvalidArg($"No .sln or .slnx file found in {repoPath}. Provide solution_path explicitly.");
+            return InvalidArg($"No .sln/.slnx or single project file (.csproj/.vbproj/.fsproj) found in {repoPath}. Provide solution_path explicitly.");
         }
         solutionPath = resolved;
 

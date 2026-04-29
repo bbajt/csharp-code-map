@@ -3,6 +3,7 @@ namespace CodeMap.Roslyn.Extraction;
 using CodeMap.Core.Enums;
 using CodeMap.Core.Models;
 using CodeMap.Core.Types;
+using CodeMap.Roslyn.Extraction.Razor;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -85,6 +86,8 @@ internal static class EndpointExtractor
                 }
             }
 
+            // (Blazor route pass runs once after the per-tree loop — see below.)
+
             // Minimal API endpoints (app.MapGet, app.MapPost, etc.)
             foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
             {
@@ -119,10 +122,73 @@ internal static class EndpointExtractor
             }
         }
 
+        // Blazor @page routes — symbol-table walk over the whole assembly to catch
+        // every ComponentBase derivative regardless of which generated *_razor.g.cs
+        // file declared it. One fact per [RouteAttribute] application; multiple
+        // @page directives on the same component yield multiple facts.
+        foreach (var type in RazorSgHelpers.GetComponentBaseDerivatives(compilation))
+        {
+            var routes = ExtractBlazorRoutes(type);
+            if (routes.Count == 0) continue;
+
+            var location = type.Locations.FirstOrDefault(l => l.IsInSource);
+            if (location is null) continue;
+
+            var typeId = GetSymbolId(type);
+            StableId stableId = default;
+            stableIdMap?.TryGetValue(typeId, out stableId);
+
+            // The class declaration where [Route] lives is synthetic — the SG
+            // emits it without a wrapping #line directive — so GetMappedLineSpan
+            // returns the generated *_razor.g.cs span here. Use the #pragma checksum
+            // path for FilePath and line 1 (conventional @page location in the
+            // .razor) so navigation lands on the user-authored file.
+            var razorPath = location.SourceTree is { } st
+                ? RazorSgHelpers.ParseChecksumPath(st.GetText().ToString())
+                : null;
+            var sourcePath = razorPath ?? location.SourceTree?.FilePath ?? "";
+            var filePath = MakeRepoRelative(sourcePath, normalizedDir);
+            var routeLine = razorPath is not null
+                ? 1
+                : location.GetLineSpan().StartLinePosition.Line + 1;
+
+            foreach (var route in routes)
+            {
+                facts.Add(new ExtractedFact(
+                    SymbolId: SymbolId.From(typeId),
+                    StableId: stableId == default ? null : stableId,
+                    Kind: FactKind.Route,
+                    Value: $"PAGE {route}",
+                    FilePath: filePath,
+                    LineStart: routeLine,
+                    LineEnd: routeLine,
+                    Confidence: Confidence.High));
+            }
+        }
+
         return facts;
     }
 
-    // ── Route extraction helpers ──────────────────────────────────────────────
+    // ── Blazor route helpers ──────────────────────────────────────────────────
+
+    private static List<string> ExtractBlazorRoutes(INamedTypeSymbol type)
+    {
+        var routes = new List<string>();
+        foreach (var attr in type.GetAttributes())
+        {
+            if (attr.AttributeClass?.Name != "RouteAttribute") continue;
+            // Disambiguate from MVC's [Route] — Blazor's lives under
+            // Microsoft.AspNetCore.Components, MVC's under Microsoft.AspNetCore.Mvc.
+            var ns = attr.AttributeClass.ContainingNamespace?.ToDisplayString();
+            if (ns != "Microsoft.AspNetCore.Components") continue;
+            if (attr.ConstructorArguments.Length == 0) continue;
+            if (attr.ConstructorArguments[0].Value is string template)
+                routes.Add(template);
+        }
+        return routes;
+    }
+
+// ── Route extraction helpers ──────────────────────────────────────────────
 
     private static string? ExtractRoutePrefix(INamedTypeSymbol classSymbol)
     {

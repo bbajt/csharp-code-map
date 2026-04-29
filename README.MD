@@ -80,6 +80,10 @@ All of this is exposed via **28 MCP tools** that any MCP-compatible AI agent can
 
 **Supported languages:** C#, VB.NET, and F#. Mixed-language solutions (`.sln` / `.slnx` containing C#, VB.NET, and F# projects) are indexed in a single pass. All 28 MCP tools work identically for symbols from any language. C# and VB.NET use Roslyn's `MSBuildWorkspace`; F# uses `FSharp.Compiler.Service` (MSBuildWorkspace doesn't support `.fsproj`). F# architectural fact extractors (endpoints, DI, config) are not yet implemented — symbol search, call graphs, references, and type hierarchy all work.
 
+**Blazor / Razor (v2.5.0+):** `.razor` components are indexed via the Razor source generator. ComponentBase-derived classes appear in `symbols.search`. `@page` routes surface in `surfaces.list_endpoints` with a `PAGE` HTTP method. `[Inject]` and `[Parameter]` properties emit dedicated `RazorInject` / `RazorParameter` facts.
+
+**Multi-target projects (v2.5.1+):** `<TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>` previously produced one extraction per TFM (3× duplication). CodeMap now collapses to a single extraction on the highest-ranked TFM, with `ProjectDiagnostic.TargetFrameworks` listing every TFM in the group. Symbol counts on heavily multi-targeted Blazor libraries drop 60–80%.
+
 ---
 
 ## The Transformation
@@ -462,12 +466,35 @@ Baselines are stored in `~/.codemap/store/<repoId>/baselines/<commitSha>/` as bi
 
 ---
 
+## Known Limitations & Coverage Gaps
+
+CodeMap won't surface a hit in every situation a `grep` would. The most
+common reasons are documented in [`docs/KNOWN-LIMITATIONS.md`](docs/KNOWN-LIMITATIONS.md).
+Top items to be aware of:
+
+- **Multi-target conditional symbols.** `#if NET8_0`-only types are
+  invisible — extraction runs on the highest TFM only (L-01).
+- **Legacy MVC `MapControllerRoute`** — convention-routed actions don't
+  surface in `surfaces.list_endpoints`. Only attribute routing,
+  minimal API, and Blazor `@page` are extracted (L-02).
+- **F# fact extractors not yet wired** — F# gets symbols/refs/hierarchy
+  only; endpoints / DI / config / DB tables don't extract from `.fsproj`
+  yet (L-05).
+- **Fresh clone with no build** — Razor source-generator output may be
+  invisible until you `dotnet build` once (L-08).
+
+When `symbols.search` returns nothing for code you can see in the
+editor, scan KNOWN-LIMITATIONS first before falling back to grep.
+
+---
+
 ## Documentation
 
 | Doc | What's in it |
 |-----|-------------|
 | [`docs/CLAUDE-INSERT.MD`](docs/CLAUDE-INSERT.MD) | Copy-paste block for CLAUDE.md — wires up agent to use CodeMap |
 | [`docs/CODEMAP-AGENT-GUIDE.MD`](docs/CODEMAP-AGENT-GUIDE.MD) | Full agent operating guide: startup, refresh, query patterns, common mistakes |
+| [`docs/KNOWN-LIMITATIONS.md`](docs/KNOWN-LIMITATIONS.md) | Coverage gaps and intentional non-features — what `grep` finds that CodeMap doesn't |
 | [`docs/DEVELOPER-GUIDE.MD`](docs/DEVELOPER-GUIDE.MD) | How to add tools, extractors, storage methods |
 | [`docs/ARCHITECTURE-WALKTHROUGH.MD`](docs/ARCHITECTURE-WALKTHROUGH.MD) | Request traces, data model, decision log |
 | [`docs/API-SCHEMA.MD`](docs/API-SCHEMA.MD) | Every type definition and MCP tool contract |
@@ -541,4 +568,4 @@ mmap pages are demand-loaded by the OS — resident memory stays proportional to
 
 ---
 
-*28 MCP tools. 90%+ token savings. Roslyn-grade semantics. C#, VB.NET, and F# — all three .NET languages. DLL boundary navigation. `.sln` + `.slnx` auto-discovery. v2.4.0 — name-based symbol lookup, auto-defaulted `repo_path`/`workspace_id`, AMBIGUOUS candidate hints. Validated on dotnet/roslyn (174K symbols) and dotnet/fsharp (157K symbols). Your agent deserves better than grep.*
+*28 MCP tools. 90%+ token savings. Roslyn-grade semantics. C#, VB.NET, F#, **Blazor/Razor**. DLL boundary navigation. `.sln` + `.slnx` auto-discovery. v2.5.1 — multi-target compilation collapse (one extraction per `.csproj`, not per TFM), KNOWN-LIMITATIONS register surfaced via `codemap.guide`. Validated on dotnet/roslyn (174K symbols), dotnet/fsharp (157K symbols), and a 9-repo Blazor corpus including Blazorise, MudBlazor, ant-design-blazor, OrchardCore. Your agent deserves better than grep.*

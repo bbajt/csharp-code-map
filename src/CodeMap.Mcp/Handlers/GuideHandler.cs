@@ -93,6 +93,14 @@ public sealed class GuideHandler
     private const string AfterEditCommand =
         "index.refresh_overlay { repo_path: \".\", workspace_id: \"session\" }";
 
+    private const string KnownLimitationsHint =
+        "If a search returns nothing where you expect a hit, scan KNOWN-LIMITATIONS.md " +
+        "first. Common causes: multi-target conditional symbols (only highest TFM is " +
+        "indexed), legacy MVC MapControllerRoute (not extracted), F# fact extractors " +
+        "not yet wired, fresh clone needs a build for Razor SG output.";
+
+    private const string KnownLimitationsDoc = "docs/KNOWN-LIMITATIONS.md";
+
     private readonly string _version;
 
     /// <summary>
@@ -131,13 +139,15 @@ public sealed class GuideHandler
         var verbose = args?["verbose"]?.GetValue<bool>() ?? false;
 
         var guide = new GuideResponse(
-            Version:          _version,
-            SessionStart:     SessionStart,
-            DecisionTable:    DecisionTable,
-            Rules:            Rules,
-            AfterEditCommand: AfterEditCommand,
-            ToolCount:        AllTools.Count,
-            Tools:            verbose ? AllTools : null
+            Version:                _version,
+            SessionStart:           SessionStart,
+            DecisionTable:          DecisionTable,
+            Rules:                  Rules,
+            AfterEditCommand:       AfterEditCommand,
+            ToolCount:              AllTools.Count,
+            KnownLimitationsHint:   KnownLimitationsHint,
+            KnownLimitationsDoc:    KnownLimitationsDoc,
+            Tools:                  verbose ? AllTools : null
         );
 
         return Task.FromResult(Ok(guide));

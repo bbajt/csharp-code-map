@@ -174,6 +174,30 @@ public sealed class CodebaseSummarizerTests
     }
 
     [Fact]
+    public async Task SummarizeAsync_BlazorComponents_IncludesSection_AndAppliesTruncation()
+    {
+        SetupAllFactsEmpty();
+        SetupFacts(FactKind.RazorInject,
+            "Greeter: IGreetingService",
+            "Logger: ILogger",
+            "Cache: IMemoryCache");
+        SetupFacts(FactKind.RazorParameter,
+            "Title: string",
+            "Count: int",
+            "OnClick: EventCallback");
+        SetupProjectDiagnostics();
+        SetupSemanticLevel(SemanticLevel.Full);
+
+        var result = await CodebaseSummarizer.SummarizeAsync(
+            _store, Repo, Sha, "TestSolution", null, maxItemsPerSection: 2, CancellationToken.None);
+
+        var blazor = result.Sections.FirstOrDefault(s => s.Title.Contains("Blazor Components"));
+        blazor.Should().NotBeNull("the section should appear when inject/parameter facts exist");
+        blazor!.Truncated.Should().BeTrue("more facts were returned than the cap allows");
+        blazor.Content.Should().Contain("Showing 2 of 2+ items");
+    }
+
+    [Fact]
     public async Task SummarizeAsync_MaxItemsPerSection_IsCapped()
     {
         SetupAllFactsEmpty();

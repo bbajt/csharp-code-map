@@ -1003,10 +1003,14 @@ public sealed class QueryEngine : IQueryEngine
             routing.RepoId, commitSha, Core.Enums.FactKind.Route, clampedLimit + 1, ct).ConfigureAwait(false);
         tc.EndDbQuery();
 
-        var truncated = stored.Count > clampedLimit;
-        var page = truncated ? stored.Take(clampedLimit).ToList() : (IReadOnlyList<StoredFact>)stored;
+        var hadMoreThanLimit = stored.Count > clampedLimit;
+        var page = hadMoreThanLimit ? stored.Take(clampedLimit).ToList() : (IReadOnlyList<StoredFact>)stored;
 
         var endpoints = BuildEndpoints(page, pathFilter, httpMethod);
+        // BuildEndpoints applies the optional pathFilter / httpMethod, which can
+        // drop items below the limit. truncated must reflect what the user sees:
+        // only true when we both hit the limit AND had more raw facts available.
+        var truncated = endpoints.Count >= clampedLimit && hadMoreThanLimit;
         var data = new ListEndpointsResponse(endpoints, endpoints.Count, truncated);
 
         var answer = AnswerGenerator.ForEndpoints(endpoints.Count, pathFilter, httpMethod, truncated);
@@ -1033,7 +1037,15 @@ public sealed class QueryEngine : IQueryEngine
         return Result<ResponseEnvelope<ListEndpointsResponse>, CodeMapError>.Success(envelope);
     }
 
-    private static IReadOnlyList<EndpointInfo> BuildEndpoints(
+    /// <summary>
+    /// Projects <see cref="FactKind.Route"/> facts to <see cref="EndpointInfo"/>,
+    /// applying the optional <paramref name="pathFilter"/> (prefix match) and
+    /// <paramref name="httpMethod"/> (case-insensitive equality on the leading
+    /// method token, e.g. <c>GET</c>, <c>POST</c>, <c>PAGE</c> for Blazor).
+    /// Internal so unit tests can pin filter behaviour without spinning up a
+    /// full QueryEngine.
+    /// </summary>
+    internal static IReadOnlyList<EndpointInfo> BuildEndpoints(
         IReadOnlyList<StoredFact> facts,
         string? pathFilter,
         string? httpMethod)
@@ -1093,10 +1105,13 @@ public sealed class QueryEngine : IQueryEngine
             routing.RepoId, commitSha, Core.Enums.FactKind.Config, clampedLimit + 1, ct).ConfigureAwait(false);
         tc.EndDbQuery();
 
-        var truncated = stored.Count > clampedLimit;
-        var page = truncated ? stored.Take(clampedLimit).ToList() : (IReadOnlyList<StoredFact>)stored;
+        var hadMoreThanLimit = stored.Count > clampedLimit;
+        var page = hadMoreThanLimit ? stored.Take(clampedLimit).ToList() : (IReadOnlyList<StoredFact>)stored;
 
         var keys = BuildConfigKeys(page, keyFilter);
+        // BuildConfigKeys applies keyFilter, which can drop items below the limit.
+        // truncated reflects what the user sees: hit the limit AND raw had more.
+        var truncated = keys.Count >= clampedLimit && hadMoreThanLimit;
         var data = new ListConfigKeysResponse(keys, keys.Count, truncated);
 
         var answer = AnswerGenerator.ForConfigKeys(keys.Count, keyFilter, truncated);

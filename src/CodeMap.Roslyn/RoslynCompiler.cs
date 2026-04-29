@@ -43,8 +43,28 @@ public sealed class RoslynCompiler : IRoslynCompiler
             _logger.LogWarning("Workspace diagnostic [{Kind}]: {Message}",
                 args.Diagnostic.Kind, args.Diagnostic.Message));
 
-        _logger.LogInformation("Opening solution: {SolutionPath}", solutionPath);
-        var solution = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct);
+        // Accept either a solution file (.sln/.slnx) or a bare project file
+        // (.csproj/.vbproj/.fsproj). The .csproj fallback (M19 PHASE-19-01-T04)
+        // unblocks `dotnet new` template scaffolds that ship without a solution.
+        Solution solution;
+        if (IsProjectFile(solutionPath))
+        {
+            _logger.LogInformation("Opening project (solution-less): {ProjectPath}", solutionPath);
+            var project = await workspace.OpenProjectAsync(solutionPath, cancellationToken: ct);
+            solution = project.Solution;
+        }
+        else
+        {
+            _logger.LogInformation("Opening solution: {SolutionPath}", solutionPath);
+            solution = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct);
+        }
+
+        // M19 PHASE-19-01-T06: If a project has <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>,
+        // the SDK also adds the persisted Razor SG output (Generated/Microsoft.CodeAnalysis.Razor.Compiler/...)
+        // to the project as <Compile> items. The Razor SG re-runs at compilation time
+        // and emits the same partial types in-memory, producing duplicate-symbol compile
+        // errors. Strip the on-disk copies so the in-memory SG output is the single source.
+        solution = StripPersistedRazorSgFiles(solution);
 
         var result = await ExtractSolutionAsync(solution, solutionDir, ct);
         sw.Stop();
@@ -105,8 +125,14 @@ public sealed class RoslynCompiler : IRoslynCompiler
     }
 
     // Holds per-project data between the symbol pass and the ref pass.
+    // CanonicalName / TargetFrameworks reflect the M20-01 multi-target collapse:
+    // Project is the winning TFM (typically highest), CanonicalName is the
+    // TFM-stripped name (e.g. "MudBlazor"), and TargetFrameworks lists every
+    // TFM the .csproj declared (null when single-target).
     private sealed record ProjectPassData(
         Project Project,
+        string CanonicalName,
+        IReadOnlyList<string>? TargetFrameworks,
         Compilation Compilation,
         IReadOnlyList<SymbolCard> Symbols,
         IReadOnlyDictionary<string, StableId> StableIdMap,
@@ -196,107 +222,110 @@ public sealed class RoslynCompiler : IRoslynCompiler
             }
         }
 
-        foreach (var project in solution.Projects)
+        // M20-01: collapse multi-target compilations. solution.Projects returns
+        // one Project per (csproj × TargetFramework) pair; we group by .csproj
+        // FilePath and run extraction once per group on the canonical (highest)
+        // TFM. This eliminates the 3×–7× duplication seen on Blazor component
+        // libraries that target net8/9/10. See PHASE-20-01.md.
+        foreach (var group in RoslynProjectGrouping.GroupByFilePath(solution.Projects))
         {
             ct.ThrowIfCancellationRequested();
+            // Multi-target groups expose all TFMs; single-target keeps the
+            // ProjectDiagnostic.TargetFrameworks field at null for wire stability.
+            var tfmsForDiagnostic = group.AllProjects.Count > 1
+                ? group.TargetFrameworks
+                : null;
 
+            // Try ranked candidates in order: canonical (highest TFM) first.
+            // On null/exception, walk down. This survives the case where the
+            // highest TFM has unique compile errors but a lower TFM compiles
+            // cleanly (rare but seen on net10.0-preview repos).
+            Project? winningProject = null;
+            Compilation? winningCompilation = null;
+            Exception? lastException = null;
+            foreach (var candidate in group.AllProjects)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var c = await candidate.GetCompilationAsync(ct);
+                    if (c is not null)
+                    {
+                        winningProject = candidate;
+                        winningCompilation = c;
+                        break;
+                    }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+                }
+            }
+
+            if (winningProject is null || winningCompilation is null)
+            {
+                // Every TFM failed to produce a Compilation. Fall back syntactically.
+                _logger.LogError(lastException, "Failed to compile any TFM for {Project}", group.CanonicalName);
+                confidence = Confidence.Low;
+                EmitSyntacticFallback(
+                    group, lastException, allSymbols, allReferences, projectDiagnostics,
+                    tfmsForDiagnostic, solutionDir);
+                continue;
+            }
+
+            // Pass 1 success path. M19/M20-01 regression-guard: any throw from
+            // GetDiagnostics / SymbolExtractor / ExtractFiles / TypeRelationExtractor
+            // (e.g. NRE in a visitor on a malformed compilation, locked-file IO in
+            // ExtractFiles, cycle in TypeRelationExtractor's base-type walk) used to
+            // be caught alongside the GetCompilationAsync failure. After the M20-01
+            // grouping refactor, that catch only wrapped GetCompilationAsync. Restore
+            // the broader guard so a single bad project can't kill the whole index.
             try
             {
-                var compilation = await project.GetCompilationAsync(ct);
-                firstCompilation ??= compilation;
-                if (compilation is null)
-                {
-                    _logger.LogWarning("No compilation for project {Project}", project.Name);
-                    projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
-                        ProjectName: project.Name,
-                        Compiled: false,
-                        SymbolCount: 0,
-                        ReferenceCount: 0,
-                        Errors: ["Compilation returned null"]));
-                    confidence = Confidence.Low;
-                    continue;
-                }
+                firstCompilation ??= winningCompilation;
 
-                var errors = compilation.GetDiagnostics(ct)
+                var errors = winningCompilation.GetDiagnostics(ct)
                     .Where(d => d.Severity == DiagnosticSeverity.Error)
                     .ToList();
 
                 if (errors.Count > 0)
                 {
                     _logger.LogWarning("Project {Project} has {Count} compilation error(s)",
-                        project.Name, errors.Count);
+                        group.CanonicalName, errors.Count);
                     if (confidence == Confidence.High)
                         confidence = Confidence.Medium;
                 }
 
-                var (symbols, stableIdMap) = SymbolExtractor.ExtractAllWithStableIds(compilation, project.Name, solutionDir);
-                var files = ExtractFiles(project, solutionDir);
-                var typeRelations = TypeRelationExtractor.ExtractAll(compilation, stableIdMap);
+                var (symbols, stableIdMap) = SymbolExtractor.ExtractAllWithStableIds(
+                    winningCompilation, group.CanonicalName, solutionDir);
+                var files = ExtractFiles(winningProject, winningCompilation, group.CanonicalName, solutionDir);
+                var typeRelations = TypeRelationExtractor.ExtractAll(winningCompilation, stableIdMap);
 
                 allSymbols.AddRange(symbols);
                 allFiles.AddRange(files);
                 allTypeRelations.AddRange(typeRelations);
 
                 passData.Add(new ProjectPassData(
-                    project, compilation, symbols, stableIdMap,
-                    errors.Select(e => e.Severity).ToList(),
-                    errors.Take(5).Select(e => e.GetMessage()).ToList()));
+                    Project: winningProject,
+                    CanonicalName: group.CanonicalName,
+                    TargetFrameworks: tfmsForDiagnostic,
+                    Compilation: winningCompilation,
+                    Symbols: symbols,
+                    StableIdMap: stableIdMap,
+                    ErrorSeverities: errors.Select(e => e.Severity).ToList(),
+                    ErrorMessages: errors.Take(5).Select(e => e.GetMessage()).ToList()));
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) { throw; }
+            catch (Exception extractionEx)
             {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to compile project {Project}", project.Name);
+                _logger.LogError(extractionEx,
+                    "Extraction failed for {Project} after successful compilation — falling back syntactically",
+                    group.CanonicalName);
                 confidence = Confidence.Low;
-
-                // Syntactic fallback — guarded separately because project.Documents may also
-                // be unavailable when the project itself failed to load (e.g. missing .NET
-                // Framework targeting pack). Without this inner guard the NRE would propagate
-                // out of the catch block and crash the entire indexing run.
-                try
-                {
-                    // VB.NET syntactic fallback — syntax-level symbols and unresolved edges.
-                    if (project.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
-                    {
-                        _logger.LogInformation("VB.NET syntactic fallback for {Project}", project.Name);
-                        var (vbSymbols, vbRefs) = Extraction.VbNet.VbSyntacticExtractor.ExtractAll(project, solutionDir);
-                        allSymbols.AddRange(vbSymbols);
-                        allReferences.AddRange(vbRefs);
-                        projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
-                            ProjectName: project.Name,
-                            Compiled: false,
-                            SymbolCount: vbSymbols.Count,
-                            ReferenceCount: vbRefs.Count,
-                            Errors: [ex.Message]));
-                        continue;
-                    }
-
-                    var fallbackFiles = GetProjectSourceFiles(project).ToList();
-                    var fallbackSymbols = SyntacticFallback.Extract(fallbackFiles);
-                    var fallbackRefs = SyntacticReferenceExtractor.ExtractAll(fallbackFiles, solutionDir);
-                    allSymbols.AddRange(fallbackSymbols);
-                    allReferences.AddRange(fallbackRefs);
-
-                    projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
-                        ProjectName: project.Name,
-                        Compiled: false,
-                        SymbolCount: fallbackSymbols.Count,
-                        ReferenceCount: fallbackRefs.Count,
-                        Errors: [ex.Message]));
-                }
-                catch (Exception fallbackEx)
-                {
-                    _logger.LogError(fallbackEx,
-                        "Syntactic fallback also failed for {Project} — skipping", project.Name);
-                    projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
-                        ProjectName: project.Name,
-                        Compiled: false,
-                        SymbolCount: 0,
-                        ReferenceCount: 0,
-                        Errors: [ex.Message, $"Syntactic fallback also failed: {fallbackEx.Message}"]));
-                }
+                EmitSyntacticFallback(
+                    group, extractionEx, allSymbols, allReferences, projectDiagnostics,
+                    tfmsForDiagnostic, solutionDir);
             }
         }
 
@@ -314,9 +343,11 @@ public sealed class RoslynCompiler : IRoslynCompiler
             allReferences.AddRange(references);
 
             // Skip architectural fact extraction for test/benchmark projects.
-            bool isTestProject = pd.Project.Name.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
-                || pd.Project.Name.EndsWith(".Benchmarks", StringComparison.OrdinalIgnoreCase)
-                || pd.Project.Name.EndsWith(".TestUtilities", StringComparison.OrdinalIgnoreCase);
+            // Use canonical name (TFM stripped) so multi-target test projects
+            // like "MyLib.Tests(net8.0)" still match the suffix predicate.
+            bool isTestProject = pd.CanonicalName.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
+                || pd.CanonicalName.EndsWith(".Benchmarks", StringComparison.OrdinalIgnoreCase)
+                || pd.CanonicalName.EndsWith(".TestUtilities", StringComparison.OrdinalIgnoreCase);
 
             if (!isTestProject)
             {
@@ -341,15 +372,17 @@ public sealed class RoslynCompiler : IRoslynCompiler
                     allFacts.AddRange(RetryPolicyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
                     allFacts.AddRange(ExceptionExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
                     allFacts.AddRange(LogExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                    allFacts.AddRange(RazorComponentExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
                 }
             }
 
             projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
-                ProjectName: pd.Project.Name,
+                ProjectName: pd.CanonicalName,
                 Compiled: true,
                 SymbolCount: pd.Symbols.Count,
                 ReferenceCount: references.Count,
-                Errors: pd.ErrorMessages.Count > 0 ? pd.ErrorMessages : null));
+                Errors: pd.ErrorMessages.Count > 0 ? pd.ErrorMessages : null,
+                TargetFrameworks: pd.TargetFrameworks));
         }
 
         // ── Pass 2b: extract F# references now that allSymbolIds is complete.
@@ -396,6 +429,72 @@ public sealed class RoslynCompiler : IRoslynCompiler
             DllFingerprint: dllFingerprint);
     }
 
+    /// <summary>
+    /// Shared syntactic-fallback path used when (a) every TFM in a multi-target
+    /// group fails to produce a Compilation, or (b) the success-path extractors
+    /// throw on a successfully-compiled project. Emits one ProjectDiagnostic for
+    /// the group with <see cref="Confidence.Low"/> semantics and the canonical
+    /// name + target frameworks for downstream display.
+    /// </summary>
+    private void EmitSyntacticFallback(
+        RoslynProjectGrouping.ProjectGroup group,
+        Exception? failureCause,
+        List<SymbolCard> allSymbols,
+        List<ExtractedReference> allReferences,
+        List<Core.Models.ProjectDiagnostic> projectDiagnostics,
+        IReadOnlyList<string>? tfmsForDiagnostic,
+        string solutionDir)
+    {
+        var fallbackProject = group.AllProjects[0];
+        try
+        {
+            if (fallbackProject.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
+            {
+                _logger.LogInformation("VB.NET syntactic fallback for {Project}", group.CanonicalName);
+                var (vbSymbols, vbRefs) = Extraction.VbNet.VbSyntacticExtractor.ExtractAll(fallbackProject, solutionDir);
+                allSymbols.AddRange(vbSymbols);
+                allReferences.AddRange(vbRefs);
+                projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
+                    ProjectName: group.CanonicalName,
+                    Compiled: false,
+                    SymbolCount: vbSymbols.Count,
+                    ReferenceCount: vbRefs.Count,
+                    Errors: [failureCause?.Message ?? "Compilation returned null"],
+                    TargetFrameworks: tfmsForDiagnostic));
+                return;
+            }
+
+            var fallbackFiles = GetProjectSourceFiles(fallbackProject).ToList();
+            var fallbackSymbols = SyntacticFallback.Extract(fallbackFiles);
+            var fallbackRefs = SyntacticReferenceExtractor.ExtractAll(fallbackFiles, solutionDir);
+            allSymbols.AddRange(fallbackSymbols);
+            allReferences.AddRange(fallbackRefs);
+
+            projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
+                ProjectName: group.CanonicalName,
+                Compiled: false,
+                SymbolCount: fallbackSymbols.Count,
+                ReferenceCount: fallbackRefs.Count,
+                Errors: [failureCause?.Message ?? "Compilation returned null"],
+                TargetFrameworks: tfmsForDiagnostic));
+        }
+        catch (Exception fallbackEx)
+        {
+            _logger.LogError(fallbackEx,
+                "Syntactic fallback also failed for {Project} — skipping", group.CanonicalName);
+            projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
+                ProjectName: group.CanonicalName,
+                Compiled: false,
+                SymbolCount: 0,
+                ReferenceCount: 0,
+                Errors: [
+                    failureCause?.Message ?? "Compilation returned null",
+                    $"Syntactic fallback also failed: {fallbackEx.Message}"
+                ],
+                TargetFrameworks: tfmsForDiagnostic));
+        }
+    }
+
     private static string? BuildDllFingerprint(Compilation compilation)
     {
         var fingerprint = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -419,9 +518,27 @@ public sealed class RoslynCompiler : IRoslynCompiler
         return System.Text.Json.JsonSerializer.Serialize(fingerprint);
     }
 
-    private static IReadOnlyList<ExtractedFile> ExtractFiles(Project project, string solutionDir)
+    /// <summary>
+    /// Emits <see cref="ExtractedFile"/> records for every source file the
+    /// compilation sees, plus synthetic entries for Razor SG output and the
+    /// originating <c>.razor</c> files referenced via <c>#pragma checksum</c>.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="canonicalProjectName"/> is the TFM-stripped name from
+    /// <see cref="RoslynProjectGrouping.StripTfm"/>. Using <c>project.Name</c>
+    /// here would persist the TFM suffix into <see cref="ExtractedFile.ProjectName"/>,
+    /// which then flows into <c>EngineBaselineBuilder</c>'s <c>isTest</c> bit
+    /// (<c>EndsWith(".Tests")</c> would miss <c>"MyLib.Tests(net10.0)"</c>) AND
+    /// into <c>RecordMappers.ComputeDegradedStableId</c>'s SHA hash — meaning
+    /// stable IDs would change every time the canonical TFM rotates (e.g. user
+    /// adds <c>net11.0</c> to <c>&lt;TargetFrameworks&gt;</c>). Both regressions
+    /// are avoided by using the canonical name throughout.
+    /// </remarks>
+    private static IReadOnlyList<ExtractedFile> ExtractFiles(
+        Project project, Compilation? compilation, string canonicalProjectName, string solutionDir)
     {
         var files = new List<ExtractedFile>();
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string normalizedDir = solutionDir.Replace('\\', '/').TrimEnd('/') + '/';
 
         foreach (var doc in project.Documents)
@@ -431,23 +548,7 @@ public sealed class RoslynCompiler : IRoslynCompiler
             try
             {
                 string content = File.ReadAllText(doc.FilePath);
-                string normalizedPath = doc.FilePath.Replace('\\', '/');
-
-                FilePath relativePath;
-                if (normalizedPath.StartsWith(normalizedDir, StringComparison.OrdinalIgnoreCase))
-                    relativePath = FilePath.From(normalizedPath[normalizedDir.Length..]);
-                else
-                    relativePath = FilePath.From(Path.GetFileName(normalizedPath));
-
-                string sha256 = ComputeSha256(content);
-                string fileId = sha256[..16];
-
-                files.Add(new ExtractedFile(
-                    FileId: fileId,
-                    Path: relativePath,
-                    Sha256Hash: sha256,
-                    ProjectName: project.Name,
-                    Content: content));
+                AddFile(doc.FilePath, content, canonicalProjectName, normalizedDir, files, seenPaths);
             }
             catch (Exception)
             {
@@ -455,7 +556,112 @@ public sealed class RoslynCompiler : IRoslynCompiler
             }
         }
 
+        // Source-generator output (Razor backing classes, etc.) lives in
+        // compilation.SyntaxTrees but NOT in project.Documents. Without a file
+        // entry the baseline builder filters out their symbols. Emit a synthetic
+        // ExtractedFile per SG tree so symbols on that path survive persistence.
+        if (compilation is not null)
+        {
+            foreach (var tree in compilation.SyntaxTrees)
+            {
+                if (string.IsNullOrEmpty(tree.FilePath)) continue;
+                var normalized = tree.FilePath.Replace('\\', '/');
+                if (seenPaths.Contains(normalized)) continue;
+                if (seenPaths.Contains(NormalizeForSeen(tree.FilePath, normalizedDir))) continue;
+                try
+                {
+                    var content = tree.GetText().ToString();
+                    AddFile(tree.FilePath, content, canonicalProjectName, normalizedDir, files, seenPaths);
+
+                    // Razor SG output starts with `#pragma checksum "<original .razor>"`.
+                    // Emit a synthetic ExtractedFile for the original so the baseline
+                    // builder accepts facts whose FilePath has been remapped to the
+                    // user-authored path (M19 EndpointExtractor / RazorComponentExtractor).
+                    //
+                    // SECURITY: The pragma path is taken verbatim from arbitrary user
+                    // source files. Bound the read to paths under solutionDir so a
+                    // malicious or hand-crafted #pragma checksum can't trick CodeMap
+                    // into indexing files outside the repo (e.g. /etc/passwd, secrets).
+                    var razorOriginal = Extraction.Razor.RazorSgHelpers.ParseChecksumPath(content);
+                    if (razorOriginal is not null
+                        && IsUnderSolutionDir(razorOriginal, solutionDir)
+                        && File.Exists(razorOriginal))
+                    {
+                        try
+                        {
+                            var razorContent = File.ReadAllText(razorOriginal);
+                            AddFile(razorOriginal, razorContent, canonicalProjectName, normalizedDir, files, seenPaths);
+                        }
+                        catch
+                        {
+                            // Original .razor unreadable — skip; fact will be dropped.
+                        }
+                    }
+                }
+                catch
+                {
+                    // Skip if tree text is unavailable.
+                }
+            }
+        }
+
         return files;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="candidate"/> resolves to a path inside
+    /// <paramref name="solutionDir"/>. Used to bound the file-read in <see cref="ExtractFiles"/>
+    /// against #pragma checksum directives from untrusted source files.
+    /// </summary>
+    internal static bool IsUnderSolutionDir(string candidate, string solutionDir)
+    {
+        if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(solutionDir))
+            return false;
+        try
+        {
+            var candidateFull = Path.GetFullPath(candidate).Replace('\\', '/').TrimEnd('/');
+            var rootFull = Path.GetFullPath(solutionDir).Replace('\\', '/').TrimEnd('/') + '/';
+            return candidateFull.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            // Path.GetFullPath throws on invalid path chars, NotSupportedException, etc.
+            return false;
+        }
+    }
+
+private static void AddFile(
+        string filePath, string content, string projectName, string normalizedDir,
+        List<ExtractedFile> files, HashSet<string> seenPaths)
+    {
+        string normalizedPath = filePath.Replace('\\', '/');
+
+        FilePath relativePath;
+        if (normalizedPath.StartsWith(normalizedDir, StringComparison.OrdinalIgnoreCase))
+            relativePath = FilePath.From(normalizedPath[normalizedDir.Length..]);
+        else
+            relativePath = FilePath.From(Path.GetFileName(normalizedPath));
+
+        if (!seenPaths.Add(relativePath.Value)) return;
+        seenPaths.Add(normalizedPath);
+
+        string sha256 = ComputeSha256(content);
+        string fileId = sha256[..16];
+
+        files.Add(new ExtractedFile(
+            FileId: fileId,
+            Path: relativePath,
+            Sha256Hash: sha256,
+            ProjectName: projectName,
+            Content: content));
+    }
+
+    private static string NormalizeForSeen(string filePath, string normalizedDir)
+    {
+        var normalized = filePath.Replace('\\', '/');
+        return normalized.StartsWith(normalizedDir, StringComparison.OrdinalIgnoreCase)
+            ? normalized[normalizedDir.Length..]
+            : Path.GetFileName(normalized);
     }
 
     private static IEnumerable<(string FilePath, string Content)> GetProjectSourceFiles(Project project)
@@ -533,5 +739,47 @@ public sealed class RoslynCompiler : IRoslynCompiler
         }
 
         return fsprojPaths;
+    }
+
+    private static bool IsProjectFile(string path) =>
+        path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Removes documents whose file path indicates persisted Razor SG output.
+    /// The Razor source generator re-emits these types virtually during
+    /// <c>GetCompilationAsync</c>, so keeping the on-disk copies produces
+    /// duplicate-type errors and double-counted symbols.
+    /// </summary>
+    private static Solution StripPersistedRazorSgFiles(Solution solution)
+    {
+        var toRemove = new List<DocumentId>();
+        foreach (var project in solution.Projects)
+        {
+            foreach (var document in project.Documents)
+            {
+                if (IsPersistedRazorSgPath(document.FilePath))
+                    toRemove.Add(document.Id);
+            }
+        }
+        foreach (var docId in toRemove)
+            solution = solution.RemoveDocument(docId);
+        return solution;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="filePath"/> looks like persisted Razor
+    /// SG output — the SDK writes such files under
+    /// <c>Generated/Microsoft.CodeAnalysis.Razor.Compiler/...</c> when a project
+    /// sets <c>&lt;EmitCompilerGeneratedFiles&gt;true&lt;/EmitCompilerGeneratedFiles&gt;</c>.
+    /// Cross-platform: paths are normalised to forward slashes before matching.
+    /// </summary>
+    internal static bool IsPersistedRazorSgPath(string? filePath)
+    {
+        if (string.IsNullOrEmpty(filePath)) return false;
+        const string Marker = "/Generated/Microsoft.CodeAnalysis.Razor.Compiler/";
+        var normalised = filePath.Replace('\\', '/');
+        return normalised.Contains(Marker, StringComparison.Ordinal);
     }
 }

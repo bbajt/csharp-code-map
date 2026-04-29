@@ -28,4 +28,21 @@ public enum FactKind
 
     /// <summary>Resilience / retry policy (Polly, etc.).</summary>
     RetryPolicy,
+
+    /// <summary>
+    /// Blazor <c>[Inject]</c> property on a <c>ComponentBase</c> derivative.
+    /// <c>Value</c> format: <c>"PropertyName: TypeFqn"</c> (colon-separated).
+    /// Note: this differs from <see cref="DiRegistration"/> which uses
+    /// <c>"Service → Impl|Lifetime"</c>; the colon form was kept because
+    /// no realistic Roslyn FQN starts with whitespace, so splitting on the
+    /// first <c>": "</c> is unambiguous.
+    /// </summary>
+    RazorInject,
+
+    /// <summary>
+    /// Blazor <c>[Parameter]</c> property on a <c>ComponentBase</c> derivative.
+    /// <c>Value</c> format: <c>"PropertyName: TypeFqn"</c> (colon-separated) —
+    /// same shape as <see cref="RazorInject"/>.
+    /// </summary>
+    RazorParameter,
 }

@@ -1,0 +1,23 @@
+{
+  "category": "SummarizeExport",
+  "symbol_ids": [],
+  "edge_keys": [],
+  "fact_keys": [
+    "API Surface (5 endpoints)",
+    "Blazor Components (5 properties)",
+    "Key Metrics",
+    "Solution Overview"
+  ],
+  "scalar_fields": {
+    "symbol_count": "19",
+    "reference_count": "10",
+    "fact_count": "5",
+    "endpoint_count": "5",
+    "config_key_count": "0",
+    "db_table_count": "0",
+    "di_registration_count": "0",
+    "section_count": "4"
+  },
+  "is_truncated": false,
+  "total_available": null
+}

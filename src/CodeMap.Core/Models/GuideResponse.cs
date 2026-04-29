@@ -18,6 +18,16 @@ public sealed record GuideResponse(
     /// <summary>Total number of MCP tools registered in this server instance.</summary>
     int ToolCount,
     /// <summary>
+    /// Brief notice about CodeMap's coverage gaps + pointer to the in-repo
+    /// <c>docs/KNOWN-LIMITATIONS.md</c>. Read this when a search returns
+    /// nothing for code you can see in the editor.
+    /// </summary>
+    string KnownLimitationsHint,
+    /// <summary>
+    /// Path (repo-relative) to the full known-limitations register.
+    /// </summary>
+    string KnownLimitationsDoc,
+    /// <summary>
     /// Full tool list with descriptions. Null unless <c>verbose: true</c> was requested.
     /// </summary>
     IReadOnlyList<GuideToolEntry>? Tools = null

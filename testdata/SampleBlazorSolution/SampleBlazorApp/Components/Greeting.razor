@@ -1,0 +1,12 @@
+<h2>@Title</h2>
+<p>@Message</p>
+
+@code {
+    /// <summary>Heading rendered above the message.</summary>
+    [Parameter]
+    public string Title { get; set; } = "Welcome";
+
+    /// <summary>Body of the greeting card.</summary>
+    [Parameter]
+    public string Message { get; set; } = string.Empty;
+}

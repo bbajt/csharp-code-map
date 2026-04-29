@@ -138,7 +138,11 @@ public class IncrementalCompiler : IIncrementalCompiler
         // Cache the (possibly document-updated) solution for the next call
         _cachedSolution = solution;
 
-        // Identify which projects contain any of the changed files
+        // Identify projects containing any of the changed files, then collapse
+        // multi-target groups (M20-01): a single .csproj produces N Roslyn
+        // Project instances when multi-targeted. Without grouping here, an edit
+        // to a shared file in a multi-targeted Blazor lib would re-extract
+        // symbols/refs/facts N times per refresh, undoing the baseline collapse.
         var affectedProjectIds = new HashSet<ProjectId>();
         foreach (var project in solution.Projects)
         {
@@ -159,9 +163,12 @@ public class IncrementalCompiler : IIncrementalCompiler
             return OverlayDelta.Empty(currentRevision + 1);
         }
 
+        var affectedGroups = RoslynProjectGrouping.GroupByFilePath(
+            affectedProjectIds.Select(id => solution.GetProject(id)!));
+
         _logger.LogInformation(
-            "Recompiling {Count} affected project(s) for {FileCount} changed file(s)",
-            affectedProjectIds.Count, changedFiles.Count);
+            "Recompiling {Count} affected project(s) ({GroupCount} after multi-target collapse) for {FileCount} changed file(s)",
+            affectedProjectIds.Count, affectedGroups.Count, changedFiles.Count);
 
         // Build cross-project symbol ID set from baseline for cross-project ref detection
         var baselineSymbols = await baselineStore.GetAllSymbolSummariesAsync(repoId, commitSha, ct)
@@ -177,29 +184,33 @@ public class IncrementalCompiler : IIncrementalCompiler
 
         string normalizedDir = repoRootPath.Replace('\\', '/').TrimEnd('/') + '/';
 
-        foreach (var projectId in affectedProjectIds)
+        foreach (var group in affectedGroups)
         {
             ct.ThrowIfCancellationRequested();
 
-            var project = solution.GetProject(projectId)!;
+            // Use the canonical TFM (highest) — matches RoslynCompiler baseline path.
+            var project = group.AllProjects[0];
             var compilation = await project.GetCompilationAsync(ct);
 
             if (compilation is null)
             {
-                _logger.LogWarning("Compilation returned null for project {Project}", project.Name);
+                _logger.LogWarning("Compilation returned null for project {Project}", group.CanonicalName);
                 continue;
             }
 
-            // Extract all symbols (with stable IDs) and refs (with cross-project support)
+            // Extract all symbols (with stable IDs) and refs (with cross-project support).
+            // Pass canonical name so stable-ID hashes and ExtractedFile.ProjectName
+            // stay TFM-invariant (see RoslynCompiler.ExtractFiles XML doc).
             var (projectSymbols, stableIdMap) = SymbolExtractor.ExtractAllWithStableIds(
-                compilation, project.Name, repoRootPath);
+                compilation, group.CanonicalName, repoRootPath);
             var projectRefs = ReferenceExtractor.ExtractAll(
                 compilation, repoRootPath, stableIdMap, allSymbolIds);
 
-            // Skip fact extraction for test/benchmark projects (same logic as RoslynCompiler)
-            bool isTestProject = project.Name.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
-                || project.Name.EndsWith(".Benchmarks", StringComparison.OrdinalIgnoreCase)
-                || project.Name.EndsWith(".TestUtilities", StringComparison.OrdinalIgnoreCase);
+            // Skip fact extraction for test/benchmark projects. Use canonical name
+            // so multi-target test projects ("MyLib.Tests(net8.0)") still match.
+            bool isTestProject = group.CanonicalName.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
+                || group.CanonicalName.EndsWith(".Benchmarks", StringComparison.OrdinalIgnoreCase)
+                || group.CanonicalName.EndsWith(".TestUtilities", StringComparison.OrdinalIgnoreCase);
 
             var projectFacts = isTestProject
                 ? []
@@ -257,7 +268,7 @@ public class IncrementalCompiler : IIncrementalCompiler
                         FileId: sha256[..16],
                         Path: relPath,
                         Sha256Hash: sha256,
-                        ProjectName: project.Name));
+                        ProjectName: group.CanonicalName));
                 }
                 catch (Exception ex)
                 {

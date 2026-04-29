@@ -33,6 +33,30 @@ internal static class DbTableExtractor
         "INNER", "OUTER", "LEFT", "RIGHT", "CROSS", "FULL", "ON",
     };
 
+    // DB-engine metadata schemas — these are the engine's own catalog tables,
+    // not user data. Any match (schema-qualified or bare prefix) is dropped.
+    // Covers SQL Server (sys, INFORMATION_SCHEMA), Postgres (pg_catalog,
+    // information_schema), MySQL (mysql, performance_schema, information_schema),
+    // and SQLite (sqlite_master, sqlite_sequence, sqlite_*).
+    private static readonly HashSet<string> MetadataSchemas = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sys", "information_schema", "pg_catalog", "mysql", "performance_schema",
+    };
+
+    private static bool IsMetadataTable(string tableName)
+    {
+        // Schema-qualified: drop if "<metadata-schema>.something".
+        var dot = tableName.IndexOf('.', StringComparison.Ordinal);
+        if (dot > 0)
+        {
+            var schema = tableName[..dot];
+            if (MetadataSchemas.Contains(schema)) return true;
+        }
+        // SQLite: catalog tables are unprefixed and start with "sqlite_".
+        if (tableName.StartsWith("sqlite_", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
     // Method names treated as SQL execution points
     private static readonly HashSet<string> SqlMethodNames = new(StringComparer.Ordinal)
     {
@@ -267,7 +291,9 @@ internal static class DbTableExtractor
                 var raw = match.Groups[1].Value
                     .Replace("[", "", StringComparison.Ordinal)
                     .Replace("]", "", StringComparison.Ordinal);
-                if (!string.IsNullOrWhiteSpace(raw) && !SqlKeywords.Contains(raw))
+                if (!string.IsNullOrWhiteSpace(raw)
+                    && !SqlKeywords.Contains(raw)
+                    && !IsMetadataTable(raw))
                     tables.Add(raw);
             }
         }

@@ -1,0 +1,16 @@
+@page "/weather"
+@layout MainLayout
+@attribute [Authorize]
+@inject IGreetingService Greeter
+
+<PageTitle>Weather</PageTitle>
+
+<h1>Weather</h1>
+
+<p>@Greeter.Greet("forecaster")</p>
+
+@code {
+    /// <summary>Optional unit-system override, e.g. "metric" or "imperial".</summary>
+    [Parameter]
+    public string? Units { get; set; }
+}

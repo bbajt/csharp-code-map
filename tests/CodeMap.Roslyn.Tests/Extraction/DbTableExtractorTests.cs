@@ -423,4 +423,62 @@ public class DbTableExtractorTests
         fact.SymbolId.Value.Should().NotBeNullOrEmpty();
         fact.SymbolId.Value.Should().Contain("Orders");
     }
+
+    // ── Pattern 3: metadata-schema deny-list (M19.x.1 #6) ─────────────────────
+
+    private static IReadOnlyList<string> ExtractRawSqlTableNames(string sql)
+    {
+        var source = $$"""
+            using TestApp.Data;
+            namespace TestApp.Services
+            {
+                public class S
+                {
+                    private readonly DatabaseFacade _db = null!;
+                    public void M() { _db.ExecuteSqlRaw("{{sql}}"); }
+                }
+            }
+            """ + "\n" + SqlExecutorStub;
+
+        var compilation = CompilationBuilder.Create(AllStubs, source);
+        var facts = DbTableExtractor.ExtractAll(compilation, "/repo/");
+        return facts.Where(f => f.Value.EndsWith("|Raw SQL", StringComparison.Ordinal))
+                    .Select(f => f.Value[..f.Value.IndexOf('|', StringComparison.Ordinal)])
+                    .ToList();
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM information_schema.tables")]
+    [InlineData("SELECT * FROM INFORMATION_SCHEMA.COLUMNS")]
+    [InlineData("SELECT * FROM sys.tables")]
+    [InlineData("SELECT * FROM sys.objects WHERE type = 'U'")]
+    [InlineData("SELECT * FROM pg_catalog.pg_tables")]
+    [InlineData("SELECT name FROM sqlite_master WHERE type='table'")]
+    [InlineData("SELECT * FROM sqlite_sequence")]
+    [InlineData("SELECT * FROM mysql.user")]
+    [InlineData("SELECT * FROM performance_schema.threads")]
+    public void RawSql_MetadataSchemaTables_AreNotEmitted(string sql)
+    {
+        var tables = ExtractRawSqlTableNames(sql);
+        tables.Should().BeEmpty(
+            "DB-engine catalog tables are not user data and must be filtered");
+    }
+
+    [Fact]
+    public void RawSql_MixedUserAndMetadata_OnlyUserTablesEmitted()
+    {
+        var tables = ExtractRawSqlTableNames(
+            "SELECT u.Id FROM dbo.Users u JOIN information_schema.tables t ON 1=1");
+
+        tables.Should().Contain("dbo.Users");
+        tables.Should().NotContain(t =>
+            t.Equals("information_schema.tables", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void RawSql_NormalUserTable_StillEmitted()
+    {
+        var tables = ExtractRawSqlTableNames("SELECT * FROM dbo.Orders");
+        tables.Should().ContainSingle().Which.Should().Be("dbo.Orders");
+    }
 }

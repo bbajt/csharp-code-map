@@ -1125,11 +1125,15 @@ public class MergedQueryEngine : IQueryEngine
 
         var overlayEndpoints = BuildOverlayEndpoints(overlayFacts, pathFilter, httpMethod);
 
+        var combinedCount = overlayEndpoints.Count + baselineEndpoints.Count;
         var merged = overlayEndpoints.Concat(baselineEndpoints)
             .Take(limit)
             .ToList();
 
-        var truncated = merged.Count >= limit;
+        // truncated only when we both hit the limit AND the unioned source had
+        // more, OR when the baseline itself was already truncated upstream.
+        var truncated = (merged.Count >= limit && combinedCount > limit)
+                     || baselineResult.Value.Data.Truncated;
         var data = new ListEndpointsResponse(merged, merged.Count, truncated);
 
         var revision = ws.CurrentRevision;
@@ -1224,11 +1228,13 @@ public class MergedQueryEngine : IQueryEngine
 
         var overlayKeys = BuildOverlayConfigKeys(overlayFacts, keyFilter);
 
+        var combinedCount = overlayKeys.Count + baselineKeys.Count;
         var merged = overlayKeys.Concat(baselineKeys)
             .Take(limit)
             .ToList();
 
-        var truncated = merged.Count >= limit;
+        var truncated = (merged.Count >= limit && combinedCount > limit)
+                     || baselineResult.Value.Data.Truncated;
         var data = new ListConfigKeysResponse(merged, merged.Count, truncated);
 
         var revision = ws.CurrentRevision;
@@ -1335,8 +1341,10 @@ public class MergedQueryEngine : IQueryEngine
             .Where(t => !overlayTableNames.Contains(t.TableName))
             .ToList();
 
+        var combinedCount = overlayTables.Count + baselineTables.Count;
         var merged = overlayTables.Concat(baselineTables).Take(limit).ToList();
-        var truncated = merged.Count >= limit;
+        var truncated = (merged.Count >= limit && combinedCount > limit)
+                     || baselineResult.Value.Data.Truncated;
         var data = new ListDbTablesResponse(merged, merged.Count, truncated);
 
         var revision = ws.CurrentRevision;
