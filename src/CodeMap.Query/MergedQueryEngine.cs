@@ -69,21 +69,58 @@ public class MergedQueryEngine : IQueryEngine
     {
         routing = NormalizeEphemeralToWorkspace(routing);
 
-        // No-query path: delegate to inner (browse by kind, bypasses FTS and overlay merge)
+        // No-query path (browse-by-kinds).
         if (string.IsNullOrWhiteSpace(query))
         {
-            if (filters?.Kinds is { Count: > 0 })
-            {
-                var browseRouting = routing.Consistency == ConsistencyMode.Workspace
-                    ? new RoutingContext(repoId: routing.RepoId, baselineCommitSha: routing.BaselineCommitSha)
-                    : routing;
-                return await _inner.SearchSymbolsAsync(browseRouting, query, filters, budgets, ct)
+            if (filters?.Kinds is not { Count: > 0 })
+                return Fail<ResponseEnvelope<SymbolSearchResponse>>(
+                    CodeMapError.InvalidArgument(
+                        "query is required when no kinds filter is specified. " +
+                        "To browse by type, omit query and pass a kinds filter (e.g. kinds=[\"Class\"])."));
+
+            // Committed mode: delegate to inner.
+            if (routing.Consistency != ConsistencyMode.Workspace)
+                return await _inner.SearchSymbolsAsync(routing, query, filters, budgets, ct)
                                    .ConfigureAwait(false);
-            }
-            return Fail<ResponseEnvelope<SymbolSearchResponse>>(
-                CodeMapError.InvalidArgument(
-                    "query is required when no kinds filter is specified. " +
-                    "To browse by type, omit query and pass a kinds filter (e.g. kinds=[\"Class\"])."));
+
+            // BUG-4 fix: workspace mode union of (baseline browse) + (overlay browse).
+            // Pre-fix the workspace browse hit the baseline only, so overlay-new
+            // symbols never appeared in browse results.
+            var browseWs = _workspaceManager.GetWorkspaceInfo(routing.RepoId, RequiredWorkspaceId(routing));
+            if (browseWs is null)
+                return Fail<ResponseEnvelope<SymbolSearchResponse>>(
+                    CodeMapError.NotFound("Workspace", RequiredWorkspaceId(routing).Value));
+
+            var (browseClamped, _) = (budgets ?? BudgetLimits.Defaults).ClampToHardCaps();
+            var browseMaxResults = browseClamped.MaxResults;
+
+            var committedRoutingForBrowse = new RoutingContext(
+                repoId: routing.RepoId, baselineCommitSha: browseWs.BaselineCommitSha);
+            var baselineBrowseResult = await _inner.SearchSymbolsAsync(
+                committedRoutingForBrowse, query, filters, budgets, ct).ConfigureAwait(false);
+            if (baselineBrowseResult.IsFailure) return baselineBrowseResult;
+            var baselineBrowse = baselineBrowseResult.Value.Data;
+
+            var browseOverlayHits = await _overlayStore.GetOverlaySymbolsByKindsAsync(
+                routing.RepoId, RequiredWorkspaceId(routing),
+                filters.Kinds, filters, browseMaxResults + 1, ct).ConfigureAwait(false);
+
+            // Union, dedup by symbol_id, overlay first (newer wins).
+            var browseSeen = new HashSet<string>(StringComparer.Ordinal);
+            var browseMerged = new List<SymbolSearchHit>(browseOverlayHits.Count + baselineBrowse.Hits.Count);
+            foreach (var h in browseOverlayHits)
+                if (browseSeen.Add(h.SymbolId.Value)) browseMerged.Add(h);
+            foreach (var h in baselineBrowse.Hits)
+                if (browseSeen.Add(h.SymbolId.Value)) browseMerged.Add(h);
+            var browseTruncated = browseMerged.Count > browseMaxResults;
+            if (browseTruncated)
+                browseMerged = browseMerged.Take(browseMaxResults).ToList();
+            var browseTotal = browseTruncated ? browseMaxResults + 1 : browseMerged.Count;
+
+            return Ok(baselineBrowseResult.Value with
+            {
+                Data = new SymbolSearchResponse(browseMerged, browseTotal, browseTruncated),
+            });
         }
 
         if (routing.Consistency != ConsistencyMode.Workspace)
@@ -552,7 +589,9 @@ public class MergedQueryEngine : IQueryEngine
         var maxRefs = clamped.MaxReferences;
 
         // Check workspace-scoped cache
-        var cacheKey = $"{routing.RepoId.Value}:{ws.BaselineCommitSha.Value}:ws:{RequiredWorkspaceId(routing).Value}:rev:{ws.CurrentRevision}:refs:{symbolId.Value}:k={kind}:lim={maxRefs}";
+        // resolutionState included so callers asking for resolved-only vs all
+        // don't share cache entries (BUG-3 / overlay-side parity).
+        var cacheKey = $"{routing.RepoId.Value}:{ws.BaselineCommitSha.Value}:ws:{RequiredWorkspaceId(routing).Value}:rev:{ws.CurrentRevision}:refs:{symbolId.Value}:k={kind}:lim={maxRefs}:rs={resolutionState}";
         tc.StartPhase();
         var cached = await _cache.GetAsync<ResponseEnvelope<FindRefsResponse>>(cacheKey, ct).ConfigureAwait(false);
         tc.EndCacheLookup();

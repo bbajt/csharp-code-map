@@ -46,6 +46,7 @@ public sealed class RoslynCompiler : IRoslynCompiler
         // Accept either a solution file (.sln/.slnx) or a bare project file
         // (.csproj/.vbproj/.fsproj). The .csproj fallback (M19 PHASE-19-01-T04)
         // unblocks `dotnet new` template scaffolds that ship without a solution.
+        var swEval = Stopwatch.StartNew();
         Solution solution;
         if (IsProjectFile(solutionPath))
         {
@@ -58,6 +59,11 @@ public sealed class RoslynCompiler : IRoslynCompiler
             _logger.LogInformation("Opening solution: {SolutionPath}", solutionPath);
             solution = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct);
         }
+        swEval.Stop();
+        var totalProjectsLoaded = solution.Projects.Count();
+        _logger.LogInformation(
+            "PHASE_TIMING msbuild_eval_ms={Ms} total_projects_loaded={Count} solution={Path}",
+            swEval.ElapsedMilliseconds, totalProjectsLoaded, solutionPath);
 
         // M19 PHASE-19-01-T06: If a project has <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>,
         // the SDK also adds the persisted Razor SG output (Generated/Microsoft.CodeAnalysis.Razor.Compiler/...)
@@ -129,7 +135,7 @@ public sealed class RoslynCompiler : IRoslynCompiler
     // Project is the winning TFM (typically highest), CanonicalName is the
     // TFM-stripped name (e.g. "MudBlazor"), and TargetFrameworks lists every
     // TFM the .csproj declared (null when single-target).
-    private sealed record ProjectPassData(
+    internal sealed record ProjectPassData(
         Project Project,
         string CanonicalName,
         IReadOnlyList<string>? TargetFrameworks,
@@ -143,6 +149,78 @@ public sealed class RoslynCompiler : IRoslynCompiler
         string ProjectName,
         IReadOnlyList<FSharp.FSharpFileAnalysis> Analyses,
         IReadOnlyDictionary<string, StableId> StableIdMap);
+
+    internal sealed record Pass2Result(
+        IReadOnlyList<ExtractedReference> References,
+        IReadOnlyList<ExtractedFact> Facts,
+        Core.Models.ProjectDiagnostic Diagnostic,
+        long RefsMs,
+        long FactsMs);
+
+    /// <summary>
+    /// Runs Pass-2 (refs + facts) for a single project group. Pure with respect
+    /// to <see cref="ProjectPassData"/> input — no shared mutable state — so
+    /// the caller can invoke this concurrently across <c>passData</c> entries.
+    /// </summary>
+    internal Pass2Result ExecutePass2Project(
+        ProjectPassData pd, string solutionDir, IReadOnlySet<string> allSymbolIds)
+    {
+        var swRefs = Stopwatch.StartNew();
+        var references = ReferenceExtractor.ExtractAll(
+            pd.Compilation, solutionDir, pd.StableIdMap, allSymbolIds, _logger);
+        swRefs.Stop();
+
+        // Skip architectural fact extraction for test/benchmark projects.
+        // Use canonical name (TFM stripped) so multi-target test projects
+        // like "MyLib.Tests(net8.0)" still match the suffix predicate.
+        bool isTestProject = pd.CanonicalName.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
+            || pd.CanonicalName.EndsWith(".Benchmarks", StringComparison.OrdinalIgnoreCase)
+            || pd.CanonicalName.EndsWith(".TestUtilities", StringComparison.OrdinalIgnoreCase);
+
+        var facts = new List<ExtractedFact>();
+        var swFacts = Stopwatch.StartNew();
+        if (!isTestProject)
+        {
+            if (pd.Project.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
+            {
+                facts.AddRange(Extraction.VbNet.VbEndpointExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(Extraction.VbNet.VbConfigKeyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(Extraction.VbNet.VbDbTableExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(Extraction.VbNet.VbDiRegistrationExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(Extraction.VbNet.VbMiddlewareExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(Extraction.VbNet.VbRetryPolicyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(Extraction.VbNet.VbExceptionExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(Extraction.VbNet.VbLogExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+            }
+            else
+            {
+                facts.AddRange(EndpointExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(ConfigKeyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(DbTableExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(DiRegistrationExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(MiddlewareExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(RetryPolicyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(ExceptionExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(LogExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+                facts.AddRange(RazorComponentExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
+            }
+        }
+        swFacts.Stop();
+
+        _logger.LogInformation(
+            "PHASE_TIMING_PASS2 project={Project} refs_ms={RefsMs} facts_ms={FactsMs} ref_count={RefCount}",
+            pd.CanonicalName, swRefs.ElapsedMilliseconds, swFacts.ElapsedMilliseconds, references.Count);
+
+        var diagnostic = new Core.Models.ProjectDiagnostic(
+            ProjectName: pd.CanonicalName,
+            Compiled: true,
+            SymbolCount: pd.Symbols.Count,
+            ReferenceCount: references.Count,
+            Errors: pd.ErrorMessages.Count > 0 ? pd.ErrorMessages : null,
+            TargetFrameworks: pd.TargetFrameworks);
+
+        return new Pass2Result(references, facts, diagnostic, swRefs.ElapsedMilliseconds, swFacts.ElapsedMilliseconds);
+    }
 
     private async Task<CompilationResult> ExtractSolutionAsync(
         Solution solution, string solutionDir, CancellationToken ct)
@@ -167,6 +245,7 @@ public sealed class RoslynCompiler : IRoslynCompiler
 
         // ── Pass 0: F# projects (MSBuildWorkspace doesn't load them at all).
         // Scan the .sln for .fsproj entries and process via FCS bridge.
+        var swPass0 = Stopwatch.StartNew();
         var fsprojPaths = FindFSharpProjects(solution);
         foreach (var fsprojPath in fsprojPaths)
         {
@@ -227,9 +306,21 @@ public sealed class RoslynCompiler : IRoslynCompiler
         // FilePath and run extraction once per group on the canonical (highest)
         // TFM. This eliminates the 3×–7× duplication seen on Blazor component
         // libraries that target net8/9/10. See PHASE-20-01.md.
+        swPass0.Stop();
+        _logger.LogInformation(
+            "PHASE_TIMING fsharp_pass_ms={Ms} fsproj_count={Count}",
+            swPass0.ElapsedMilliseconds, fsprojPaths.Count);
+
+        // ── Pass 1: per-csproj-group canonical compile + extract.
+        var swPass1 = Stopwatch.StartNew();
+        long totalBindMs = 0;
+        long totalExtractMs = 0;
+        int totalBindAttempts = 0;
+        int totalGroups = 0;
         foreach (var group in RoslynProjectGrouping.GroupByFilePath(solution.Projects))
         {
             ct.ThrowIfCancellationRequested();
+            totalGroups++;
             // Multi-target groups expose all TFMs; single-target keeps the
             // ProjectDiagnostic.TargetFrameworks field at null for wire stability.
             var tfmsForDiagnostic = group.AllProjects.Count > 1
@@ -243,9 +334,12 @@ public sealed class RoslynCompiler : IRoslynCompiler
             Project? winningProject = null;
             Compilation? winningCompilation = null;
             Exception? lastException = null;
+            var swBind = Stopwatch.StartNew();
+            int groupBindAttempts = 0;
             foreach (var candidate in group.AllProjects)
             {
                 ct.ThrowIfCancellationRequested();
+                groupBindAttempts++;
                 try
                 {
                     var c = await candidate.GetCompilationAsync(ct);
@@ -262,6 +356,12 @@ public sealed class RoslynCompiler : IRoslynCompiler
                     lastException = ex;
                 }
             }
+            swBind.Stop();
+            totalBindMs += swBind.ElapsedMilliseconds;
+            totalBindAttempts += groupBindAttempts;
+            _logger.LogDebug(
+                "PHASE_TIMING_GROUP project={Project} bind_ms={BindMs} bind_attempts={Attempts} tfm_count={TfmCount}",
+                group.CanonicalName, swBind.ElapsedMilliseconds, groupBindAttempts, group.AllProjects.Count);
 
             if (winningProject is null || winningCompilation is null)
             {
@@ -281,6 +381,7 @@ public sealed class RoslynCompiler : IRoslynCompiler
             // be caught alongside the GetCompilationAsync failure. After the M20-01
             // grouping refactor, that catch only wrapped GetCompilationAsync. Restore
             // the broader guard so a single bad project can't kill the whole index.
+            var swExtract = Stopwatch.StartNew();
             try
             {
                 firstCompilation ??= winningCompilation;
@@ -327,62 +428,46 @@ public sealed class RoslynCompiler : IRoslynCompiler
                     group, extractionEx, allSymbols, allReferences, projectDiagnostics,
                     tfmsForDiagnostic, solutionDir);
             }
+            swExtract.Stop();
+            totalExtractMs += swExtract.ElapsedMilliseconds;
         }
+        swPass1.Stop();
+        _logger.LogInformation(
+            "PHASE_TIMING pass1_total_ms={TotalMs} bind_sum_ms={BindMs} extract_sum_ms={ExtractMs} groups={Groups} bind_attempts={Attempts}",
+            swPass1.ElapsedMilliseconds, totalBindMs, totalExtractMs, totalGroups, totalBindAttempts);
 
         // ── Pass 2: extract refs and facts now that all project symbols are known.
         // allSymbolIds covers every project so cross-language project refs resolve.
+        var swPass2 = Stopwatch.StartNew();
+        long totalRefsMs = 0;
+        long totalFactsMs = 0;
         var allSymbolIds = allSymbols.Select(s => s.SymbolId.Value)
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var pd in passData)
+        // M20-02 Option A: parallelize Pass-2 across projects.
+        // Each project's Compilation is independent and Roslyn SemanticModel
+        // queries are documented thread-safe across distinct compilations.
+        // Per-iteration buffers avoid contention; merge below preserves
+        // passData order so projectDiagnostics ordering stays deterministic.
+        var perProject = new Pass2Result[passData.Count];
+        var parallelOptions = new ParallelOptions
         {
-            ct.ThrowIfCancellationRequested();
+            CancellationToken = ct,
+            MaxDegreeOfParallelism = Environment.ProcessorCount,
+        };
+        Parallel.For(0, passData.Count, parallelOptions, i =>
+        {
+            perProject[i] = ExecutePass2Project(passData[i], solutionDir, allSymbolIds);
+        });
 
-            var references = ReferenceExtractor.ExtractAll(
-                pd.Compilation, solutionDir, pd.StableIdMap, allSymbolIds);
-            allReferences.AddRange(references);
-
-            // Skip architectural fact extraction for test/benchmark projects.
-            // Use canonical name (TFM stripped) so multi-target test projects
-            // like "MyLib.Tests(net8.0)" still match the suffix predicate.
-            bool isTestProject = pd.CanonicalName.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
-                || pd.CanonicalName.EndsWith(".Benchmarks", StringComparison.OrdinalIgnoreCase)
-                || pd.CanonicalName.EndsWith(".TestUtilities", StringComparison.OrdinalIgnoreCase);
-
-            if (!isTestProject)
-            {
-                if (pd.Project.Language == Microsoft.CodeAnalysis.LanguageNames.VisualBasic)
-                {
-                    allFacts.AddRange(Extraction.VbNet.VbEndpointExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(Extraction.VbNet.VbConfigKeyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(Extraction.VbNet.VbDbTableExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(Extraction.VbNet.VbDiRegistrationExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(Extraction.VbNet.VbMiddlewareExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(Extraction.VbNet.VbRetryPolicyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(Extraction.VbNet.VbExceptionExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(Extraction.VbNet.VbLogExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                }
-                else
-                {
-                    allFacts.AddRange(EndpointExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(ConfigKeyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(DbTableExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(DiRegistrationExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(MiddlewareExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(RetryPolicyExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(ExceptionExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(LogExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                    allFacts.AddRange(RazorComponentExtractor.ExtractAll(pd.Compilation, solutionDir, pd.StableIdMap));
-                }
-            }
-
-            projectDiagnostics.Add(new Core.Models.ProjectDiagnostic(
-                ProjectName: pd.CanonicalName,
-                Compiled: true,
-                SymbolCount: pd.Symbols.Count,
-                ReferenceCount: references.Count,
-                Errors: pd.ErrorMessages.Count > 0 ? pd.ErrorMessages : null,
-                TargetFrameworks: pd.TargetFrameworks));
+        for (int i = 0; i < passData.Count; i++)
+        {
+            var r = perProject[i];
+            allReferences.AddRange(r.References);
+            allFacts.AddRange(r.Facts);
+            projectDiagnostics.Add(r.Diagnostic);
+            totalRefsMs += r.RefsMs;
+            totalFactsMs += r.FactsMs;
         }
 
         // ── Pass 2b: extract F# references now that allSymbolIds is complete.
@@ -401,6 +486,10 @@ public sealed class RoslynCompiler : IRoslynCompiler
                 projectDiagnostics[existingDiag] = old with { ReferenceCount = fsRefs.Count };
             }
         }
+        swPass2.Stop();
+        _logger.LogInformation(
+            "PHASE_TIMING pass2_total_ms={TotalMs} refs_sum_ms={RefsMs} facts_sum_ms={FactsMs}",
+            swPass2.ElapsedMilliseconds, totalRefsMs, totalFactsMs);
 
         // Compute SemanticLevel from per-project outcomes
         int compiledCount = projectDiagnostics.Count(d => d.Compiled);

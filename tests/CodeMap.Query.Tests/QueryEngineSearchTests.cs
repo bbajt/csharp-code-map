@@ -306,6 +306,99 @@ public class QueryEngineSearchTests
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    // ─── BUG-1 regression — browse-by-kinds passes filters down ───────────────
+
+    [Fact]
+    public async Task Browse_KindsAndNamespace_PassesFiltersToStore()
+    {
+        SymbolSearchFilters? capturedFilters = null;
+        _store.GetSymbolsByKindsAsync(
+                  Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<IReadOnlyList<SymbolKind>?>(),
+                  Arg.Any<int>(), Arg.Any<CancellationToken>(), Arg.Any<SymbolSearchFilters?>())
+              .Returns(callInfo =>
+              {
+                  capturedFilters = callInfo.Arg<SymbolSearchFilters?>();
+                  return Task.FromResult<IReadOnlyList<SymbolSearchHit>>(MakeHits(3));
+              });
+
+        var filters = new SymbolSearchFilters(
+            Kinds: [SymbolKind.Class],
+            Namespace: "MyApp.Domain",
+            FilePath: null,
+            ProjectName: null);
+
+        var result = await _engine.SearchSymbolsAsync(Routing, query: null, filters, null);
+
+        result.IsSuccess.Should().BeTrue();
+        capturedFilters.Should().NotBeNull(because: "engine must pass filters through to the store on the no-query path");
+        capturedFilters!.Namespace.Should().Be("MyApp.Domain",
+            because: "BUG-1: browse-by-kinds dropped the namespace filter pre-fix");
+    }
+
+    [Fact]
+    public async Task Browse_KindsAndFilePath_PassesFilePathToStore()
+    {
+        SymbolSearchFilters? capturedFilters = null;
+        _store.GetSymbolsByKindsAsync(
+                  Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<IReadOnlyList<SymbolKind>?>(),
+                  Arg.Any<int>(), Arg.Any<CancellationToken>(), Arg.Any<SymbolSearchFilters?>())
+              .Returns(callInfo =>
+              {
+                  capturedFilters = callInfo.Arg<SymbolSearchFilters?>();
+                  return Task.FromResult<IReadOnlyList<SymbolSearchHit>>(MakeHits(0));
+              });
+
+        var filters = new SymbolSearchFilters(
+            Kinds: [SymbolKind.Class],
+            Namespace: null,
+            FilePath: "src/",
+            ProjectName: "MyLib");
+
+        await _engine.SearchSymbolsAsync(Routing, query: null, filters, null);
+
+        capturedFilters!.FilePath.Should().Be("src/");
+        capturedFilters!.ProjectName.Should().Be("MyLib");
+    }
+
+    // ─── BUG-3 regression — refs.find cache key includes resolution_state ─────
+
+    [Fact]
+    public async Task FindRefs_DifferentResolutionState_DoesNotShareCache()
+    {
+        var symbolId = SymbolId.From("M:N.C.M");
+
+        _store.GetSymbolAsync(Repo, Sha, symbolId, Arg.Any<CancellationToken>())
+              .Returns(SymbolCard.CreateMinimal(symbolId, "N.C.M", SymbolKind.Method, "M()",
+                  "N", FilePath.From("src/C.cs"), 1, 1, "public", Confidence.High));
+
+        var resolvedRef = new StoredReference(
+            Kind: RefKind.Call,
+            FromSymbol: SymbolId.From("M:N.D.X"),
+            FilePath: FilePath.From("src/D.cs"),
+            LineStart: 5, LineEnd: 5,
+            Excerpt: null,
+            ResolutionState: ResolutionState.Resolved,
+            ToName: null, ToContainerHint: null);
+
+        // Resolved-only: 1 hit. Unresolved-only: 0 hits. If cache poisons across
+        // resolutionState, the second call returns the first call's data.
+        _store.GetReferencesAsync(Repo, Sha, symbolId, null, Arg.Any<int>(),
+                  Arg.Any<CancellationToken>(), ResolutionState.Resolved)
+              .Returns([resolvedRef]);
+        _store.GetReferencesAsync(Repo, Sha, symbolId, null, Arg.Any<int>(),
+                  Arg.Any<CancellationToken>(), ResolutionState.Unresolved)
+              .Returns([]);
+
+        var first = await _engine.FindReferencesAsync(Routing, symbolId, null, null,
+            CancellationToken.None, ResolutionState.Resolved);
+        var second = await _engine.FindReferencesAsync(Routing, symbolId, null, null,
+            CancellationToken.None, ResolutionState.Unresolved);
+
+        first.Value.Data.References.Should().HaveCount(1);
+        second.Value.Data.References.Should().BeEmpty(
+            because: "BUG-3: cache key omitted resolution_state, so the unresolved call returned the resolved cached payload");
+    }
+
     // ─── Factory helpers ──────────────────────────────────────────────────────
 
     private static IReadOnlyList<SymbolSearchHit> MakeHits(int count) =>

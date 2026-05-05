@@ -73,6 +73,12 @@ public sealed class GuideHandlerTests
         useTools.Should().Contain("graph.callers");
         useTools.Should().Contain("graph.callees");
         useTools.Should().Contain("codemap.summarize");
+
+        // BUG-5 regression: don't advertise tools that aren't registered.
+        // surfaces.list_di_registrations was on the decision_table but had no
+        // matching ToolDefinition — agents calling it got NOT_FOUND.
+        useTools.Should().NotContain("surfaces.list_di_registrations",
+            because: "decision_table must list only registered tools");
     }
 
     [Fact]

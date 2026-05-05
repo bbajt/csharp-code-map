@@ -233,9 +233,13 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
             var displayName = overlay.ResolveString(sym.DisplayNameStringId);
             var ns = overlay.ResolveString(sym.NamespaceStringId);
 
-            // Apply namespace filter if specified
+            // Apply namespace filter if specified. Case-insensitive to match
+            // the baseline reader (SearchIndexReader.cs:109) — pre-fix the
+            // overlay used Ordinal which made workspace-mode namespace queries
+            // miss case-different matches that committed mode would find.
+            // (BUG-2)
             if (filters?.Namespace is { Length: > 0 } nsFilter
-                && !ns.StartsWith(nsFilter, StringComparison.Ordinal))
+                && !ns.StartsWith(nsFilter, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             // File path filter: resolve from overlay file records or baseline file table.
@@ -263,6 +267,69 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
                 FilePath: FilePath.From("overlay"),
                 Line: sym.SpanStart,
                 Score: 1.0));
+
+            if (results.Count >= limit) break;
+        }
+
+        return Task.FromResult<IReadOnlyList<SymbolSearchHit>>(results);
+    }
+
+    /// <summary>
+    /// BUG-4 fix: workspace-mode browse-by-kinds was hitting the baseline only,
+    /// so newly-added overlay symbols did not appear in browse results. This
+    /// returns the matching overlay-new symbols so MergedQueryEngine can union
+    /// them with the baseline browse output.
+    /// </summary>
+    public Task<IReadOnlyList<SymbolSearchHit>> GetOverlaySymbolsByKindsAsync(
+        RepoId repoId, WorkspaceId workspaceId,
+        IReadOnlyList<SymbolKind>? kinds, SymbolSearchFilters? filters,
+        int limit, CancellationToken ct = default)
+    {
+        var (overlay, reader) = GetOverlayAndReader(workspaceId.Value);
+        if (overlay == null || reader == null)
+            return Task.FromResult<IReadOnlyList<SymbolSearchHit>>([]);
+
+        var results = new List<SymbolSearchHit>();
+        foreach (var sym in overlay.GetOverlayNewSymbols())
+        {
+            // Kind filter — kinds parameter takes precedence, mirrors baseline path.
+            if (kinds is { Count: > 0 })
+            {
+                var symKind = RecordToCoreMappings.ReverseSymbolKind(sym.Kind);
+                if (!kinds.Contains(symKind)) continue;
+            }
+
+            var fqn = overlay.ResolveString(sym.FqnStringId);
+            var displayName = overlay.ResolveString(sym.DisplayNameStringId);
+            var ns = overlay.ResolveString(sym.NamespaceStringId);
+
+            if (filters?.Namespace is { Length: > 0 } nsFilter
+                && !ns.StartsWith(nsFilter, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (filters?.FilePath is { Length: > 0 } fpFilter)
+            {
+                var path = ResolveOverlaySymbolFilePath(overlay, reader, sym.FileIntId);
+                if (path is null || !path.StartsWith(fpFilter, StringComparison.OrdinalIgnoreCase))
+                    continue;
+            }
+
+            if (filters?.ProjectName is { Length: > 0 } projFilter)
+            {
+                var projName = ResolveOverlaySymbolProjectName(overlay, reader, sym.FileIntId);
+                if (projName is null || !string.Equals(projName, projFilter, StringComparison.OrdinalIgnoreCase))
+                    continue;
+            }
+
+            results.Add(new SymbolSearchHit(
+                SymbolId: SymbolId.From(fqn),
+                FullyQualifiedName: fqn,
+                Kind: RecordToCoreMappings.ReverseSymbolKind(sym.Kind),
+                Signature: displayName,
+                DocumentationSnippet: null,
+                FilePath: FilePath.From("overlay"),
+                Line: sym.SpanStart,
+                Score: 0));
 
             if (results.Count >= limit) break;
         }

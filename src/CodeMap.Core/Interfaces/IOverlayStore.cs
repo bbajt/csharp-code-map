@@ -82,6 +82,21 @@ public interface IOverlayStore
         int limit,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// No-query browse over overlay symbols by kind (with optional namespace /
+    /// file_path / project_name filters). Mirrors
+    /// <see cref="ISymbolStore.GetSymbolsByKindsAsync"/> on the baseline side
+    /// so that workspace-mode browse-by-kinds returns overlay-new symbols too.
+    /// (BUG-4)
+    /// </summary>
+    Task<IReadOnlyList<SymbolSearchHit>> GetOverlaySymbolsByKindsAsync(
+        RepoId repoId,
+        WorkspaceId workspaceId,
+        IReadOnlyList<Enums.SymbolKind>? kinds,
+        SymbolSearchFilters? filters,
+        int limit,
+        CancellationToken ct = default);
+
     /// <summary>Gets references to a symbol from the overlay.</summary>
     Task<IReadOnlyList<StoredReference>> GetOverlayReferencesAsync(
         RepoId repoId,

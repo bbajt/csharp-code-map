@@ -167,8 +167,10 @@ public sealed class QueryEngine : IQueryEngine
 
         var tc = new TimingContext();
         tc.StartPhase();
+        // BUG-1 fix: pass the full filters so namespace / file_path / project_name
+        // are applied. Pre-fix the browse path silently dropped them.
         var hits = await _store.GetSymbolsByKindsAsync(
-            routing.RepoId, commitSha, filters.Kinds!, maxResults + 1, ct).ConfigureAwait(false);
+            routing.RepoId, commitSha, filters.Kinds!, maxResults + 1, ct, filters).ConfigureAwait(false);
         tc.EndDbQuery();
 
         var truncated = hits.Count > maxResults;
@@ -532,8 +534,10 @@ public sealed class QueryEngine : IQueryEngine
         var (clamped, limitsApplied) = (budgets ?? BudgetLimits.Defaults).ClampToHardCaps();
         var maxRefs = clamped.MaxReferences;
 
-        // Check cache
-        var cacheKey = $"{routing.RepoId.Value}:{commitSha.Value}:refs:{symbolId.Value}:k={kind}:lim={maxRefs}";
+        // Check cache. resolutionState is part of the key — without it, the
+        // first caller's filter would poison the cache for subsequent callers
+        // asking for a different filter (BUG-3).
+        var cacheKey = $"{routing.RepoId.Value}:{commitSha.Value}:refs:{symbolId.Value}:k={kind}:lim={maxRefs}:rs={resolutionState}";
         tc.StartPhase();
         var cached = await _cache.GetAsync<ResponseEnvelope<FindRefsResponse>>(cacheKey, ct);
         tc.EndCacheLookup();

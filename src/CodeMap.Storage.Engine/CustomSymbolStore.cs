@@ -116,11 +116,22 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
         return Task.FromResult<IReadOnlyList<SymbolSearchHit>>(hits);
     }
 
-    public Task<IReadOnlyList<SymbolSearchHit>> GetSymbolsByKindsAsync(RepoId repoId, CommitSha commitSha, IReadOnlyList<SymbolKind>? kinds, int limit, CancellationToken ct = default)
+    public Task<IReadOnlyList<SymbolSearchHit>> GetSymbolsByKindsAsync(
+        RepoId repoId, CommitSha commitSha, IReadOnlyList<SymbolKind>? kinds, int limit,
+        CancellationToken ct = default, SymbolSearchFilters? filters = null)
     {
         var (reader, merged) = GetOrOpen(repoId.Value, commitSha.Value);
         var kindFilter = kinds?.Count == 1 ? RecordMappers.MapSymbolKind(kinds[0]) : (short?)null;
         var symbols = merged.EnumerateSymbols(kindFilter);
+
+        // BUG-1 fix: apply namespace / file_path / project_name filters that
+        // pre-fix were dropped on the floor for the no-query browse path.
+        // Predicates mirror SearchIndexReader.cs:106-128 so behavior matches
+        // the with-query path. Kinds is taken from the explicit `kinds` param,
+        // not filters.Kinds.
+        var nsFilter = filters?.Namespace;
+        var filePathFilter = filters?.FilePath;
+        var projectNameFilter = filters?.ProjectName;
 
         var hits = new List<SymbolSearchHit>();
         foreach (var sym in symbols)
@@ -130,6 +141,29 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
                 var symKind = RecordToCoreMappings.ReverseSymbolKind(sym.Kind);
                 if (!kinds.Contains(symKind)) continue;
             }
+
+            if (!string.IsNullOrEmpty(nsFilter))
+            {
+                var ns = sym.NamespaceStringId > 0 ? reader.ResolveString(sym.NamespaceStringId) : "";
+                if (!ns.StartsWith(nsFilter, StringComparison.OrdinalIgnoreCase)) continue;
+            }
+
+            if (!string.IsNullOrEmpty(filePathFilter))
+            {
+                if (sym.FileIntId < 1 || sym.FileIntId > reader.FileCount) continue;
+                ref readonly var file = ref reader.GetFileByIntId(sym.FileIntId);
+                var path = file.PathStringId > 0 ? reader.ResolveString(file.PathStringId) : "";
+                if (!path.StartsWith(filePathFilter, StringComparison.OrdinalIgnoreCase)) continue;
+            }
+
+            if (!string.IsNullOrEmpty(projectNameFilter))
+            {
+                if (sym.ProjectIntId < 1 || sym.ProjectIntId > reader.ProjectCount) continue;
+                ref readonly var proj = ref reader.GetProjectByIntId(sym.ProjectIntId);
+                var name = proj.NameStringId > 0 ? reader.ResolveString(proj.NameStringId) : "";
+                if (!string.Equals(name, projectNameFilter, StringComparison.OrdinalIgnoreCase)) continue;
+            }
+
             hits.Add(RecordToCoreMappings.ToSearchHit(sym, reader, 0));
             if (hits.Count >= limit) break;
         }

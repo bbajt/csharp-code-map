@@ -146,13 +146,17 @@ public interface ISymbolStore
     /// Pass <c>null</c> for <paramref name="kinds"/> to return all symbols regardless of kind.
     /// Use this instead of <see cref="SearchSymbolsAsync"/> when no text query is needed —
     /// FTS5 does not support bare <c>*</c> as a match-all wildcard (ADR-017).
+    /// <para>Optional <paramref name="filters"/> applies the same Namespace / FilePath
+    /// / ProjectName predicates as <see cref="SearchSymbolsAsync"/>; <see cref="SymbolSearchFilters.Kinds"/>
+    /// is ignored here in favour of the explicit <paramref name="kinds"/> argument.</para>
     /// </summary>
     Task<IReadOnlyList<SymbolSearchHit>> GetSymbolsByKindsAsync(
         RepoId repoId,
         CommitSha commitSha,
         IReadOnlyList<SymbolKind>? kinds,
         int limit,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        SymbolSearchFilters? filters = null);
 
     /// <summary>
     /// Returns all facts associated with a specific symbol from the baseline.

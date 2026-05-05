@@ -38,8 +38,12 @@ public sealed class GuideHandler
         new("Understand overall architecture",                 "codemap.summarize",          "reading many files"),
         new("See all HTTP endpoints",                          "surfaces.list_endpoints",    "grep for [Route]"),
         new("See all config key usage",                        "surfaces.list_config_keys",  "grep for IConfiguration"),
-        new("See all DI registrations",                        "surfaces.list_di_registrations", "grep for AddSingleton"),
         new("See all database tables",                         "surfaces.list_db_tables",    "grep for DbSet"),
+        // BUG-5 (M20-02): surfaces.list_di_registrations is advertised in
+        // codemap.summarize and KNOWN-LIMITATIONS but not yet a registered
+        // MCP tool — DI facts are still extracted (FactKind.DiRegistration)
+        // and surface in summarize. Listing the missing tool here would
+        // produce NOT_FOUND on first call. Implementation deferred.
     ];
 
     private static readonly IReadOnlyList<string> Rules =

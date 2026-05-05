@@ -82,6 +82,22 @@ internal static class RefKindClassifier
                 assignExpr2.Left == identifier)
                 return null;
 
+            // T2b: skip identifiers in pure type-position. QualifiedNameSyntax
+            // only ever appears in type/namespace contexts (expressions use
+            // MemberAccessExpressionSyntax instead). TypeOf/Attribute/generic
+            // arg / base list are also type-only. CodeMap captures type
+            // relationships via the type-relations table, so the per-typeof
+            // model.GetSymbolInfo call costs ~125us each on cross-compilation
+            // lookups without adding meaningful info to refs.find.
+            // 66% of Blazorise wall-clock pre-fix was an auto-generated 10K-
+            // line dictionary of typeof() literals.
+            if (identifier.Parent is QualifiedNameSyntax
+                or TypeArgumentListSyntax
+                or TypeOfExpressionSyntax
+                or AttributeSyntax
+                or BaseTypeSyntax)
+                return null;
+
             var symbol = model.GetSymbolInfo(identifier).Symbol;
             if (symbol is IPropertySymbol or IFieldSymbol or IEventSymbol)
                 return (symbol, CodeMapRefKind.Read);
