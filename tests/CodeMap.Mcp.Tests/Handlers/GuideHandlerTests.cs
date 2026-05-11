@@ -70,7 +70,8 @@ public sealed class GuideHandlerTests
 
         useTools.Should().Contain("symbols.search");
         useTools.Should().Contain("symbols.get_context");
-        useTools.Should().Contain("graph.callers");
+        useTools.Should().Contain(t => t!.StartsWith("graph.callers"),
+            because: "the row may now include a follow_interface hint suffix");
         useTools.Should().Contain("graph.callees");
         useTools.Should().Contain("codemap.summarize");
 

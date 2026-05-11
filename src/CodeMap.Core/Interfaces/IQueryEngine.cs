@@ -71,13 +71,19 @@ public interface IQueryEngine
     /// BFS traversal upward through the call graph to find all callers of a symbol.
     /// Depth-limited to prevent unbounded traversal.
     /// </summary>
+    /// <param name="followInterface">
+    /// If <paramref name="symbolId"/> implements one or more interface members, union the
+    /// concrete callers with callers of those interface members (deduped by from_symbol).
+    /// The <c>InterfaceImplementationHint</c> on the response surfaces availability either way.
+    /// </param>
     Task<Result<ResponseEnvelope<CallGraphResponse>, CodeMapError>> GetCallersAsync(
         RoutingContext routing,
         SymbolId symbolId,
         int depth,
         int limitPerLevel,
         BudgetLimits? budgets,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        bool followInterface = false);
 
     /// <summary>
     /// BFS traversal downward through the call graph to find all callees of a symbol.
@@ -267,7 +273,25 @@ public record CallGraphResponse(
     SymbolId Root,
     IReadOnlyList<CallGraphNode> Nodes,
     int TotalNodesFound,
-    bool Truncated
+    bool Truncated,
+    InterfaceImplementationHint? InterfaceImplementationHint = null
+);
+
+/// <summary>
+/// Surfaced on <c>graph.callers</c> responses when the target method (or property/event/indexer)
+/// implements one or more interface members. In DI-dispatched codebases most real call sites
+/// resolve through the interface symbol, so the concrete caller count is often misleadingly low.
+/// </summary>
+/// <param name="Implements">Interface member symbol IDs that the target implicitly or explicitly implements.</param>
+/// <param name="AdditionalCallersViaInterface">
+/// Count of distinct callers that target the interface members instead of the concrete.
+/// Bounded probe (cap = 50); if the count is at the cap the actual number may be higher.
+/// </param>
+/// <param name="RetryHint">User-facing recommendation, e.g. "pass follow_interface=true to include them".</param>
+public record InterfaceImplementationHint(
+    IReadOnlyList<SymbolId> Implements,
+    int AdditionalCallersViaInterface,
+    string RetryHint
 );
 
 /// <summary>A single node in a call graph result.</summary>

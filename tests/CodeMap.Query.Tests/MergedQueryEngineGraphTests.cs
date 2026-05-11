@@ -155,6 +155,65 @@ public sealed class MergedQueryEngineGraphTests
         result.Value.Data.Nodes.Should().NotContain(n => n.SymbolId == deletedCaller);
     }
 
+    // ── M20-03 interface-aware callers (workspace mode) ───────────────────────
+
+    [Fact]
+    public async Task Callers_CommittedMode_PropagatesFollowInterface()
+    {
+        // In committed mode MergedQueryEngine delegates straight to the inner engine.
+        // The new follow_interface flag must round-trip unchanged.
+        bool captured = false;
+        _inner.GetCallersAsync(Arg.Any<RoutingContext>(), Arg.Any<SymbolId>(),
+                   Arg.Any<int>(), Arg.Any<int>(), Arg.Any<BudgetLimits?>(),
+                   Arg.Any<CancellationToken>(), Arg.Any<bool>())
+              .Returns(ci =>
+              {
+                  captured = ci.ArgAt<bool>(6);
+                  return Task.FromResult(
+                      Result<ResponseEnvelope<CallGraphResponse>, CodeMapError>.Success(MakeGraphEnvelope(Target)));
+              });
+
+        await _engine.GetCallersAsync(
+            CommittedRouting(), Target, 1, 20, null,
+            ct: default, followInterface: true);
+
+        captured.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Callers_WorkspaceMode_SurfacesHintFromInnerProbe()
+    {
+        // Inner GetCallersAsync (used as a baseline probe) returns a hint — the workspace
+        // wrapper must re-emit it on the merged response.
+        var ifaceMember = SymbolId.From("M:MyNs.IService.DoWork");
+        var hint = new InterfaceImplementationHint([ifaceMember], 3, "pass follow_interface=true to include them");
+        var envelopeWithHint = new ResponseEnvelope<CallGraphResponse>(
+            "Found 0 callers",
+            new CallGraphResponse(Target, [], 0, false, hint),
+            [], [], Confidence.High,
+            new ResponseMeta(new TimingBreakdown(0, 0, 0), Sha, new Dictionary<string, LimitApplied>(), 0, 0));
+        _inner.GetCallersAsync(Arg.Any<RoutingContext>(), Target,
+                   Arg.Any<int>(), Arg.Any<int>(), Arg.Any<BudgetLimits?>(),
+                   Arg.Any<CancellationToken>(), Arg.Any<bool>())
+              .Returns(Task.FromResult(
+                  Result<ResponseEnvelope<CallGraphResponse>, CodeMapError>.Success(envelopeWithHint)));
+        _inner.FindReferencesAsync(Arg.Any<RoutingContext>(), Target, null,
+                  Arg.Any<BudgetLimits?>(), Arg.Any<CancellationToken>())
+              .Returns(Task.FromResult(
+                  Result<ResponseEnvelope<FindRefsResponse>, CodeMapError>.Success(
+                      new ResponseEnvelope<FindRefsResponse>(
+                          "ok", new FindRefsResponse(Target, [], 0, false), [], [],
+                          Confidence.High,
+                          new ResponseMeta(new TimingBreakdown(0, 0, 0), Sha, new Dictionary<string, LimitApplied>(), 0, 0)))));
+
+        var result = await _engine.GetCallersAsync(WorkspaceRouting(), Target, 1, 20, null);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Data.InterfaceImplementationHint.Should().NotBeNull();
+        result.Value.Data.InterfaceImplementationHint!.Implements.Should().ContainSingle().Which.Should().Be(ifaceMember);
+        result.Value.Data.InterfaceImplementationHint.AdditionalCallersViaInterface.Should().Be(3);
+    }
+
     // ── Callees ───────────────────────────────────────────────────────────────
 
     [Fact]

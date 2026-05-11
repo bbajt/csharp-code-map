@@ -699,29 +699,45 @@ public class MergedQueryEngine : IQueryEngine
         int depth,
         int limitPerLevel,
         BudgetLimits? budgets,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool followInterface = false)
     {
         routing = NormalizeEphemeralToWorkspace(routing);
         if (routing.Consistency != ConsistencyMode.Workspace)
-            return _inner.GetCallersAsync(routing, symbolId, depth, limitPerLevel, budgets, ct);
+            return _inner.GetCallersAsync(routing, symbolId, depth, limitPerLevel, budgets, ct, followInterface);
 
         return TraverseWorkspaceGraphAsync(routing, symbolId, depth, limitPerLevel, budgets, "callers",
-            expandNode: async (sid, ws, deletedIds, overlayFiles, clampedLimit, token) =>
+            followInterface: followInterface,
+            expandNode: async (sid, ws, deletedIds, overlayFiles, clampedLimit, token,
+                               targetsToUnion) =>
             {
-                var overlayRefs = await _overlayStore.GetOverlayReferencesAsync(
-                    routing.RepoId, RequiredWorkspaceId(routing), sid, null, clampedLimit * 2, token).ConfigureAwait(false);
-                var baselineRefs = await _inner.FindReferencesAsync(
-                    new RoutingContext(repoId: routing.RepoId, baselineCommitSha: ws.BaselineCommitSha),
-                    sid, null, new BudgetLimits(maxReferences: clampedLimit * 2), token).ConfigureAwait(false);
-                var baselineList = baselineRefs.IsSuccess ? baselineRefs.Value.Data.References : [];
+                // targetsToUnion is non-null only at the root level when followInterface=true
+                // and the target implements interface members. Fetch refs from each target and
+                // dedupe via the existing Distinct() below.
+                IEnumerable<SymbolId> targets = targetsToUnion is { Count: > 0 }
+                    ? new[] { sid }.Concat(targetsToUnion)
+                    : [sid];
 
-                return overlayRefs
-                    .Where(r => r.Kind == RefKind.Call || r.Kind == RefKind.Instantiate)
-                    .Select(r => r.FromSymbol)
-                    .Concat(baselineList
+                var collected = new List<SymbolId>();
+                foreach (var target in targets)
+                {
+                    var overlayRefs = await _overlayStore.GetOverlayReferencesAsync(
+                        routing.RepoId, RequiredWorkspaceId(routing), target, null, clampedLimit * 2, token).ConfigureAwait(false);
+                    var baselineRefs = await _inner.FindReferencesAsync(
+                        new RoutingContext(repoId: routing.RepoId, baselineCommitSha: ws.BaselineCommitSha),
+                        target, null, new BudgetLimits(maxReferences: clampedLimit * 2), token).ConfigureAwait(false);
+                    var baselineList = baselineRefs.IsSuccess ? baselineRefs.Value.Data.References : [];
+
+                    collected.AddRange(overlayRefs
+                        .Where(r => r.Kind == RefKind.Call || r.Kind == RefKind.Instantiate)
+                        .Select(r => r.FromSymbol));
+                    collected.AddRange(baselineList
                         .Where(r => (r.Kind == RefKind.Call || r.Kind == RefKind.Instantiate)
                                     && !overlayFiles.Contains(r.FilePath))
-                        .Select(r => r.FromSymbol))
+                        .Select(r => r.FromSymbol));
+                }
+
+                return collected
                     .Where(id => !deletedIds.Contains(id))
                     .Distinct()
                     .Take(clampedLimit)
@@ -751,7 +767,8 @@ public class MergedQueryEngine : IQueryEngine
             return _inner.GetCalleesAsync(routing, symbolId, depth, limitPerLevel, budgets, ct);
 
         return TraverseWorkspaceGraphAsync(routing, symbolId, depth, limitPerLevel, budgets, "callees",
-            expandNode: async (sid, ws, deletedIds, overlayFiles, clampedLimit, token) =>
+            followInterface: false,
+            expandNode: async (sid, ws, deletedIds, overlayFiles, clampedLimit, token, _) =>
             {
                 var overlayRefs = await _overlayStore.GetOutgoingOverlayReferencesAsync(
                     routing.RepoId, RequiredWorkspaceId(routing), sid, null, clampedLimit * 2, token).ConfigureAwait(false);
@@ -785,7 +802,8 @@ public class MergedQueryEngine : IQueryEngine
         int limitPerLevel,
         BudgetLimits? budgets,
         string direction,
-        Func<SymbolId, WorkspaceInfo, IReadOnlySet<SymbolId>, IReadOnlySet<FilePath>, int, CancellationToken, Task<IReadOnlyList<SymbolId>>> expandNode,
+        bool followInterface,
+        Func<SymbolId, WorkspaceInfo, IReadOnlySet<SymbolId>, IReadOnlySet<FilePath>, int, CancellationToken, IReadOnlyList<SymbolId>?, Task<IReadOnlyList<SymbolId>>> expandNode,
         CancellationToken ct)
     {
         var tc = new TimingContext();
@@ -799,7 +817,7 @@ public class MergedQueryEngine : IQueryEngine
         var clampedDepth = Math.Min(depth, clamped.MaxDepth);
         var clampedLimit = Math.Min(limitPerLevel, clamped.MaxReferences);
 
-        var cacheKey = $"{routing.RepoId.Value}:{ws.BaselineCommitSha.Value}:ws:{RequiredWorkspaceId(routing).Value}:rev:{ws.CurrentRevision}:{direction}:{symbolId.Value}:d={clampedDepth}:lim={clampedLimit}";
+        var cacheKey = $"{routing.RepoId.Value}:{ws.BaselineCommitSha.Value}:ws:{RequiredWorkspaceId(routing).Value}:rev:{ws.CurrentRevision}:{direction}:{symbolId.Value}:d={clampedDepth}:lim={clampedLimit}:fi={followInterface}";
         tc.StartPhase();
         var cached = await _cache.GetAsync<ResponseEnvelope<CallGraphResponse>>(cacheKey, ct).ConfigureAwait(false);
         tc.EndCacheLookup();
@@ -814,9 +832,29 @@ public class MergedQueryEngine : IQueryEngine
 
         var overlayFiles = await _overlayStore.GetOverlayFilePathsAsync(routing.RepoId, RequiredWorkspaceId(routing), ct).ConfigureAwait(false);
 
+        // Resolve interface members for the root (callers direction only). We use the
+        // baseline-only inner engine for the lookup — interface implementation is a
+        // structural fact stable across overlay edits in the common case. Workspace
+        // edits that introduce a new interface relation in the overlay would miss
+        // here, but that's a graceful under-report (no hint) rather than a wrong fix.
+        IReadOnlyList<SymbolId> interfaceMembers = [];
+        if (direction == "callers")
+        {
+            var committedRouting = new RoutingContext(repoId: routing.RepoId, baselineCommitSha: ws.BaselineCommitSha);
+            var probe = await _inner.GetCallersAsync(
+                committedRouting, symbolId, depth: 1, limitPerLevel: 1,
+                new BudgetLimits(maxDepth: 1, maxReferences: 1), ct,
+                followInterface: false).ConfigureAwait(false);
+            if (probe.IsSuccess && probe.Value.Data.InterfaceImplementationHint is { } baseHint)
+                interfaceMembers = baseHint.Implements;
+        }
+
         var traversal = await _graphTraverser.TraverseAsync(
             symbolId,
-            (sid, token) => expandNode(sid, ws, deletedIds, overlayFiles, clampedLimit + 1, token),
+            (sid, token) => expandNode(
+                sid, ws, deletedIds, overlayFiles, clampedLimit + 1, token,
+                // Pass interface-member union targets only when at root and follow flag is on.
+                (followInterface && sid == symbolId && interfaceMembers.Count > 0) ? interfaceMembers : null),
             clampedDepth, clampedLimit, ct).ConfigureAwait(false);
 
         // Hydrate nodes using overlay-first card lookup
@@ -851,7 +889,31 @@ public class MergedQueryEngine : IQueryEngine
         }
         tc.EndDbQuery();
 
-        var data = new CallGraphResponse(symbolId, graphNodes, traversal.TotalNodesFound, traversal.Truncated);
+        // Surface the interface-implementation hint in workspace mode too. We only
+        // emit it for callers, and reuse the baseline-side probe count for the
+        // additional-callers estimate — overlay-only callers via interface are rare
+        // and the hint is informational, not load-bearing.
+        InterfaceImplementationHint? hint = null;
+        if (direction == "callers" && interfaceMembers.Count > 0)
+        {
+            var committedRouting = new RoutingContext(repoId: routing.RepoId, baselineCommitSha: ws.BaselineCommitSha);
+            var probe = await _inner.GetCallersAsync(
+                committedRouting, symbolId, depth: 1, limitPerLevel: 1,
+                new BudgetLimits(maxDepth: 1, maxReferences: 1), ct,
+                followInterface: false).ConfigureAwait(false);
+            if (probe.IsSuccess && probe.Value.Data.InterfaceImplementationHint is { } baselineHint)
+            {
+                var retry = followInterface
+                    ? "follow_interface=true already applied — interface-routed callers are included above"
+                    : "pass follow_interface=true to include them";
+                hint = new InterfaceImplementationHint(
+                    baselineHint.Implements,
+                    baselineHint.AdditionalCallersViaInterface,
+                    retry);
+            }
+        }
+
+        var data = new CallGraphResponse(symbolId, graphNodes, traversal.TotalNodesFound, traversal.Truncated, hint);
         var answer = AnswerGenerator.ForCallGraph(symbolId, direction, graphNodes.Count, clampedDepth, traversal.Truncated);
         var nextActions = new List<NextAction>
         {

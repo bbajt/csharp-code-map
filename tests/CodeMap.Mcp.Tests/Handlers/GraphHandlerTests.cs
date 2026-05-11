@@ -346,6 +346,67 @@ public sealed class GraphHandlerTests
         result.Content.Should().Contain("DoWork");
     }
 
+    [Fact]
+    public async Task Callers_DefaultFollowInterface_IsFalse()
+    {
+        bool captured = true;
+        _engine.GetCallersAsync(
+                Arg.Any<RoutingContext>(), Arg.Any<SymbolId>(),
+                Arg.Any<int>(), Arg.Any<int>(), Arg.Any<BudgetLimits?>(),
+                Arg.Any<CancellationToken>(), Arg.Any<bool>())
+               .Returns(ci =>
+               {
+                   captured = ci.ArgAt<bool>(6);
+                   return Task.FromResult(
+                       Result<ResponseEnvelope<CallGraphResponse>, CodeMapError>.Success(MakeGraphEnvelope(Root)));
+               });
+
+        var args = new JsonObject { ["repo_path"] = RepoPath, ["symbol_id"] = SymbolIdStr };
+        await _handler.HandleCallersAsync(args, CancellationToken.None);
+
+        captured.Should().BeFalse(because: "follow_interface defaults to false when absent from MCP args");
+    }
+
+    [Fact]
+    public async Task Callers_FollowInterfaceTrue_PropagatesToQueryEngine()
+    {
+        bool captured = false;
+        _engine.GetCallersAsync(
+                Arg.Any<RoutingContext>(), Arg.Any<SymbolId>(),
+                Arg.Any<int>(), Arg.Any<int>(), Arg.Any<BudgetLimits?>(),
+                Arg.Any<CancellationToken>(), Arg.Any<bool>())
+               .Returns(ci =>
+               {
+                   captured = ci.ArgAt<bool>(6);
+                   return Task.FromResult(
+                       Result<ResponseEnvelope<CallGraphResponse>, CodeMapError>.Success(MakeGraphEnvelope(Root)));
+               });
+
+        var args = new JsonObject
+        {
+            ["repo_path"] = RepoPath,
+            ["symbol_id"] = SymbolIdStr,
+            ["follow_interface"] = true,
+        };
+        await _handler.HandleCallersAsync(args, CancellationToken.None);
+
+        captured.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Callers_Schema_AdvertisesFollowInterface()
+    {
+        var registry = new ToolRegistry();
+        _handler.Register(registry);
+        var tool = registry.Find("graph.callers")!;
+
+        var props = tool.InputSchema["properties"]!.AsObject();
+        props.ContainsKey("follow_interface").Should().BeTrue(
+            because: "agents need to discover the union flag from the tool schema");
+        var fi = props["follow_interface"]!.AsObject();
+        fi["type"]!.GetValue<string>().Should().Be("boolean");
+    }
+
     private static ResponseEnvelope<SymbolCard> MakeCardEnvelope(SymbolKind kind)
     {
         var card = SymbolCard.CreateMinimal(

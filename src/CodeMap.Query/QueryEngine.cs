@@ -605,25 +605,65 @@ public sealed class QueryEngine : IQueryEngine
     // ─── GetCallersAsync ──────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public Task<Result<ResponseEnvelope<CallGraphResponse>, CodeMapError>> GetCallersAsync(
+    public async Task<Result<ResponseEnvelope<CallGraphResponse>, CodeMapError>> GetCallersAsync(
         RoutingContext routing,
         SymbolId symbolId,
         int depth,
         int limitPerLevel,
         BudgetLimits? budgets,
-        CancellationToken ct = default)
-        => TraverseGraphAsync(routing, symbolId, depth, limitPerLevel, budgets, direction: "callers",
-            expandNode: async (sid, commitSha, clampedLimit, token) =>
+        CancellationToken ct = default,
+        bool followInterface = false)
+    {
+        // Pre-resolve interface members the target implements (cheap; no-op for
+        // non-impl symbols). Both the hint surface and the followInterface union
+        // expansion need this list, and it's stable across the traversal so we
+        // compute it once before entering the BFS helper.
+        var commitResult = ResolveCommit(routing);
+        if (commitResult.IsFailure)
+            return Result<ResponseEnvelope<CallGraphResponse>, CodeMapError>.Failure(commitResult.Error);
+        var commitSha = commitResult.Value;
+
+        var baselineResult = await EnsureBaselineAsync(routing, commitSha, ct);
+        if (baselineResult.IsFailure)
+            return Result<ResponseEnvelope<CallGraphResponse>, CodeMapError>.Failure(baselineResult.Error);
+
+        var interfaceMembers = await ResolveInterfaceImplementsAsync(routing.RepoId, commitSha, symbolId, ct);
+
+        return await TraverseGraphAsync(
+            routing, symbolId, depth, limitPerLevel, budgets, direction: "callers",
+            followInterface: followInterface,
+            interfaceMembers: interfaceMembers,
+            expandNode: async (sid, sha, clampedLimit, token) =>
             {
-                var refs = await _store.GetReferencesAsync(
-                    routing.RepoId, commitSha, sid, null, clampedLimit * 2, token).ConfigureAwait(false);
-                return refs
-                    .Where(r => (r.Kind == RefKind.Call || r.Kind == RefKind.Instantiate) && r.FromSymbol != SymbolId.Empty)
-                    .Select(r => r.FromSymbol)
-                    .Distinct()
-                    .Take(clampedLimit)
-                    .ToList();
-            }, ct);
+                // Root expansion: union concrete callers with interface-member callers
+                // when followInterface is on. Deeper levels use the standard path.
+                IEnumerable<SymbolId> ids;
+                if (followInterface && sid == symbolId && interfaceMembers.Count > 0)
+                {
+                    var collected = new List<SymbolId>();
+                    foreach (var target in new[] { sid }.Concat(interfaceMembers))
+                    {
+                        var refs = await _store.GetReferencesAsync(
+                            routing.RepoId, sha, target, null, clampedLimit * 2, token).ConfigureAwait(false);
+                        collected.AddRange(refs
+                            .Where(r => (r.Kind == RefKind.Call || r.Kind == RefKind.Instantiate)
+                                        && r.FromSymbol != SymbolId.Empty)
+                            .Select(r => r.FromSymbol));
+                    }
+                    ids = collected;
+                }
+                else
+                {
+                    var refs = await _store.GetReferencesAsync(
+                        routing.RepoId, sha, sid, null, clampedLimit * 2, token).ConfigureAwait(false);
+                    ids = refs
+                        .Where(r => (r.Kind == RefKind.Call || r.Kind == RefKind.Instantiate)
+                                    && r.FromSymbol != SymbolId.Empty)
+                        .Select(r => r.FromSymbol);
+                }
+                return ids.Distinct().Take(clampedLimit).ToList();
+            }, ct).ConfigureAwait(false);
+    }
 
     // ─── GetCalleesAsync ──────────────────────────────────────────────────────
 
@@ -636,6 +676,8 @@ public sealed class QueryEngine : IQueryEngine
         BudgetLimits? budgets,
         CancellationToken ct = default)
         => TraverseGraphAsync(routing, symbolId, depth, limitPerLevel, budgets, direction: "callees",
+            followInterface: false,
+            interfaceMembers: [],
             expandNode: async (sid, commitSha, clampedLimit, token) =>
             {
                 var refs = await _store.GetOutgoingReferencesAsync(
@@ -648,6 +690,141 @@ public sealed class QueryEngine : IQueryEngine
                     .ToList();
             }, ct);
 
+    /// <summary>
+    /// Resolves interface members that the given symbol implicitly or explicitly implements.
+    /// Returns an empty list for non-invocable symbols, types with no interfaces, or names
+    /// that fail to round-trip through interface FQN substitution.
+    /// </summary>
+    /// <remarks>
+    /// Strategy: derive the containing-type FQN from the doc-comment ID itself (slicing
+    /// out the simple member name), look up interfaces via type_relations, then probe
+    /// each candidate interface-member SymbolId built by FQN substitution. The card's
+    /// <c>ContainingType</c> field stores only the simple type name in production
+    /// extraction — too lossy for FQN substitution, so we parse the doc ID directly.
+    /// No baseline-format change required.
+    /// </remarks>
+    private async Task<IReadOnlyList<SymbolId>> ResolveInterfaceImplementsAsync(
+        RepoId repoId, CommitSha commitSha, SymbolId symbolId, CancellationToken ct)
+    {
+        var card = await _store.GetSymbolAsync(repoId, commitSha, symbolId, ct).ConfigureAwait(false);
+        if (card is null) return [];
+        if (card.Kind is not (SymbolKind.Method or SymbolKind.Property
+                               or SymbolKind.Event or SymbolKind.Indexer))
+            return [];
+        if (string.IsNullOrEmpty(card.ContainingType)) return [];
+
+        // Doc-ID shape: "{kindChar}:{ContainerFqn}.{MemberName}{ParamList?}"
+        //   M:CodeMap.Roslyn.RoslynCompiler.CompileAndExtractAsync(System.String,System.Threading.CancellationToken)
+        //   P:CodeMap.Foo.Bar
+        //   M:Foo.IBar.Method                   <- explicit interface impl
+        // We split at the LAST dot that comes before any '('. Generics in the
+        // member name use back-tick (M:...Foo``1), not parens — so paren-aware
+        // splitting is sufficient.
+        var docId = symbolId.Value;
+        if (docId.Length < 3 || docId[1] != ':') return [];
+        var kindChar = docId[0];
+        var afterKind = docId.Substring(2);
+
+        var paramIdx = afterKind.IndexOf('(');
+        var nameSection = paramIdx >= 0 ? afterKind.Substring(0, paramIdx) : afterKind;
+        var lastDot = nameSection.LastIndexOf('.');
+        if (lastDot <= 0) return [];
+
+        var parsedContainerFqn = nameSection.Substring(0, lastDot);
+        var memberTail = afterKind.Substring(lastDot + 1);  // simple name + params (if any)
+
+        // Locate the actual containing-type FQN. card.ContainingType holds the SIMPLE
+        // type name in production extraction (e.g. "RoslynCompiler"), so the canonical
+        // FQN is the longest prefix of parsedContainerFqn that ends with the simple
+        // name. For explicit interface impls (`M:Ns.Foo.IFoo.X` with
+        // card.ContainingType = "Foo"), the parsed container is `Ns.Foo.IFoo` — we
+        // peel back to `Ns.Foo`, then surface the explicit-impl tail handling below
+        // via the per-interface ifaceSimple check.
+        var containingSimple = card.ContainingType;
+        string containerFqn;
+        if (parsedContainerFqn.Equals(containingSimple, StringComparison.Ordinal))
+        {
+            containerFqn = parsedContainerFqn;
+        }
+        else if (parsedContainerFqn.EndsWith("." + containingSimple, StringComparison.Ordinal))
+        {
+            containerFqn = parsedContainerFqn;
+        }
+        else
+        {
+            // Explicit interface impl: peel dotted segments off parsedContainerFqn
+            // until one ends in the simple containing type. Stop at one segment to
+            // keep the worst case bounded; deeper nesting (rare) drops the hint.
+            var dot = parsedContainerFqn.LastIndexOf('.');
+            if (dot < 0) return [];
+            var peeled = parsedContainerFqn.Substring(0, dot);
+            if (!peeled.Equals(containingSimple, StringComparison.Ordinal)
+                && !peeled.EndsWith("." + containingSimple, StringComparison.Ordinal))
+                return [];
+            // Re-incorporate the stripped segment into memberTail so explicit-impl
+            // matching below can detect the interface-name prefix.
+            memberTail = parsedContainerFqn.Substring(dot + 1) + "." + memberTail;
+            containerFqn = peeled;
+        }
+
+        var containingTypeId = SymbolId.From("T:" + containerFqn);
+        var typeRels = await _store.GetTypeRelationsAsync(repoId, commitSha, containingTypeId, ct).ConfigureAwait(false);
+        var interfaces = typeRels
+            .Where(r => r.RelationKind == TypeRelationKind.Interface)
+            .Select(r => r.RelatedSymbolId)
+            .ToList();
+        if (interfaces.Count == 0) return [];
+
+        var matches = new List<SymbolId>();
+        foreach (var iface in interfaces)
+        {
+            var ifaceVal = iface.Value;
+            if (ifaceVal.Length < 3 || ifaceVal[1] != ':') continue;
+            var ifaceFqn = ifaceVal.Substring(2);
+            var ifaceSimple = ifaceFqn.Contains('.', StringComparison.Ordinal)
+                ? ifaceFqn.Substring(ifaceFqn.LastIndexOf('.') + 1)
+                : ifaceFqn;
+
+            // Explicit implementation: doc-comment ID embeds the interface simple name,
+            // e.g. M:Foo.IBar.Method. Strip the prefix so substitution lands the right tail.
+            var tail = memberTail.StartsWith(ifaceSimple + ".", StringComparison.Ordinal)
+                ? memberTail.Substring(ifaceSimple.Length + 1)
+                : memberTail;
+
+            var candidate = SymbolId.From($"{kindChar}:{ifaceFqn}.{tail}");
+            var ifaceMember = await _store.GetSymbolAsync(repoId, commitSha, candidate, ct).ConfigureAwait(false);
+            if (ifaceMember is not null)
+                matches.Add(candidate);
+        }
+        return matches;
+    }
+
+    /// <summary>
+    /// Cap on the bounded probe used to estimate "callers via interface" for the hint.
+    /// Hint count is metadata-only; the union path (follow_interface=true) is unaffected.
+    /// </summary>
+    private const int InterfaceHintProbeCap = 50;
+
+    private async Task<int> CountInterfaceCallersAsync(
+        RepoId repoId, CommitSha commitSha, IReadOnlyList<SymbolId> interfaceMembers, CancellationToken ct)
+    {
+        if (interfaceMembers.Count == 0) return 0;
+        var seen = new HashSet<SymbolId>();
+        foreach (var iface in interfaceMembers)
+        {
+            var refs = await _store.GetReferencesAsync(
+                repoId, commitSha, iface, null, InterfaceHintProbeCap, ct).ConfigureAwait(false);
+            foreach (var r in refs)
+            {
+                if (r.Kind != RefKind.Call && r.Kind != RefKind.Instantiate) continue;
+                if (r.FromSymbol == SymbolId.Empty) continue;
+                seen.Add(r.FromSymbol);
+                if (seen.Count >= InterfaceHintProbeCap) return seen.Count;
+            }
+        }
+        return seen.Count;
+    }
+
     private async Task<Result<ResponseEnvelope<CallGraphResponse>, CodeMapError>> TraverseGraphAsync(
         RoutingContext routing,
         SymbolId symbolId,
@@ -655,6 +832,8 @@ public sealed class QueryEngine : IQueryEngine
         int limitPerLevel,
         BudgetLimits? budgets,
         string direction,
+        bool followInterface,
+        IReadOnlyList<SymbolId> interfaceMembers,
         Func<SymbolId, CommitSha, int, CancellationToken, Task<IReadOnlyList<SymbolId>>> expandNode,
         CancellationToken ct)
     {
@@ -673,8 +852,8 @@ public sealed class QueryEngine : IQueryEngine
         var clampedDepth = Math.Min(depth, clamped.MaxDepth);
         var clampedLimit = Math.Min(limitPerLevel, clamped.MaxReferences);
 
-        // Cache check
-        var cacheKey = $"{routing.RepoId.Value}:{commitSha.Value}:{direction}:{symbolId.Value}:d={clampedDepth}:lim={clampedLimit}";
+        // Cache key — fi suffix only meaningful for callers (callees always passes false).
+        var cacheKey = $"{routing.RepoId.Value}:{commitSha.Value}:{direction}:{symbolId.Value}:d={clampedDepth}:lim={clampedLimit}:fi={followInterface}";
         tc.StartPhase();
         var cached = await _cache.GetAsync<ResponseEnvelope<CallGraphResponse>>(cacheKey, ct);
         tc.EndCacheLookup();
@@ -702,7 +881,21 @@ public sealed class QueryEngine : IQueryEngine
         // Hydrate nodes with symbol info
         var graphNodes = await HydrateNodesAsync(routing.RepoId, commitSha, traversal.Nodes, ct);
 
-        var data = new CallGraphResponse(symbolId, graphNodes, traversal.TotalNodesFound, traversal.Truncated);
+        // Build the interface-implementation hint (callers only). The hint is metadata,
+        // emitted whether follow_interface is on or off — it tells the caller whether
+        // additional callers exist via the interface and offers the retry knob.
+        InterfaceImplementationHint? hint = null;
+        if (direction == "callers" && interfaceMembers.Count > 0)
+        {
+            var additional = await CountInterfaceCallersAsync(
+                routing.RepoId, commitSha, interfaceMembers, ct).ConfigureAwait(false);
+            var retry = followInterface
+                ? "follow_interface=true already applied — interface-routed callers are included above"
+                : "pass follow_interface=true to include them";
+            hint = new InterfaceImplementationHint(interfaceMembers, additional, retry);
+        }
+
+        var data = new CallGraphResponse(symbolId, graphNodes, traversal.TotalNodesFound, traversal.Truncated, hint);
         var answer = AnswerGenerator.ForCallGraph(symbolId, direction, graphNodes.Count, clampedDepth, traversal.Truncated);
         var nextActions = new List<NextAction>
         {

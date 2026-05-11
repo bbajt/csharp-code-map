@@ -85,7 +85,7 @@ public sealed class GraphHandler
 
         registry.Register(new ToolDefinition(
             "graph.callers",
-            "Find all callers of a C# symbol, traversing the call graph up to the specified depth. Accepts either symbol_id (exact) or name (resolved via search).",
+            "Find all callers of a C# symbol, traversing the call graph up to the specified depth. Accepts either symbol_id (exact) or name (resolved via search). In DI codebases, when the target method implements an interface, the response carries an interface_implementation_hint listing the interface members and an estimated count of callers that route through them. Pass follow_interface=true to union those into the result set.",
             BuildSchema(
                 required: [],
                 properties: new JsonObject
@@ -97,6 +97,7 @@ public sealed class GraphHandler
                     ["name_filter"] = McpToolHandlers.NameFilterProp(),
                     ["depth"] = new JsonObject { ["type"] = "integer", ["description"] = "Max traversal depth (default: 1, max: 6)" },
                     ["limit_per_level"] = new JsonObject { ["type"] = "integer", ["description"] = "Max nodes per BFS level (default: 20, max: 500)" },
+                    ["follow_interface"] = new JsonObject { ["type"] = "boolean", ["description"] = "Default false. When true and the target implements an interface, union callers of the interface members into the result and dedupe. Off by default; the hint surfaces availability either way." },
                 }),
             HandleCallersAsync));
 
@@ -197,8 +198,10 @@ public sealed class GraphHandler
                 $"or search for a specific method on {card.FullyQualifiedName}.");
         }
 
+        var followInterface = callers && args.GetBool("follow_interface", false);
+
         var result = callers
-            ? await _queryEngine.GetCallersAsync(routing, symbolId, depth, limitPerLevel, budgets, ct).ConfigureAwait(false)
+            ? await _queryEngine.GetCallersAsync(routing, symbolId, depth, limitPerLevel, budgets, ct, followInterface).ConfigureAwait(false)
             : await _queryEngine.GetCalleesAsync(routing, symbolId, depth, limitPerLevel, budgets, ct).ConfigureAwait(false);
 
         return result.Match(Ok, Err);
