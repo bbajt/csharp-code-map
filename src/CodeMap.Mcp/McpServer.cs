@@ -142,12 +142,23 @@ public sealed class McpServer
         var tools = new JsonArray();
         foreach (var t in _registry.GetAll())
         {
-            tools.Add(new JsonObject
+            var toolObj = new JsonObject
             {
                 ["name"] = t.Name,
                 ["description"] = t.Description,
                 ["inputSchema"] = t.InputSchema.DeepClone(),
-            });
+            };
+            if (t.Annotations is { } ann)
+            {
+                toolObj["annotations"] = new JsonObject
+                {
+                    ["readOnlyHint"]  = ann.ReadOnly,
+                    ["destructiveHint"] = ann.Destructive,
+                    ["idempotentHint"] = ann.Idempotent,
+                    ["openWorldHint"] = ann.OpenWorld,
+                };
+            }
+            tools.Add(toolObj);
         }
         return BuildSuccess(id, new JsonObject { ["tools"] = tools });
     }

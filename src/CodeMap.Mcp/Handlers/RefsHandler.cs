@@ -67,7 +67,8 @@ public sealed class RefsHandler
                     ["resolution_state"] = Prop("string", "Filter by resolution state: resolved, unresolved (default: all)"),
                     ["limit"] = new JsonObject { ["type"] = "integer", ["description"] = "Max references (default: 50, max: 500)" },
                 }),
-            HandleFindRefsAsync));
+            HandleFindRefsAsync,
+            HandlerHelpers.AnnotReadOnly));
     }
 
     internal async Task<ToolCallResult> HandleFindRefsAsync(JsonObject? args, CancellationToken ct)

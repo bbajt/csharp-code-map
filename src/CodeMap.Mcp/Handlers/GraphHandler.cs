@@ -81,7 +81,8 @@ public sealed class GraphHandler
                     ["depth"] = new JsonObject { ["type"] = "integer", ["description"] = $"Max call depth to trace (default: {DefaultTraceDepth}, max: {MaxTraceDepthCap})" },
                     ["limit"] = new JsonObject { ["type"] = "integer", ["description"] = $"Max nodes to traverse (default: {DefaultTraceLimit}, max: {MaxTraceLimitCap})" },
                 }),
-            HandleTraceFeatureAsync));
+            HandleTraceFeatureAsync,
+            HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
             "graph.callers",
@@ -99,7 +100,8 @@ public sealed class GraphHandler
                     ["limit_per_level"] = new JsonObject { ["type"] = "integer", ["description"] = "Max nodes per BFS level (default: 20, max: 500)" },
                     ["follow_interface"] = new JsonObject { ["type"] = "boolean", ["description"] = "Default false. When true and the target implements an interface, union callers of the interface members into the result and dedupe. Off by default; the hint surfaces availability either way." },
                 }),
-            HandleCallersAsync));
+            HandleCallersAsync,
+            HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
             "graph.callees",
@@ -116,7 +118,8 @@ public sealed class GraphHandler
                     ["depth"] = new JsonObject { ["type"] = "integer", ["description"] = "Max traversal depth (default: 1, max: 6)" },
                     ["limit_per_level"] = new JsonObject { ["type"] = "integer", ["description"] = "Max nodes per BFS level (default: 20, max: 500)" },
                 }),
-            HandleCalleesAsync));
+            HandleCalleesAsync,
+            HandlerHelpers.AnnotReadOnly));
     }
 
     internal async Task<ToolCallResult> HandleTraceFeatureAsync(JsonObject? args, CancellationToken ct)

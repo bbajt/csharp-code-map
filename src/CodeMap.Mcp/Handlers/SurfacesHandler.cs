@@ -69,7 +69,8 @@ public sealed class SurfacesHandler
                                           ["GET", "POST", "PUT", "DELETE", "PATCH", "PAGE"]),
                     ["limit"] = Prop("integer", "Maximum number of endpoints to return (default: 50)"),
                 }),
-            HandleAsync));
+            HandleAsync,
+            HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
             "surfaces.list_config_keys",
@@ -83,7 +84,8 @@ public sealed class SurfacesHandler
                     ["key_filter"] = Prop("string", "Optional: prefix match on config key (e.g. 'App:')"),
                     ["limit"] = Prop("integer", "Maximum number of keys to return (default: 50)"),
                 }),
-            HandleConfigKeysAsync));
+            HandleConfigKeysAsync,
+            HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
             "surfaces.list_db_tables",
@@ -97,7 +99,8 @@ public sealed class SurfacesHandler
                     ["table_filter"] = Prop("string", "Optional: prefix match on table name (e.g. 'Order')"),
                     ["limit"] = Prop("integer", "Maximum number of tables to return (default: 50)"),
                 }),
-            HandleDbTablesAsync));
+            HandleDbTablesAsync,
+            HandlerHelpers.AnnotReadOnly));
     }
 
     internal async Task<ToolCallResult> HandleAsync(JsonObject? args, CancellationToken ct)

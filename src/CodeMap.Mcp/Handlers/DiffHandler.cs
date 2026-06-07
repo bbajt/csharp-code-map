@@ -86,7 +86,8 @@ public sealed class DiffHandler
                     },
                 },
             },
-            HandleAsync));
+            HandleAsync,
+            HandlerHelpers.AnnotReadOnly));
     }
 
     internal async Task<ToolCallResult> HandleAsync(JsonObject? args, CancellationToken ct)

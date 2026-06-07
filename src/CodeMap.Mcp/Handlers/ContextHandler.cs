@@ -91,7 +91,8 @@ public sealed class ContextHandler
                         ["description"] = "Include source code in all cards (default: true). Set false for metadata-only.",
                     },
                 }),
-            HandleGetContextAsync));
+            HandleGetContextAsync,
+            HandlerHelpers.AnnotReadOnly));
     }
 
     internal async Task<ToolCallResult> HandleGetContextAsync(JsonObject? args, CancellationToken ct)

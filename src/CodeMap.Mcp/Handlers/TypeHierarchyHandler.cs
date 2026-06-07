@@ -63,7 +63,8 @@ public sealed class TypeHierarchyHandler
                     ["name"] = McpToolHandlers.NameProp(),
                     ["name_filter"] = McpToolHandlers.NameFilterProp(),
                 }),
-            HandleAsync));
+            HandleAsync,
+            HandlerHelpers.AnnotReadOnly));
     }
 
     internal async Task<ToolCallResult> HandleAsync(JsonObject? args, CancellationToken ct)

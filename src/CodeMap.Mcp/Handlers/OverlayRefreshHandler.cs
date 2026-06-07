@@ -64,7 +64,8 @@ public sealed class OverlayRefreshHandler
                     },
                 },
             },
-            HandleAsync));
+            HandleAsync,
+            HandlerHelpers.AnnotWrite));
     }
 
     internal async Task<ToolCallResult> HandleAsync(JsonObject? args, CancellationToken ct)

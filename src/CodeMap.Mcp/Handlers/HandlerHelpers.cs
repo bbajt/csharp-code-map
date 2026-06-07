@@ -13,6 +13,21 @@ using CodeMap.Mcp.Serialization;
 /// </summary>
 internal static class HandlerHelpers
 {
+    // ── Tool annotation presets ───────────────────────────────────────────────
+
+    /// <summary>Read-only, idempotent, closed-world tool (no external side-effects).</summary>
+    internal static readonly ToolAnnotations AnnotReadOnly =
+        new(ReadOnly: true, Destructive: false, Idempotent: true, OpenWorld: false);
+
+    /// <summary>Write tool that creates or mutates local state but is not destructive.</summary>
+    internal static readonly ToolAnnotations AnnotWrite =
+        new(ReadOnly: false, Destructive: false, Idempotent: false, OpenWorld: false);
+
+    /// <summary>Potentially destructive tool (deletes or purges data irreversibly).</summary>
+    internal static readonly ToolAnnotations AnnotDestruct =
+        new(ReadOnly: false, Destructive: true, Idempotent: false, OpenWorld: false);
+
+
     /// <summary>
     /// Resolves the <c>repo_path</c> argument into a concrete path, using the registry
     /// to auto-default single-repo sessions.

@@ -66,7 +66,8 @@ public sealed class WorkspaceHandler
                     ["solution_path"] = Prop("string", "Absolute path to a .sln/.slnx solution OR a .csproj/.vbproj/.fsproj project file. Auto-discovered if omitted: .slnx > .sln > single project at repo root or in a single direct child directory."),
                     ["commit_sha"] = Prop("string", "Baseline commit (default: HEAD). Accepts short SHAs."),
                 }),
-            HandleCreateAsync));
+            HandleCreateAsync,
+            HandlerHelpers.AnnotWrite));
 
         registry.Register(new ToolDefinition(
             "workspace.reset",
@@ -78,7 +79,8 @@ public sealed class WorkspaceHandler
                     ["repo_path"] = Prop("string", "Absolute path to repository root. Optional when exactly one repo is indexed."),
                     ["workspace_id"] = Prop("string", "Workspace identifier to reset"),
                 }),
-            HandleResetAsync));
+            HandleResetAsync,
+            HandlerHelpers.AnnotWrite));
 
         registry.Register(new ToolDefinition(
             "workspace.list",
@@ -89,7 +91,8 @@ public sealed class WorkspaceHandler
                 {
                     ["repo_path"] = Prop("string", "Absolute path to repository root. Optional when exactly one repo is indexed."),
                 }),
-            HandleListAsync));
+            HandleListAsync,
+            HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
             "workspace.delete",
@@ -101,7 +104,8 @@ public sealed class WorkspaceHandler
                     ["repo_path"] = Prop("string", "Absolute path to repository root. Optional when exactly one repo is indexed."),
                     ["workspace_id"] = Prop("string", "Workspace identifier to delete"),
                 }),
-            HandleDeleteAsync));
+            HandleDeleteAsync,
+            HandlerHelpers.AnnotDestruct));
     }
 
     // ── workspace.create ──────────────────────────────────────────────────────

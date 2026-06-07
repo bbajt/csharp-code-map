@@ -82,7 +82,8 @@ public sealed class IndexHandler
                     ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root" },
                 },
             },
-            HandleListBaselinesAsync));
+            HandleListBaselinesAsync,
+            HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
             "index.cleanup",
@@ -99,7 +100,8 @@ public sealed class IndexHandler
                     ["dry_run"] = new JsonObject { ["type"] = "boolean", ["description"] = "If true, report what would be deleted without deleting (default: true)" },
                 },
             },
-            HandleCleanupAsync));
+            HandleCleanupAsync,
+            HandlerHelpers.AnnotDestruct));
 
         registry.Register(new ToolDefinition(
             "index.remove_repo",
@@ -114,7 +116,8 @@ public sealed class IndexHandler
                     ["dry_run"] = new JsonObject { ["type"] = "boolean", ["description"] = "If true, report what would be deleted without deleting (default: true)" },
                 },
             },
-            HandleRemoveRepoAsync));
+            HandleRemoveRepoAsync,
+            HandlerHelpers.AnnotDestruct));
 
         registry.Register(new ToolDefinition(
             "index.ensure_baseline",
@@ -131,7 +134,8 @@ public sealed class IndexHandler
                     ["commit_sha"] = new JsonObject { ["type"] = "string", ["description"] = "Optional: specific commit to index (default: HEAD). Accepts short SHAs." },
                 },
             },
-            HandleAsync));
+            HandleAsync,
+            HandlerHelpers.AnnotWrite));
     }
 
     internal async Task<ToolCallResult> HandleListBaselinesAsync(JsonObject? args, CancellationToken ct)

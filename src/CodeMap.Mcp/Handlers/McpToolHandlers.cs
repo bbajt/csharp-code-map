@@ -84,7 +84,8 @@ public sealed class McpToolHandlers
                     ["project_name"] = Prop("string", "Exact project name filter (case-insensitive). E.g., 'CodeMap.Core'."),
                     ["limit"] = new JsonObject { ["type"] = "integer", ["description"] = "Max results (default: 20, max: 100)" },
                 }),
-            HandleSearchAsync));
+            HandleSearchAsync,
+            HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
             "symbols.get_card",
@@ -101,7 +102,8 @@ public sealed class McpToolHandlers
                     ["name_filter"] = NameFilterProp(),
                     ["include_code"] = new JsonObject { ["type"] = "boolean", ["description"] = "Include source code in response (default: true). When true, the symbol's full source is included up to 100 lines; methods are rarely truncated. Set false for metadata-only lookups (faster, no disk read)." },
                 }),
-            HandleGetCardAsync));
+            HandleGetCardAsync,
+            HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
             "code.get_span",
@@ -119,7 +121,8 @@ public sealed class McpToolHandlers
                     ["context_lines"] = new JsonObject { ["type"] = "integer", ["description"] = "Extra lines before/after (default: 0)" },
                     ["max_lines"] = new JsonObject { ["type"] = "integer", ["description"] = "Budget cap (default: 120)" },
                 }),
-            HandleGetSpanAsync));
+            HandleGetSpanAsync,
+            HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
             "symbols.get_definition_span",
@@ -137,7 +140,8 @@ public sealed class McpToolHandlers
                     ["max_lines"] = new JsonObject { ["type"] = "integer", ["description"] = "Max lines to return (default: 120)" },
                     ["context_lines"] = new JsonObject { ["type"] = "integer", ["description"] = "Context around definition (default: 2)" },
                 }),
-            HandleGetDefinitionSpanAsync));
+            HandleGetDefinitionSpanAsync,
+            HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
             "code.search_text",
@@ -154,7 +158,8 @@ public sealed class McpToolHandlers
                         "File path prefix filter (e.g. 'src/' for production files only, 'tests/' for test files)."),
                     ["limit"] = new JsonObject { ["type"] = "integer", ["description"] = "Max matches to return (default: 50, max: 200)" },
                 }),
-            HandleSearchTextAsync));
+            HandleSearchTextAsync,
+            HandlerHelpers.AnnotReadOnly));
     }
 
     // ── Handlers ──────────────────────────────────────────────────────────────

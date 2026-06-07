@@ -135,7 +135,8 @@ public sealed class GuideHandler
                         ["description"] = "Include full list of all 28 tools with descriptions (default: false).",
                     },
                 }),
-            HandleGetGuideAsync));
+            HandleGetGuideAsync,
+            HandlerHelpers.AnnotReadOnly));
     }
 
     internal Task<ToolCallResult> HandleGetGuideAsync(JsonObject? args, CancellationToken ct)
