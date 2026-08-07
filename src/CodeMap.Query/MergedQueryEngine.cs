@@ -1199,42 +1199,44 @@ public class MergedQueryEngine : IQueryEngine
             return Fail<ResponseEnvelope<ListEndpointsResponse>>(
                 CodeMapError.NotFound("Workspace", RequiredWorkspaceId(routing).Value));
 
-        // Baseline results (committed routing)
+        // Baseline results (committed routing). Fetch the COMPLETE filtered set
+        // (no limit) so overlay-file exclusion and the final limit operate on
+        // every match — passing the caller's limit here would pre-truncate the
+        // baseline before the merge, the same filter-before-limit bug as GH #6.
         var committedRouting = new RoutingContext(
             repoId: routing.RepoId,
             baselineCommitSha: ws.BaselineCommitSha);
         var baselineResult = await _inner.ListEndpointsAsync(
-            committedRouting, pathFilter, httpMethod, limit, ct).ConfigureAwait(false);
+            committedRouting, pathFilter, httpMethod, int.MaxValue, ct).ConfigureAwait(false);
         if (baselineResult.IsFailure)
             return Fail<ResponseEnvelope<ListEndpointsResponse>>(baselineResult.Error);
 
-        // Overlay facts for same kind
+        // Overlay facts for same kind — fetch ALL and filter before limiting (GH #6).
         var overlayFacts = await _overlayStore.GetOverlayFactsByKindAsync(
             routing.RepoId, RequiredWorkspaceId(routing),
-            Core.Enums.FactKind.Route, limit, ct).ConfigureAwait(false);
+            Core.Enums.FactKind.Route, int.MaxValue, ct).ConfigureAwait(false);
 
+        // Union overlay + baseline (overlay wins by file), then apply the caller's
+        // limit exactly once, after the merge.
+        IReadOnlyList<EndpointInfo> combined;
         if (overlayFacts.Count == 0)
-            return Ok(baselineResult.Value);
+        {
+            combined = baselineResult.Value.Data.Endpoints;
+        }
+        else
+        {
+            // Overlay files — prefer overlay endpoints for reindexed files
+            var overlayFiles = await _overlayStore.GetOverlayFilePathsAsync(
+                routing.RepoId, RequiredWorkspaceId(routing), ct).ConfigureAwait(false);
 
-        // Overlay files — prefer overlay endpoints for reindexed files
-        var overlayFiles = await _overlayStore.GetOverlayFilePathsAsync(
-            routing.RepoId, RequiredWorkspaceId(routing), ct).ConfigureAwait(false);
+            var overlayEndpoints = BuildOverlayEndpoints(overlayFacts, pathFilter, httpMethod);
+            var baselineEndpoints = baselineResult.Value.Data.Endpoints
+                .Where(e => !overlayFiles.Contains(e.FilePath));
+            combined = overlayEndpoints.Concat(baselineEndpoints).ToList();
+        }
 
-        var baselineEndpoints = baselineResult.Value.Data.Endpoints
-            .Where(e => !overlayFiles.Contains(e.FilePath))
-            .ToList();
-
-        var overlayEndpoints = BuildOverlayEndpoints(overlayFacts, pathFilter, httpMethod);
-
-        var combinedCount = overlayEndpoints.Count + baselineEndpoints.Count;
-        var merged = overlayEndpoints.Concat(baselineEndpoints)
-            .Take(limit)
-            .ToList();
-
-        // truncated only when we both hit the limit AND the unioned source had
-        // more, OR when the baseline itself was already truncated upstream.
-        var truncated = (merged.Count >= limit && combinedCount > limit)
-                     || baselineResult.Value.Data.Truncated;
+        var clampedLimit = limit > 0 ? limit : 50;
+        var (merged, truncated) = QueryEngine.PageAfterFilter(combined, clampedLimit);
         var data = new ListEndpointsResponse(merged, merged.Count, truncated);
 
         var revision = ws.CurrentRevision;
@@ -1308,34 +1310,35 @@ public class MergedQueryEngine : IQueryEngine
         var committedRouting = new RoutingContext(
             repoId: routing.RepoId,
             baselineCommitSha: ws.BaselineCommitSha);
+        // Fetch the COMPLETE filtered baseline set (no limit) — see the endpoints
+        // path for the filter-before-limit rationale (GH #6).
         var baselineResult = await _inner.ListConfigKeysAsync(
-            committedRouting, keyFilter, limit, ct).ConfigureAwait(false);
+            committedRouting, keyFilter, int.MaxValue, ct).ConfigureAwait(false);
         if (baselineResult.IsFailure)
             return Fail<ResponseEnvelope<ListConfigKeysResponse>>(baselineResult.Error);
 
         var overlayFacts = await _overlayStore.GetOverlayFactsByKindAsync(
             routing.RepoId, RequiredWorkspaceId(routing),
-            Core.Enums.FactKind.Config, limit, ct).ConfigureAwait(false);
+            Core.Enums.FactKind.Config, int.MaxValue, ct).ConfigureAwait(false);
 
+        IReadOnlyList<ConfigKeyInfo> combined;
         if (overlayFacts.Count == 0)
-            return Ok(baselineResult.Value);
+        {
+            combined = baselineResult.Value.Data.Keys;
+        }
+        else
+        {
+            var overlayFiles = await _overlayStore.GetOverlayFilePathsAsync(
+                routing.RepoId, RequiredWorkspaceId(routing), ct).ConfigureAwait(false);
 
-        var overlayFiles = await _overlayStore.GetOverlayFilePathsAsync(
-            routing.RepoId, RequiredWorkspaceId(routing), ct).ConfigureAwait(false);
+            var overlayKeys = BuildOverlayConfigKeys(overlayFacts, keyFilter);
+            var baselineKeys = baselineResult.Value.Data.Keys
+                .Where(k => !overlayFiles.Contains(k.FilePath));
+            combined = overlayKeys.Concat(baselineKeys).ToList();
+        }
 
-        var baselineKeys = baselineResult.Value.Data.Keys
-            .Where(k => !overlayFiles.Contains(k.FilePath))
-            .ToList();
-
-        var overlayKeys = BuildOverlayConfigKeys(overlayFacts, keyFilter);
-
-        var combinedCount = overlayKeys.Count + baselineKeys.Count;
-        var merged = overlayKeys.Concat(baselineKeys)
-            .Take(limit)
-            .ToList();
-
-        var truncated = (merged.Count >= limit && combinedCount > limit)
-                     || baselineResult.Value.Data.Truncated;
+        var clampedLimit = limit > 0 ? limit : 50;
+        var (merged, truncated) = QueryEngine.PageAfterFilter(combined, clampedLimit);
         var data = new ListConfigKeysResponse(merged, merged.Count, truncated);
 
         var revision = ws.CurrentRevision;

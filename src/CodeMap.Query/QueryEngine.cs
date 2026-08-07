@@ -1196,18 +1196,18 @@ public sealed class QueryEngine : IQueryEngine
 
         tc.StartPhase();
         var clampedLimit = limit > 0 ? limit : 50;
+        // Fetch EVERY Route fact, then filter, then apply the limit. Filtering must
+        // precede the limit: facts are returned ordered by value ("METHOD /path"),
+        // so a pre-filter fetch window (e.g. limit+1) is dominated by whichever verb
+        // sorts first alphabetically (DELETE), hiding all other matches (GH #6). The
+        // store materializes the full fact set for the kind regardless of the limit
+        // argument, so this adds no I/O.
         var stored = await _store.GetFactsByKindAsync(
-            routing.RepoId, commitSha, Core.Enums.FactKind.Route, clampedLimit + 1, ct).ConfigureAwait(false);
+            routing.RepoId, commitSha, Core.Enums.FactKind.Route, FetchAllFacts, ct).ConfigureAwait(false);
         tc.EndDbQuery();
 
-        var hadMoreThanLimit = stored.Count > clampedLimit;
-        var page = hadMoreThanLimit ? stored.Take(clampedLimit).ToList() : (IReadOnlyList<StoredFact>)stored;
-
-        var endpoints = BuildEndpoints(page, pathFilter, httpMethod);
-        // BuildEndpoints applies the optional pathFilter / httpMethod, which can
-        // drop items below the limit. truncated must reflect what the user sees:
-        // only true when we both hit the limit AND had more raw facts available.
-        var truncated = endpoints.Count >= clampedLimit && hadMoreThanLimit;
+        var matches = BuildEndpoints(stored, pathFilter, httpMethod);
+        var (endpoints, truncated) = PageAfterFilter(matches, clampedLimit);
         var data = new ListEndpointsResponse(endpoints, endpoints.Count, truncated);
 
         var answer = AnswerGenerator.ForEndpoints(endpoints.Count, pathFilter, httpMethod, truncated);
@@ -1232,6 +1232,31 @@ public sealed class QueryEngine : IQueryEngine
             semanticLevel: semanticLevel);
 
         return Result<ResponseEnvelope<ListEndpointsResponse>, CodeMapError>.Success(envelope);
+    }
+
+    /// <summary>
+    /// Sentinel fetch size for surface-list queries. Requests every fact of a
+    /// kind so path / verb / key filters run against the complete set before the
+    /// caller's limit is applied. The store already materializes the full fact
+    /// set for a kind internally, so this adds no I/O — it only prevents the
+    /// pre-filter truncation bug (GH #6) where a small fetch window, ordered
+    /// alphabetically by fact value, hid every match that did not sort first.
+    /// </summary>
+    private const int FetchAllFacts = int.MaxValue;
+
+    /// <summary>
+    /// Applies the caller's <paramref name="clampedLimit"/> to an
+    /// already-filtered projection and reports <em>exact</em> truncation.
+    /// Because filtering precedes this call, <c>Truncated</c> is precise: it is
+    /// <see langword="true"/> if and only if more matches existed than the page
+    /// returns — no false positives from raw facts dropped by the filter.
+    /// </summary>
+    internal static (IReadOnlyList<T> Page, bool Truncated) PageAfterFilter<T>(
+        IReadOnlyList<T> filtered, int clampedLimit)
+    {
+        if (filtered.Count <= clampedLimit)
+            return (filtered, false);
+        return (filtered.Take(clampedLimit).ToList(), true);
     }
 
     /// <summary>
@@ -1298,17 +1323,15 @@ public sealed class QueryEngine : IQueryEngine
 
         tc.StartPhase();
         var clampedLimit = limit > 0 ? limit : 50;
+        // Fetch EVERY Config fact, then filter, then apply the limit — same
+        // filter-before-limit invariant as ListEndpointsAsync (GH #6). A pre-filter
+        // fetch window would drop keyFilter matches that sort after it.
         var stored = await _store.GetFactsByKindAsync(
-            routing.RepoId, commitSha, Core.Enums.FactKind.Config, clampedLimit + 1, ct).ConfigureAwait(false);
+            routing.RepoId, commitSha, Core.Enums.FactKind.Config, FetchAllFacts, ct).ConfigureAwait(false);
         tc.EndDbQuery();
 
-        var hadMoreThanLimit = stored.Count > clampedLimit;
-        var page = hadMoreThanLimit ? stored.Take(clampedLimit).ToList() : (IReadOnlyList<StoredFact>)stored;
-
-        var keys = BuildConfigKeys(page, keyFilter);
-        // BuildConfigKeys applies keyFilter, which can drop items below the limit.
-        // truncated reflects what the user sees: hit the limit AND raw had more.
-        var truncated = keys.Count >= clampedLimit && hadMoreThanLimit;
+        var matches = BuildConfigKeys(stored, keyFilter);
+        var (keys, truncated) = PageAfterFilter(matches, clampedLimit);
         var data = new ListConfigKeysResponse(keys, keys.Count, truncated);
 
         var answer = AnswerGenerator.ForConfigKeys(keys.Count, keyFilter, truncated);

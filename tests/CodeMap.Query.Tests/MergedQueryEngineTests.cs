@@ -527,4 +527,74 @@ public sealed class MergedQueryEngineTests
         await _overlay.DidNotReceive().GetDeletedSymbolIdsAsync(Arg.Any<RepoId>(),
             Arg.Any<WorkspaceId>(), Arg.Any<CancellationToken>());
     }
+
+    // ── Workspace mode — list_endpoints filter-before-limit (GH #6) ───────────
+
+    private static EndpointInfo Endpoint(string method, string path, string file = "src/A.cs") =>
+        new(method, path, SymbolId.From("T:Ctrl"), FilePath.From(file), 1, Confidence.High);
+
+    private static ResponseEnvelope<ListEndpointsResponse> MakeEndpointsEnvelope(
+        IReadOnlyList<EndpointInfo> endpoints, bool truncated)
+    {
+        var data = new ListEndpointsResponse(endpoints, endpoints.Count, truncated);
+        var meta = new ResponseMeta(
+            new TimingBreakdown(0, 0, 0), Sha,
+            new Dictionary<string, LimitApplied>(), 0, 0);
+        return new ResponseEnvelope<ListEndpointsResponse>("answer", data, [], [], Confidence.High, meta);
+    }
+
+    private static StoredFact RouteFact(string value, string file = "src/Overlay.cs") =>
+        new(SymbolId.From("T:Ctrl"), null, FactKind.Route, value, FilePath.From(file), 1, 1, Confidence.High);
+
+    private void GivenInnerBaselineEndpoints(IReadOnlyList<EndpointInfo> endpoints)
+    {
+        // Inner is now called with int.MaxValue so the merge sees every baseline
+        // match; it returns the complete filtered set with truncated:false.
+        _inner.ListEndpointsAsync(Arg.Any<RoutingContext>(), Arg.Any<string?>(),
+                   Arg.Any<string?>(), int.MaxValue, Arg.Any<CancellationToken>())
+              .Returns(Task.FromResult(
+                  Result<ResponseEnvelope<ListEndpointsResponse>, CodeMapError>.Success(
+                      MakeEndpointsEnvelope(endpoints, truncated: false))));
+    }
+
+    [Fact]
+    public async Task ListEndpoints_WorkspaceMode_OverlayEmpty_AppliesLimitToBaseline()
+    {
+        // 60 baseline GET endpoints, no overlay facts, limit 50. The empty-overlay
+        // path must still apply the caller's limit (pre-fix it short-circuited to
+        // the inner result, which — now fetched with int.MaxValue — would leak all 60).
+        var baseline = Enumerable.Range(0, 60)
+            .Select(i => Endpoint("GET", $"/api/a{i:00}")).ToList();
+        GivenInnerBaselineEndpoints(baseline);
+        _overlay.GetOverlayFactsByKindAsync(Repo, WsId, FactKind.Route, int.MaxValue, Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult<IReadOnlyList<StoredFact>>([]));
+
+        var result = await _engine.ListEndpointsAsync(WorkspaceRouting(), pathFilter: null, httpMethod: null, limit: 50);
+
+        result.IsSuccess.Should().BeTrue();
+        var data = result.Value.Data;
+        data.Endpoints.Should().HaveCount(50);
+        data.Truncated.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ListEndpoints_WorkspaceMode_OverlayGetBehindDeleteBlock_VerbFilterSurfaces()
+    {
+        // Overlay carries 60 DELETE routes + 6 GET routes; http_method:GET must
+        // return all 6 despite GET sorting after the DELETE block (GH #6).
+        GivenInnerBaselineEndpoints([]);
+        var overlayFacts = new List<StoredFact>();
+        for (int i = 0; i < 60; i++) overlayFacts.Add(RouteFact($"DELETE /api/thing/{i:00}"));
+        for (int i = 0; i < 6; i++) overlayFacts.Add(RouteFact($"GET /api/thing/{i:00}"));
+        _overlay.GetOverlayFactsByKindAsync(Repo, WsId, FactKind.Route, int.MaxValue, Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult<IReadOnlyList<StoredFact>>(overlayFacts));
+
+        var result = await _engine.ListEndpointsAsync(WorkspaceRouting(), pathFilter: null, httpMethod: "GET", limit: 50);
+
+        result.IsSuccess.Should().BeTrue();
+        var data = result.Value.Data;
+        data.Endpoints.Should().HaveCount(6);
+        data.Endpoints.Should().OnlyContain(e => e.HttpMethod == "GET");
+        data.Truncated.Should().BeFalse();
+    }
 }

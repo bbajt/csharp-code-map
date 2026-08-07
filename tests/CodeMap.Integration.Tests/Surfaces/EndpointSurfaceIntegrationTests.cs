@@ -223,6 +223,57 @@ public sealed class EndpointSurfaceIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task E2E_ListEndpoints_ManyDeleteRoutes_GetFilterStillReturnsGets_GH6()
+    {
+        // GH #6, exercised through the real store: 60 DELETE routes + 6 GET routes.
+        // The store returns facts ORDER BY value with a LIMIT, so DELETE (which
+        // sorts first) filled the pre-fix limit+1 window and http_method:GET
+        // returned zero. With filter-before-limit every GET must surface.
+        var sha = CommitSha.From(new string('d', 40));
+        File.WriteAllText(Path.Combine(_repoDir, "src", "OrdersController.cs"), "// stub");
+
+        var symbols = new List<SymbolCard>();
+        var facts = new List<ExtractedFact>();
+        for (int i = 0; i < 60; i++)
+        {
+            var sym = SymbolId.From($"M:MyApi.BulkController.Delete{i}");
+            symbols.Add(MakeCard(sym, ControllerFile));
+            facts.Add(MakeFact(sym, $"DELETE /api/bulk/{i:00}", ControllerFile, i + 1));
+        }
+        for (int i = 0; i < 6; i++)
+        {
+            var sym = SymbolId.From($"M:MyApi.BulkController.Get{i}");
+            symbols.Add(MakeCard(sym, ControllerFile));
+            facts.Add(MakeFact(sym, $"GET /api/bulk/{i:00}", ControllerFile, 100 + i));
+        }
+
+        var data = new CompilationResult(
+            Symbols: symbols,
+            References: [],
+            Files: [new ExtractedFile("file001", ControllerFile, new string('a', 64), null)],
+            Stats: new IndexStats(symbols.Count, 0, 1, 0, Confidence.High),
+            TypeRelations: [],
+            Facts: facts);
+        await _baselineStore.CreateBaselineAsync(Repo, sha, data, _repoDir);
+
+        var routing = new RoutingContext(repoId: Repo, baselineCommitSha: sha);
+
+        // Verb filter: all 6 GET routes despite the 60-strong DELETE block.
+        var getResult = await _queryEngine.ListEndpointsAsync(routing, null, "GET", 50);
+        getResult.IsSuccess.Should().BeTrue();
+        getResult.Value.Data.Endpoints.Should().HaveCount(6);
+        getResult.Value.Data.Endpoints.Should().OnlyContain(e => e.HttpMethod == "GET");
+        getResult.Value.Data.Truncated.Should().BeFalse();
+
+        // Path filter across the full set returns both verbs for the prefix.
+        var pathResult = await _queryEngine.ListEndpointsAsync(routing, "/api/bulk/0", null, 50);
+        pathResult.IsSuccess.Should().BeTrue();
+        pathResult.Value.Data.Endpoints.Should()
+            .Contain(e => e.HttpMethod == "GET").And
+            .Contain(e => e.HttpMethod == "DELETE");
+    }
+
+    [Fact]
     public async Task E2E_ListEndpoints_ResponseHasCorrectStructure()
     {
         await SeedBaselineAsync();
