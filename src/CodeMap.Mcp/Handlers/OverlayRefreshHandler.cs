@@ -101,7 +101,7 @@ public sealed class OverlayRefreshHandler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "index.refresh_overlay failed for {RepoPath}", repoPath);
-            return InvalidArg($"index.refresh_overlay failed: {ex.Message}");
+            return Err(HandlerHelpers.ClassifyException(ex, "index.refresh_overlay", workspaceStr));
         }
     }
 

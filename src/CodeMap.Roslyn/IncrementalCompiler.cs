@@ -130,7 +130,14 @@ public class IncrementalCompiler : IIncrementalCompiler
                 _logger.LogWarning("Workspace diagnostic [{Kind}]: {Message}",
                     args.Diagnostic.Kind, args.Diagnostic.Message));
 
-            solution = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct);
+            // F9 (ADR-042): MSBuild evaluation of this checkout is exclusive across CodeMap
+            // processes. Only the cold open evaluates MSBuild; warm-path document edits don't.
+            var checkoutRoot = CheckoutBuildLock.ResolveCheckoutRoot(solutionPath);
+            await using (await CheckoutBuildLock.AcquireAsync(
+                             checkoutRoot, CheckoutBuildLock.ConfiguredTimeout(), _logger, ct).ConfigureAwait(false))
+            {
+                solution = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct);
+            }
             _cachedWorkspace = workspace;
             _cachedSolutionPath = solutionPath;
         }

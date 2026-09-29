@@ -204,7 +204,24 @@ public sealed class McpServer
         }
 
         var arguments = @params?["arguments"] as JsonObject;
-        var toolResult = await tool.Handler(arguments, ct).ConfigureAwait(false);
+        ToolCallResult toolResult;
+        try
+        {
+            toolResult = await tool.Handler(arguments, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            // An exception that escaped the handler is still a *tool* failure: report it as the
+            // standard error envelope with an honest code and retryable flag, not JSON-RPC -32603
+            // (ADR-045). Only the explicit workspace_id argument is used — the boundary does no
+            // I/O to resolve sticky defaults.
+            _logger.LogError(ex, "Tool {Tool} failed", name);
+            var workspaceId = (arguments?["workspace_id"] as JsonValue)?.TryGetValue<string>(out var ws) == true
+                && !string.IsNullOrEmpty(ws) ? ws : null;
+            toolResult = Handlers.HandlerHelpers.ErrorResult(
+                Handlers.HandlerHelpers.ClassifyUnhandled(ex, name, workspaceId));
+        }
 
         return BuildSuccess(id, new JsonObject
         {

@@ -142,7 +142,7 @@ public sealed class IndexHandler
     {
         var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
         if (repoErr is { } re) return re;
-        if (_scanner is null) return Error("index.list_baselines is not available (scanner not configured)");
+        if (_scanner is null) return ScannerNotConfigured("index.list_baselines");
 
         try
         {
@@ -186,7 +186,7 @@ public sealed class IndexHandler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "index.list_baselines failed for {RepoPath}", repoPath);
-            return Error($"Failed to list baselines: {ex.Message}");
+            return Classified(ex, "index.list_baselines");
         }
     }
 
@@ -194,7 +194,7 @@ public sealed class IndexHandler
     {
         var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
         if (repoErr is { } re) return re;
-        if (_scanner is null) return Error("index.cleanup is not available (scanner not configured)");
+        if (_scanner is null) return ScannerNotConfigured("index.cleanup");
 
         var keepCount = args.GetInt("keep_count", 5);
         var olderThanDays = args.GetInt("older_than_days");
@@ -225,7 +225,7 @@ public sealed class IndexHandler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "index.cleanup failed for {RepoPath}", repoPath);
-            return Error($"Cleanup failed: {ex.Message}");
+            return Classified(ex, "index.cleanup");
         }
     }
 
@@ -233,7 +233,7 @@ public sealed class IndexHandler
     {
         var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
         if (repoErr is { } re) return re;
-        if (_scanner is null) return Error("index.remove_repo is not available (scanner not configured)");
+        if (_scanner is null) return ScannerNotConfigured("index.remove_repo");
 
         var dryRun = args?["dry_run"]?.GetValue<bool>() ?? true;
 
@@ -253,7 +253,7 @@ public sealed class IndexHandler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "index.remove_repo failed for {RepoPath}", repoPath);
-            return Error($"Remove repo failed: {ex.Message}");
+            return Classified(ex, "index.remove_repo");
         }
     }
 
@@ -328,9 +328,9 @@ public sealed class IndexHandler
             var compilationResult = await _compiler.CompileAndExtractAsync(solutionPath, ct).ConfigureAwait(false);
 
             if (compilationResult.Symbols.Count == 0 && compilationResult.Stats.Confidence == Core.Enums.Confidence.Low)
-                return Error(CodeMapError.CompilationFailed(
+                return Err(CodeMapError.CompilationFailed(
                     "Compilation produced no symbols. Check build errors.",
-                    [solutionPath]).Message);
+                    [solutionPath]));
 
             // Store with repoRootPath (ADR-012)
             await _store.CreateBaselineAsync(repoId, commitSha, compilationResult, repoPath, ct).ConfigureAwait(false);
@@ -341,8 +341,19 @@ public sealed class IndexHandler
                 compilationResult.Stats.ReferenceCount,
                 compilationResult.Stats.ElapsedSeconds * 1000);
 
-            // Step 4: Push to shared cache — fire-and-forget for errors
-            await _cache.PushAsync(repoId, commitSha, ct).ConfigureAwait(false);
+            // Step 4: Push to shared cache — fire-and-forget for errors. Never share a baseline this
+            // machine degraded (unrestored checkout, generator load failure): another machine pulling
+            // it would get a wrong answer for a commit it could index completely (ADR-053, ADR-054).
+            var degraded = compilationResult.Stats.ProjectDiagnostics?
+                .Where(Core.Models.SemanticLevels.IsEnvironmentDegraded)
+                .Select(d => d.ProjectName)
+                .ToList();
+            if (degraded is { Count: > 0 })
+                _logger.LogInformation(
+                    "index.ensure_baseline: {Sha} is not pushed to a shared cache (if one is configured) — environment-degraded project(s): {Projects}",
+                    commitSha.Value[..8], string.Join(", ", degraded));
+            else
+                await _cache.PushAsync(repoId, commitSha, ct).ConfigureAwait(false);
 
             _repoRegistry.Register(repoPath!);
             var response = new EnsureBaselineResponse(commitSha, AlreadyExisted: false, Stats: compilationResult.Stats);
@@ -351,7 +362,7 @@ public sealed class IndexHandler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "index.ensure_baseline failed for {SolutionPath}", solutionPath);
-            return Error($"Indexing failed: {ex.Message}");
+            return Classified(ex, "index.ensure_baseline");
         }
     }
 
@@ -422,11 +433,21 @@ public sealed class IndexHandler
             .. Directory.GetFiles(directory, "*.fsproj", SearchOption.TopDirectoryOnly),
         ];
 
-    private static ToolCallResult Error(string message) =>
-        new(JsonSerializer.Serialize(
-            new { code = "COMPILATION_FAILED", message },
-            CodeMapJsonOptions.Default),
-            IsError: true);
+    /// <summary>
+    /// Validation failure (bad path, unresolvable commit, missing argument). Previously hard-coded
+    /// <c>COMPILATION_FAILED</c> for every failure (ADR-041).
+    /// </summary>
+    private static ToolCallResult Error(string message) => Err(CodeMapError.InvalidArgument(message));
+
+    private static ToolCallResult Err(CodeMapError error) =>
+        new(JsonSerializer.Serialize(error, CodeMapJsonOptions.Default), IsError: true);
+
+    /// <summary>Handler outer-catch mapping — see <see cref="HandlerHelpers.ClassifyException"/>.</summary>
+    private static ToolCallResult Classified(Exception ex, string operation) =>
+        Err(HandlerHelpers.ClassifyException(ex, operation, workspaceId: null));
+
+    private static ToolCallResult ScannerNotConfigured(string tool) =>
+        Err(CodeMapError.InternalError($"{tool} is not available (scanner not configured)"));
 
     // ── Response type ──────────────────────────────────────────────────────────
 

@@ -14,6 +14,7 @@ internal sealed class EngineOverlay : IEngineOverlay
     private readonly EngineBaselineReader _baseline;
     private readonly ReaderWriterLockSlim _lock = new();
     private WalWriter? _walWriter;
+    private readonly FileStream _writerLock;
     private uint _lastWalSequence;
     private uint _walRecordCount;
     private bool _disposed;
@@ -51,21 +52,44 @@ internal sealed class EngineOverlay : IEngineOverlay
 
         Directory.CreateDirectory(overlayDir);
 
-        var manifestPath = Path.Combine(overlayDir, "manifest.json");
-        if (File.Exists(manifestPath))
+        // Exclusive writer lock BEFORE touching manifest/snapshot/WAL (F4, ADR-044). Throws the
+        // OS sharing-violation IOException when another process has this overlay open.
+        _writerLock = AcquireWriterLock(overlayDir);
+        try
         {
-            // Recover: load snapshot + replay WAL
-            LoadSnapshot();
-            ReplayWal();
-        }
-        else
-        {
-            // New overlay
-            WriteManifest();
-        }
+            var manifestPath = Path.Combine(overlayDir, "manifest.json");
+            if (File.Exists(manifestPath))
+            {
+                // Recover: load snapshot + replay WAL
+                LoadSnapshot();
+                ReplayWal();
+            }
+            else
+            {
+                // New overlay
+                WriteManifest();
+            }
 
-        OpenWalWriter();
+            OpenWalWriter();
+        }
+        catch
+        {
+            _walWriter?.Dispose();
+            _writerLock.Dispose();
+            throw;
+        }
     }
+
+    /// <summary>
+    /// Opens <c>overlay.lock</c> with <see cref="FileShare.None"/> and holds it for the overlay's
+    /// lifetime, so at most one process writes an overlay on any OS. On Unix .NET maps
+    /// <see cref="FileShare.None"/> to an exclusive <c>flock</c>; every other share mode (including
+    /// the WAL writer's <see cref="FileShare.Read"/>) maps to a shared one, which let two processes
+    /// append to — and checkpoint over — the same WAL (F4). The file is never deleted while held;
+    /// it goes with the overlay directory.
+    /// </summary>
+    private static FileStream AcquireWriterLock(string overlayDir)
+        => new(Path.Combine(overlayDir, "overlay.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
 
     // ── String resolution ────────────────────────────────────────────────────
 
@@ -340,6 +364,18 @@ internal sealed class EngineOverlay : IEngineOverlay
     internal WalWriter GetWalWriter() => _walWriter!;
     internal void IncrementWalRecordCount() => _walRecordCount++;
 
+    /// <summary>
+    /// Crash simulation for tests: closes the WAL and releases the writer lock the way process
+    /// death does (the OS closes every handle), without the graceful checkpoint. The instance
+    /// must not be used afterwards.
+    /// </summary>
+    internal void AbandonWithoutCheckpoint()
+    {
+        _disposed = true;
+        _walWriter?.Dispose();
+        _writerLock.Dispose();
+    }
+
     // ── Snapshot + WAL recovery ──────────────────────────────────────────────
 
     private void LoadSnapshot()
@@ -445,6 +481,7 @@ internal sealed class EngineOverlay : IEngineOverlay
         }
 
         _walWriter?.Dispose();
+        _writerLock.Dispose(); // last: the checkpoint above still runs under the lock
         _lock.Dispose();
     }
 }

@@ -137,10 +137,13 @@ public class MergedQueryEngine : IQueryEngine
                 CodeMapError.NotFound("Workspace", RequiredWorkspaceId(routing).Value));
 
         // 2. Resolve budgets
+        if (FtsQuerySanitizer.UnsupportedOperator(query) is { } op)
+            return Fail<ResponseEnvelope<SymbolSearchResponse>>(
+                CodeMapError.InvalidArgument(FtsQuerySanitizer.UnsupportedOperatorMessage(op)));
         var sanitized = FtsQuerySanitizer.Sanitize(query) ?? "";
         if (string.IsNullOrEmpty(sanitized))
             return Fail<ResponseEnvelope<SymbolSearchResponse>>(
-                CodeMapError.InvalidArgument("Query contains only unsupported FTS5 special characters. Try a plain symbol name."));
+                CodeMapError.InvalidArgument(FtsQuerySanitizer.NothingSearchableMessage));
         query = sanitized;
 
         var (clamped, limitsApplied) = (budgets ?? BudgetLimits.Defaults).ClampToHardCaps();

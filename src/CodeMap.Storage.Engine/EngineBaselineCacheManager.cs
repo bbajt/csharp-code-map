@@ -21,14 +21,16 @@ public sealed class EngineBaselineCacheManager : IBaselineCacheManager
     /// Local store directory (same value passed to <see cref="CustomSymbolStore"/>).
     /// </param>
     /// <param name="sharedCacheDir">
-    /// Shared cache directory, or <c>null</c> to disable caching (all ops become no-ops).
+    /// Shared cache directory, or <c>null</c>/blank to disable caching (all ops become no-ops).
     /// </param>
     /// <param name="logger">Optional logger for cache operation warnings.</param>
     public EngineBaselineCacheManager(string storeBaseDir, string? sharedCacheDir,
         ILogger<EngineBaselineCacheManager>? logger = null)
     {
         _storeBaseDir = storeBaseDir;
-        _sharedCacheDir = sharedCacheDir;
+        // Blank = disabled (F11): Path.Combine("", repo, sha) is relative, so a blank dir used to
+        // publish baselines into the process's working directory.
+        _sharedCacheDir = string.IsNullOrWhiteSpace(sharedCacheDir) ? null : sharedCacheDir;
         _logger = logger ?? NullLogger<EngineBaselineCacheManager>.Instance;
     }
 
@@ -37,8 +39,7 @@ public sealed class EngineBaselineCacheManager : IBaselineCacheManager
         RepoId repoId, CommitSha commitSha, CancellationToken ct = default)
     {
         if (_sharedCacheDir is null) return Task.FromResult(false);
-        var manifest = Path.Combine(GetCacheBaselineDir(repoId, commitSha), "manifest.json");
-        return Task.FromResult(File.Exists(manifest));
+        return Task.FromResult(BaselinePublisher.IsComplete(GetCacheBaselineDir(repoId, commitSha)));
     }
 
     /// <inheritdoc/>
@@ -48,18 +49,18 @@ public sealed class EngineBaselineCacheManager : IBaselineCacheManager
         if (_sharedCacheDir is null) return null;
 
         var cacheDir = GetCacheBaselineDir(repoId, commitSha);
-        if (!File.Exists(Path.Combine(cacheDir, "manifest.json"))) return null;
+        if (!BaselinePublisher.IsComplete(cacheDir)) return null;
 
         var localDir = GetLocalBaselineDir(repoId, commitSha);
-        if (File.Exists(Path.Combine(localDir, "manifest.json"))) return localDir; // already local
+        if (BaselinePublisher.IsComplete(localDir)) return localDir; // already local
 
         var tempDir = localDir + ".tmp." + Guid.NewGuid().ToString("N")[..8];
         try
         {
             await CopyDirectoryAsync(cacheDir, tempDir, ct).ConfigureAwait(false);
-            Directory.CreateDirectory(Path.GetDirectoryName(localDir)!);
-            if (Directory.Exists(localDir)) Directory.Delete(localDir, recursive: true);
-            Directory.Move(tempDir, localDir);
+            // Non-destructive publish (ADR-040): never delete a local baseline another
+            // process may have mapped; adopt one that appeared concurrently.
+            BaselinePublisher.Publish(tempDir, localDir, LocalQuarantineRoot(repoId));
             return localDir;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -77,18 +78,18 @@ public sealed class EngineBaselineCacheManager : IBaselineCacheManager
         if (_sharedCacheDir is null) return;
 
         var localDir = GetLocalBaselineDir(repoId, commitSha);
-        if (!File.Exists(Path.Combine(localDir, "manifest.json"))) return; // nothing to push
+        if (!BaselinePublisher.IsComplete(localDir)) return; // nothing (complete) to push
 
         var cacheDir = GetCacheBaselineDir(repoId, commitSha);
-        if (File.Exists(Path.Combine(cacheDir, "manifest.json"))) return; // already cached
+        if (BaselinePublisher.IsComplete(cacheDir)) return; // already cached
 
         var tempDir = cacheDir + ".tmp." + Guid.NewGuid().ToString("N")[..8];
         try
         {
             await CopyDirectoryAsync(localDir, tempDir, ct).ConfigureAwait(false);
-            Directory.CreateDirectory(Path.GetDirectoryName(cacheDir)!);
-            if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, recursive: true);
-            Directory.Move(tempDir, cacheDir);
+            // Non-destructive publish (ADR-040): the shared cache may be read by other
+            // machines/processes; adopt a concurrently pushed copy instead of replacing it.
+            BaselinePublisher.Publish(tempDir, cacheDir, CacheQuarantineRoot(repoId));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -96,6 +97,17 @@ public sealed class EngineBaselineCacheManager : IBaselineCacheManager
             try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
         }
     }
+
+    /// <summary>
+    /// Quarantine root for a local baseline: <c>&lt;store&gt;/&lt;repo&gt;/temp</c> — the same directory
+    /// the builder stages in and sweeps (same volume as the target).
+    /// </summary>
+    private string LocalQuarantineRoot(RepoId repoId)
+        => Path.Combine(_storeBaseDir, SanitizeSegment(repoId.Value), "temp");
+
+    /// <summary>Quarantine root for a shared-cache entry: <c>&lt;cache&gt;/&lt;repo&gt;/temp</c>.</summary>
+    private string CacheQuarantineRoot(RepoId repoId)
+        => Path.Combine(_sharedCacheDir!, SanitizeSegment(repoId.Value), "temp");
 
     private string GetLocalBaselineDir(RepoId repoId, CommitSha commitSha)
         => Path.Combine(_storeBaseDir, SanitizeSegment(repoId.Value), "baselines", commitSha.Value);

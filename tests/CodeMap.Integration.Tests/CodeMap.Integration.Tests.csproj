@@ -13,6 +13,8 @@
     <ProjectReference Include="..\..\src\CodeMap.Mcp\CodeMap.Mcp.csproj" />
     <ProjectReference Include="..\..\src\CodeMap.Daemon\CodeMap.Daemon.csproj" />
     <ProjectReference Include="..\CodeMap.TestUtilities\CodeMap.TestUtilities.csproj" />
+    <!-- Concurrency/ tests drive the harness's multi-process runner (PHASE-21-01 T02). -->
+    <ProjectReference Include="..\CodeMap.Harness\CodeMap.Harness.csproj" />
   </ItemGroup>
 
   <ItemGroup>

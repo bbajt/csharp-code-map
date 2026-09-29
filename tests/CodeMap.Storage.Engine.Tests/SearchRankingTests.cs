@@ -12,6 +12,11 @@ public sealed class SearchRankingTests : IAsyncLifetime
     private readonly string _tempDir = Path.Combine(Path.GetTempPath(), $"codemap-rank-test-{Guid.NewGuid():N}");
     private EngineBaselineReader _reader = null!;
 
+    // Filled from the pre-fix run (see Search_SingleTerm_Unchanged).
+    private static readonly (string Name, int Score)[] PinnedFooResults = [("Foo", 125)];
+    private static readonly (string Name, int Score)[] PinnedMyAppResults =
+        [("Foo", 35), ("DoWork", 35), ("Bar", 35), ("Process", 35), ("IService", 35)];
+
     public async ValueTask InitializeAsync()
     {
         Directory.CreateDirectory(_tempDir);
@@ -155,6 +160,66 @@ public sealed class SearchRankingTests : IAsyncLifetime
     {
         var results = _reader.Search.SearchSymbols("MyApp", new SymbolSearchFilter(Limit: 2));
         results.Length.Should().BeLessThanOrEqualTo(2);
+    }
+
+    // ── PHASE-21-08 T01: query syntax (OR, phrases) ──────────────────────────
+
+    private string[] Names(SymbolSearchResult[] results) =>
+        results.Select(r => _reader.ResolveString(r.Symbol.DisplayNameStringId)).ToArray();
+
+    [Fact]
+    public void Search_OrOfTwoNames_ReturnsBoth()
+    {
+        // Pre-fix, "OR" was a search token ANDed with the others: 0 hits.
+        var results = _reader.Search.SearchSymbols("Foo OR Bar", new SymbolSearchFilter(Limit: 50));
+
+        Names(results).Should().Contain(["Foo", "Bar"]);
+    }
+
+    [Fact]
+    public void Search_OrWithPrefixStars_ReturnsBoth()
+    {
+        var results = _reader.Search.SearchSymbols("DoW* OR Proc*", new SymbolSearchFilter(Limit: 50));
+
+        Names(results).Should().Contain(["DoWork", "Process"]);
+    }
+
+    [Fact]
+    public void Search_QuotedPhrase_MatchesLikeUnquoted()
+    {
+        // Pre-fix, the quotes stayed inside the tokens ("\"do") and matched nothing.
+        var unquoted = _reader.Search.SearchSymbols("Do Work", new SymbolSearchFilter(Limit: 50));
+        var quoted = _reader.Search.SearchSymbols("\"Do Work\"", new SymbolSearchFilter(Limit: 50));
+
+        unquoted.Should().NotBeEmpty();
+        Names(quoted).Should().Equal(Names(unquoted));
+    }
+
+    [Fact]
+    public void Search_OrScoresEachGroupOwnExactMatch()
+    {
+        // Each OR group is scored on its own: both exact names get the exact-match score.
+        var results = _reader.Search.SearchSymbols("Foo OR Bar", new SymbolSearchFilter(Limit: 50));
+
+        results.Single(r => _reader.ResolveString(r.Symbol.DisplayNameStringId) == "Foo").Score
+            .Should().BeGreaterThanOrEqualTo(100);
+        results.Single(r => _reader.ResolveString(r.Symbol.DisplayNameStringId) == "Bar").Score
+            .Should().BeGreaterThanOrEqualTo(100);
+    }
+
+    [Fact]
+    public void Search_SingleTerm_Unchanged()
+    {
+        // Regression pin: a plain query keeps today's hits, order and scores (values recorded on
+        // 423aff0, before the parser change).
+        var foo = _reader.Search.SearchSymbols("Foo", new SymbolSearchFilter(Limit: 50));
+        var myApp = _reader.Search.SearchSymbols("MyApp", new SymbolSearchFilter(Limit: 50));
+
+        foo.Select(r => (_reader.ResolveString(r.Symbol.DisplayNameStringId), r.Score))
+            .Should().Equal(PinnedFooResults);
+        // All tie at 35; the order among equal scores isn't a contract (List.Sort is unstable).
+        myApp.Select(r => (_reader.ResolveString(r.Symbol.DisplayNameStringId), r.Score))
+            .Should().BeEquivalentTo(PinnedMyAppResults);
     }
 
     [Fact]

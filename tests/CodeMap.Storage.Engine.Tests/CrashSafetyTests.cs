@@ -55,7 +55,7 @@ public sealed class CrashSafetyTests : IAsyncLifetime
             await batch.CommitAsync();
         }
         // "Crash": dispose the WAL writer without checkpoint
-        overlay.GetWalWriter().Dispose();
+        overlay.AbandonWithoutCheckpoint(); // OS releases WAL + writer lock
         return overlayDir;
     }
 
@@ -176,7 +176,7 @@ public sealed class CrashSafetyTests : IAsyncLifetime
         await batch.CommitAsync();
 
         // "Crash": close WAL without checkpoint
-        overlay.GetWalWriter().Dispose();
+        overlay.AbandonWithoutCheckpoint(); // OS releases WAL + writer lock
 
         // Delete snapshot → force WAL recovery
         var snapshotPath = Path.Combine(overlayDir, "overlay.snapshot");

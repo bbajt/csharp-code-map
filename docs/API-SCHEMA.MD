@@ -320,9 +320,33 @@ public record ProjectDiagnostic(
     bool Compiled,
     int SymbolCount,
     int ReferenceCount,
-    IReadOnlyList<string>? Errors = null
+    IReadOnlyList<string>? Errors = null,
+    IReadOnlyList<string>? TargetFrameworks = null,        // M20-01: multi-target only
+    IReadOnlyList<string>? GeneratorLoadFailures = null,   // v2.8.2 (ADR-046)
+    string? MissingRestoreOutput = null                    // v2.8.2 (ADR-054)
 );
 ```
+
+`missing_restore_output` (omitted when null) is the solution-relative path where the project's
+`project.assets.json` was expected, e.g. `"src/Web/obj/project.assets.json"`: the project uses NuGet
+restore but the checkout was never restored (a fresh clone or git worktree; `obj/` is gitignored and
+CodeMap doesn't restore). If the project also has compile errors, its package references (sometimes the
+target framework itself) are **unresolved**: `semantic_level` is then at most `partial`, the baseline
+isn't pushed to a shared cache, and a warning names the fix (`dotnet restore`, then rebuild the
+baseline). Without errors (e.g. no packages, framework shipped with the SDK) it's informational only.
+See KNOWN-LIMITATIONS L-12.
+
+The run's `semantic_level` (in `index.ensure_baseline` and in every query's `meta`) is computed by one
+rule for the build and the stored baseline (`SemanticLevels`, ADR-054): `full` when every project
+compiled without an environment degradation (`generator_load_failures`, or `missing_restore_output`
+with errors), `syntax_only` when none compiled, otherwise `partial`.
+
+`generator_load_failures` (omitted when null) lists each source-generator assembly the bundled
+Roslyn refused to load, e.g. `"Microsoft.CodeAnalysis.Razor.Compiler: ReferencesNewerCompiler
+(built for Roslyn 5.9.0.0, CodeMap runs 5.3.0.0)"`. Code those generators produce (Razor components,
+`[LoggerMessage]` implementations, …) is **missing from the index**; the run's `semantic_level` is then
+at most `partial` and `confidence` at most `medium`. Fix: update CodeMap, or index with an SDK
+whose generators match (see KNOWN-LIMITATIONS L-11).
 
 <!-- Updated PHASE-05-05: added ProjectDiagnostic (was missing from spec) -->
 
@@ -338,6 +362,33 @@ public record CodeMapError(
     bool Retryable = false
 );
 ```
+
+**Codes** (`CodeMap.Core.Errors.ErrorCodes`):
+
+| Code | Meaning | Retryable |
+|---|---|---|
+| `INVALID_ARGUMENT` | Caller input failed validation (missing/bad argument, path, commit, id) | no |
+| `NOT_FOUND` | Symbol or resource not in the index | no |
+| `AMBIGUOUS` | Name matched several symbols; `details.candidates` lists them | no |
+| `BUDGET_EXCEEDED` | A result/line/char hard cap was exceeded | no |
+| `INDEX_NOT_AVAILABLE` | No baseline for repo + commit — run `index.ensure_baseline` | yes |
+| `WORKSPACE_REQUIRED` | Workspace-scoped call without a workspace id | no |
+| `COMPILATION_FAILED` | Roslyn compilation produced no symbols (real build failure only) | yes, after fixing the build |
+| `WORKSPACE_IN_USE` *(v2.8.2)* | Another CodeMap process holds this workspace's overlay (WAL locked); `details.workspace_id` | yes — retry later or use another `workspace_id` |
+| `STORAGE_ERROR` *(v2.8.2)* | I/O or storage-engine failure: busy/incomplete baseline, disk, access denied | yes |
+| `INTERNAL_ERROR` *(v2.8.2)* | Unexpected exception inside a tool handler (a bug); `details.exception_type` when it escaped the handler | no |
+
+Before v2.8.2, storage/I-O failures in `index.ensure_baseline` were reported as
+`COMPILATION_FAILED`, and in `workspace.*` / `index.refresh_overlay` / `repo.status` as
+`INVALID_ARGUMENT` (ADR-041).
+
+**Every tool failure uses this envelope** (`result.isError: true`), on every tool, including
+exceptions no handler caught (ADR-045). Those are classified at the `tools/call` boundary: sharing
+violation → `WORKSPACE_IN_USE` (with an explicit `workspace_id`) or `STORAGE_ERROR`; storage / I-O →
+`STORAGE_ERROR`; anything else, **including an `ArgumentException`**, → `INTERNAL_ERROR` (input
+validation is the handler's job, so an argument exception reaching the boundary is a bug). JSON-RPC
+`-32603` is reserved for protocol-level failures outside any tool (`initialize`, `tools/list`, framing).
+Before v2.8.2, an exception escaping a read-only tool arrived as `-32603`.
 
 ---
 
@@ -475,7 +526,7 @@ public record WorkspaceSummary(
      ChangedFileCount, OverlaySymbolCount, CreatedAt, LastAccessedAt.
      Note: workspace.list uses a different richer WorkspaceSummary from WorkspaceManager — see 6.17. -->
 
-**Errors:** `INVALID_ARGUMENT`, `NOT_FOUND`
+**Errors:** `INVALID_ARGUMENT`, `NOT_FOUND`, `STORAGE_ERROR` (retryable), `INTERNAL_ERROR`
 
 ---
 
@@ -512,7 +563,7 @@ public record IndexStats(
      Added FromCache field to EnsureBaselineResponse (PHASE-03-08).
      Stats is nullable (null when AlreadyExisted=true). -->
 
-**Errors:** `INVALID_ARGUMENT`, `NOT_FOUND`, `COMPILATION_FAILED` (partial — index still created using syntactic fallback)
+**Errors:** `INVALID_ARGUMENT` (bad/missing solution_path, unresolvable commit), `COMPILATION_FAILED` (compilation produced no symbols — only for real compile failures since v2.8.2), `STORAGE_ERROR` (retryable; I/O or baseline busy), `INTERNAL_ERROR`
 
 ---
 
@@ -520,11 +571,17 @@ public record IndexStats(
 
 **Milestone:** 01
 
-Search symbols by name, signature, or documentation text via FTS5.
+Search symbols by name, namespace, signature, or documentation words (v2 search index; not SQLite FTS5 since v2.1.0).
 
 **Parameters (JSON):**
 - `repo_path` (required) — absolute path to repo root
-- `query` (optional) — FTS5 query string. Omit (or pass `"*"`) to browse all symbols of the specified `kinds` without FTS. Append `*` for prefix match: `"Order*"`. Space = AND, `OR` for alternatives.
+- `query` (optional) — search query. Omit (or pass `"*"`) to browse all symbols of the specified `kinds`.
+  Syntax (PHASE-21-08, ADR-055):
+  - words are matched **by prefix** against symbol tokens (`Order` finds `OrderService`); a trailing `*` is accepted and ignored;
+  - space = AND (every word must match); an explicit `AND` is accepted;
+  - `OR` (uppercase) separates alternatives, lowest precedence: `A B OR C` = `(A AND B) OR C`; each alternative is ranked on its own;
+  - `"quoted words"` = all of those words (no adjacency: the index stores token sets, not positions);
+  - parentheses are ignored (no nesting); `NOT` / `NEAR` → `INVALID_ARGUMENT`; a query with only operators → `INVALID_ARGUMENT`.
 - `kinds` (optional, required when `query` is omitted) — array of SymbolKind strings. When provided without `query`, returns all symbols of those kinds via direct SQL (no FTS). Example: `["Class","Interface"]`.
 - `workspace_id` (optional)
 - `virtual_files` (optional) — for Ephemeral mode
@@ -533,7 +590,7 @@ Search symbols by name, signature, or documentation text via FTS5.
 - `limit` (optional) — default 20, clamped to max 100
 
 **Query routing (v1.3.1+):**
-- `query` provided → FTS5 text search across symbol names, signatures, docs
+- `query` provided → search-index lookup across symbol names, namespaces, signatures, doc words
 - `query` omitted (or `"*"`) + `kinds` provided → `GetSymbolsByKindsAsync` (direct SQL, no FTS, returns all symbols of those kinds up to `limit`)
 - `query` omitted + no `kinds` → `INVALID_ARGUMENT` error with guidance
 
@@ -553,7 +610,7 @@ public record SymbolSearchHit(
     string? DocumentationSnippet,
     FilePath FilePath,
     int Line,
-    double Score       // FTS5 BM25 relevance score (negative — lower = better)
+    double Score       // v2 relevance score (higher = better: exact name, FQN suffix, prefix, token coverage)
 );
 ```
 
@@ -758,7 +815,7 @@ public record CreateWorkspaceResponse(
 
 <!-- Updated PHASE-05-05: field renamed OverlayRevision → CurrentRevision in actual -->
 
-**Errors:** `INVALID_ARGUMENT`, `INDEX_NOT_AVAILABLE`
+**Errors:** `INVALID_ARGUMENT`, `INDEX_NOT_AVAILABLE`, `WORKSPACE_IN_USE` (retryable; another CodeMap process holds this workspace), `STORAGE_ERROR` (retryable), `INTERNAL_ERROR`
 
 ---
 
@@ -779,7 +836,7 @@ public record ResetWorkspaceResponse(
 );
 ```
 
-**Errors:** `INVALID_ARGUMENT`, `NOT_FOUND`
+**Errors:** `INVALID_ARGUMENT`, `NOT_FOUND`, `WORKSPACE_IN_USE` (retryable), `STORAGE_ERROR` (retryable), `INTERNAL_ERROR`
 
 ---
 
@@ -800,7 +857,7 @@ public record RefreshOverlayResponse(
 );
 ```
 
-**Errors:** `INVALID_ARGUMENT`, `NOT_FOUND`, `COMPILATION_FAILED`
+**Errors:** `INVALID_ARGUMENT`, `NOT_FOUND`, `COMPILATION_FAILED`, `WORKSPACE_IN_USE` (retryable), `STORAGE_ERROR` (retryable), `INTERNAL_ERROR`
 
 ---
 
@@ -928,7 +985,7 @@ public record WorkspaceListResponse(
 );
 ```
 
-**Errors:** `INVALID_ARGUMENT`
+**Errors:** `INVALID_ARGUMENT`, `STORAGE_ERROR` (retryable), `INTERNAL_ERROR`
 
 ---
 
@@ -950,7 +1007,7 @@ public record WorkspaceDeleteResponse(
 );
 ```
 
-**Errors:** `INVALID_ARGUMENT`
+**Errors:** `INVALID_ARGUMENT`, `WORKSPACE_IN_USE` (retryable), `STORAGE_ERROR` (retryable), `INTERNAL_ERROR`
 
 ---
 

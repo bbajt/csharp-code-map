@@ -207,6 +207,40 @@ public sealed class IndexHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task EnsureBaseline_EnvironmentDegraded_DoesNotPush()
+    {
+        // F12/ADR-053: a baseline degraded by this machine (unrestored checkout) would give every other
+        // machine pulling it from the shared cache a wrong answer — never share it.
+        _compiler.CompileAndExtractAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(WithDiagnostics(new ProjectDiagnostic("Web", true, 1, 0,
+                Errors: ["CS0246: The type or namespace name 'Xunit' could not be found"],
+                MissingRestoreOutput: "Web/obj/project.assets.json")));
+
+        var result = await _handler.HandleAsync(Args(RepoPath, _tempSolutionPath), CancellationToken.None);
+
+        result.IsError.Should().BeFalse();
+        await _store.Received(1).CreateBaselineAsync(
+            Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<CompilationResult>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _cache.DidNotReceive().PushAsync(Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EnsureBaseline_CompileErrorsOnly_Pushes()
+    {
+        // A real compile failure is inherent to the commit: every machine gets the same baseline.
+        _compiler.CompileAndExtractAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(WithDiagnostics(new ProjectDiagnostic("Web", true, 1, 0, Errors: ["CS1002: ; expected"])));
+
+        var result = await _handler.HandleAsync(Args(RepoPath, _tempSolutionPath), CancellationToken.None);
+
+        result.IsError.Should().BeFalse();
+        await _cache.Received(1).PushAsync(Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<CancellationToken>());
+    }
+
+    private CompilationResult WithDiagnostics(params ProjectDiagnostic[] diagnostics) =>
+        _fakeCompilation with { Stats = _fakeCompilation.Stats with { ProjectDiagnostics = diagnostics } };
+
+    [Fact]
     public async Task EnsureBaseline_CacheMiss_FromCacheFalse()
     {
         var result = await _handler.HandleAsync(Args(RepoPath, _tempSolutionPath), CancellationToken.None);
@@ -362,6 +396,67 @@ public sealed class IndexHandlerTests : IDisposable
             CancellationToken.None);
 
         result.IsError.Should().BeFalse();
+    }
+
+    // ── Error-code taxonomy (PHASE-21-02 T02, ADR-041) ───────────────────────
+
+    [Fact]
+    public async Task EnsureBaseline_SolutionPathNotFound_ReturnsInvalidArgument()
+    {
+        // Pins the fix: validation failures used to be labelled COMPILATION_FAILED.
+        var missing = Path.Combine(Path.GetTempPath(), $"missing_{Guid.NewGuid():N}.sln");
+
+        var result = await _handler.HandleAsync(Args(RepoPath, missing), CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        Code(result).Should().Be("INVALID_ARGUMENT");
+    }
+
+    [Fact]
+    public async Task EnsureBaseline_CompilationProducesNoSymbols_StillCompilationFailed()
+    {
+        _compiler.CompileAndExtractAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new CompilationResult([], [], [],
+                new IndexStats(0, 0, 0, 0.1, Confidence.Low)));
+
+        var result = await _handler.HandleAsync(Args(RepoPath, _tempSolutionPath), CancellationToken.None);
+
+        Code(result).Should().Be("COMPILATION_FAILED");
+    }
+
+    [Fact]
+    public async Task EnsureBaseline_StoreThrowsStorageFailure_ReturnsStorageErrorRetryable()
+    {
+        _store.CreateBaselineAsync(
+                Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<CompilationResult>(),
+                Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new FakeStorageFailure("Baseline is incomplete and in use by another process")));
+
+        var result = await _handler.HandleAsync(Args(RepoPath, _tempSolutionPath), CancellationToken.None);
+
+        Code(result).Should().Be("STORAGE_ERROR");
+        Retryable(result).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task EnsureBaseline_UnexpectedException_ReturnsInternalError()
+    {
+        _compiler.CompileAndExtractAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<CompilationResult>(_ => throw new InvalidOperationException("unexpected"));
+
+        var result = await _handler.HandleAsync(Args(RepoPath, _tempSolutionPath), CancellationToken.None);
+
+        Code(result).Should().Be("INTERNAL_ERROR");
+        Retryable(result).Should().BeFalse();
+    }
+
+    private static string? Code(ToolCallResult r) => JsonNode.Parse(r.Content)?["code"]?.GetValue<string>();
+
+    private static bool? Retryable(ToolCallResult r) => JsonNode.Parse(r.Content)?["retryable"]?.GetValue<bool>();
+
+    private sealed class FakeStorageFailure(string message) : Exception(message), IStorageFailure
+    {
+        public bool IsTransient => true;
     }
 
     private static JsonObject Args(string repoPath, string solutionPath) =>

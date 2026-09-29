@@ -26,4 +26,16 @@ public static class ErrorCodes
 
     /// <summary>A name-based lookup matched multiple symbols. The error message lists candidate symbol_ids so the caller can pick one.</summary>
     public const string Ambiguous = "AMBIGUOUS";
+
+    /// <summary>
+    /// The workspace's overlay is held by another CodeMap process (e.g. its WAL is locked).
+    /// Retryable: use a different workspace_id, or retry after the other session ends.
+    /// </summary>
+    public const string WorkspaceInUse = "WORKSPACE_IN_USE";
+
+    /// <summary>An I/O or storage-engine failure (busy, incomplete baseline, disk). Retryable.</summary>
+    public const string StorageError = "STORAGE_ERROR";
+
+    /// <summary>An unexpected exception inside a tool handler — a bug, not a caller error. Not retryable.</summary>
+    public const string InternalError = "INTERNAL_ERROR";
 }

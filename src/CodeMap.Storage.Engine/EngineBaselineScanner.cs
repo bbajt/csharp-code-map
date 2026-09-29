@@ -149,6 +149,9 @@ public sealed class EngineBaselineScanner : IBaselineScanner
             removed = candidates.Select(b => b.CommitSha).ToList();
         }
 
+        if (!dryRun)
+            SweepLegacyOverlays(_storeBaseDir);
+
         var removedSet = removed.Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var kept = baselines
             .Where(b => !removedSet.Contains(b.CommitSha.Value))
@@ -156,6 +159,42 @@ public sealed class EngineBaselineScanner : IBaselineScanner
             .ToList();
 
         return new CleanupResponse(removed.Count, bytesReclaimed, removed, kept, dryRun);
+    }
+
+    /// <summary>
+    /// Best-effort removal of the pre-v2.8.2 flat overlay tree <c>&lt;store&gt;/overlays/&lt;ws&gt;/</c>,
+    /// which nothing reads since overlays became repo-scoped (ADR-043). A directory whose
+    /// <c>overlay.wal</c> is still held by a running (older) daemon is skipped: the probe opens
+    /// it with <see cref="FileShare.None"/>, which .NET enforces on Unix too, so the sweep never
+    /// deletes a live overlay on any OS. The root is removed once empty.
+    /// </summary>
+    internal static void SweepLegacyOverlays(string storeBaseDir)
+    {
+        var legacyRoot = Path.Combine(storeBaseDir, "overlays");
+        if (!Directory.Exists(legacyRoot)) return;
+
+        foreach (var dir in Directory.GetDirectories(legacyRoot))
+        {
+            try
+            {
+                var wal = Path.Combine(dir, "overlay.wal");
+                if (File.Exists(wal))
+                {
+                    using var probe = new FileStream(wal, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                }
+                Directory.Delete(dir, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            { /* held by a running daemon, or not ours to delete — skip */ }
+        }
+
+        try
+        {
+            if (Directory.GetFileSystemEntries(legacyRoot).Length == 0)
+                Directory.Delete(legacyRoot);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { /* best-effort */ }
     }
 
     private static bool IsHexString(string value)

@@ -28,11 +28,14 @@ internal sealed class EngineBaselineBuilder : IEngineBaselineBuilder
     private BaselineBuildResult BuildCore(BaselineBuildInput input, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
-        var tempDir = Path.Combine(_storeBaseDir, "temp", $"build-{Guid.NewGuid():N}");
+        var tempRoot = Path.Combine(_storeBaseDir, "temp");
+        var tempDir = Path.Combine(tempRoot, $"build-{Guid.NewGuid():N}");
         var finalDir = Path.Combine(_storeBaseDir, "baselines", input.CommitSha);
 
         try
         {
+            // Clear directories quarantined by earlier publishes (skips any still mapped).
+            BaselinePublisher.SweepQuarantine(tempRoot);
             Directory.CreateDirectory(tempDir);
 
             // ── Phase 1: Dictionary build ────────────────────────────────────
@@ -362,15 +365,13 @@ internal sealed class EngineBaselineBuilder : IEngineBaselineBuilder
 
             ManifestWriter.Write(Path.Combine(tempDir, "manifest.json"), manifest);
 
-            // ── Phase 13: Atomic publish ─────────────────────────────────────
+            // ── Phase 13: Atomic, non-destructive publish (ADR-040) ──────────
             // Dispose dict reader before moving directory (Windows file locks)
             dictReader.Dispose();
 
-            if (Directory.Exists(finalDir))
-                Directory.Delete(finalDir, recursive: true);
-
-            Directory.CreateDirectory(Path.GetDirectoryName(finalDir)!);
-            Directory.Move(tempDir, finalDir);
+            // Never delete an existing baseline: another process may have it mapped (F6).
+            // A concurrent publisher of the same commit wins → adopt its baseline.
+            var outcome = BaselinePublisher.Publish(tempDir, finalDir, tempRoot);
 
             sw.Stop();
             StorageTelemetry.BaselineBuilds.Add(1);
@@ -384,10 +385,17 @@ internal sealed class EngineBaselineBuilder : IEngineBaselineBuilder
                 EdgeCount: edgeRecords.Length,
                 FactCount: factRecords.Length,
                 FileCount: fileRecords.Length,
-                Success: true);
+                Success: true,
+                AdoptedExisting: outcome == PublishOutcome.AdoptedExisting);
         }
         catch (OperationCanceledException)
         {
+            CleanupTemp(tempDir);
+            throw;
+        }
+        catch (StorageBusyException)
+        {
+            // Transient: surface as-is so callers can report a retryable error.
             CleanupTemp(tempDir);
             throw;
         }

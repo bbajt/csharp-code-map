@@ -21,7 +21,8 @@ internal static class Program
 {
     /// <summary>
     /// Starts the CodeMap MCP server.
-    /// Handles <c>--version</c> / <c>-v</c> flags, loads <c>~/.codemap/config.json</c>,
+    /// Handles <c>--version</c> / <c>-v</c> flags, resolves the data root via
+    /// <see cref="CodeMapHome"/> (exit code 2 on an invalid <c>CODEMAP_HOME</c>), loads <c>config.json</c>,
     /// then runs the MCP JSON-RPC server over stdin/stdout until EOF or Ctrl-C.
     /// </summary>
     internal static async Task Main(string[] args)
@@ -35,10 +36,27 @@ internal static class Program
             return;
         }
 
-        // Resolve ~/.codemap directory
-        var codeMapDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".codemap");
+        // Resolve the data root: CODEMAP_HOME override, else ~/.codemap (ADR-039).
+        // Logging isn't configured yet, so a bad value goes to stderr — never stdout,
+        // which belongs to the JSON-RPC stream.
+        var home = CodeMapHome.ResolveFromEnvironment();
+        if (home.IsFailure)
+        {
+            await Console.Error.WriteLineAsync($"codemap-mcp: {home.Error.Message}");
+            Environment.ExitCode = 2;
+            return;
+        }
+        var codeMapDir = home.Value;
+
+        // Same rules for the shared cache (F11): blank = disabled; relative would resolve against
+        // the client's working directory — usually the user's repo — so refuse it at startup.
+        var cacheDir = CodeMapHome.ResolveCacheDirFromEnvironment();
+        if (cacheDir.IsFailure)
+        {
+            await Console.Error.WriteLineAsync($"codemap-mcp: {cacheDir.Error.Message}");
+            Environment.ExitCode = 2;
+            return;
+        }
 
         // Load config.json (missing or corrupt → defaults)
         var config = LoadConfig(Path.Combine(codeMapDir, "config.json"));
@@ -65,7 +83,7 @@ internal static class Program
         });
 
         builder.ConfigureServices(services =>
-            services.AddCodeMapServices(baseDir: "~/.codemap"));
+            services.AddCodeMapServices(baseDir: codeMapDir, sharedCacheDir: cacheDir.Value));
 
         var host = builder.Build();
 

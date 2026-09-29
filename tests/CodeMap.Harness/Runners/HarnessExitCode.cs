@@ -12,4 +12,7 @@ public enum HarnessExitCode
     TelemetryError = 3,
     ConfigurationError = 4,
     IndexBuildFailure = 5,
+
+    /// <summary>Stopped by Ctrl-C (conventional 128 + SIGINT). Child daemons are already killed.</summary>
+    Cancelled = 130,
 }

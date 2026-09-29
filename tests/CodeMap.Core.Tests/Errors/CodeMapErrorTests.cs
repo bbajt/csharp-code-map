@@ -61,4 +61,38 @@ public sealed class CodeMapErrorTests
         var err = CodeMapError.CompilationFailed("failed");
         err.Details.Should().BeNull();
     }
+
+    // ── I/O-conflict taxonomy (PHASE-21-02 T02, ADR-041) ─────────────────────
+
+    [Fact]
+    public void WorkspaceInUse_IsRetryable_NamesWorkspaceAndDetail()
+    {
+        var err = CodeMapError.WorkspaceInUse("agent-1", "overlay.wal is locked");
+
+        err.Code.Should().Be(ErrorCodes.WorkspaceInUse);
+        err.Code.Should().Be("WORKSPACE_IN_USE");
+        err.Retryable.Should().BeTrue();
+        err.Message.Should().Contain("agent-1").And.Contain("overlay.wal is locked").And.Contain("workspace_id");
+        err.Details.Should().ContainKey("workspace_id").WhoseValue.Should().Be("agent-1");
+    }
+
+    [Fact]
+    public void StorageError_IsRetryable()
+    {
+        var err = CodeMapError.StorageError("disk hiccup");
+
+        err.Code.Should().Be("STORAGE_ERROR");
+        err.Retryable.Should().BeTrue();
+        err.Message.Should().Be("disk hiccup");
+    }
+
+    [Fact]
+    public void InternalError_IsNotRetryable()
+    {
+        var err = CodeMapError.InternalError("boom");
+
+        err.Code.Should().Be("INTERNAL_ERROR");
+        err.Retryable.Should().BeFalse();
+        err.Message.Should().Be("boom");
+    }
 }

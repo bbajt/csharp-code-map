@@ -107,6 +107,38 @@ public sealed class OverlayRefreshHandlerTests
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    // ── Error-code taxonomy (PHASE-21-02 T02, ADR-041) ───────────────────────
+
+    [Fact]
+    public async Task Refresh_ManagerThrowsIo_ReturnsStorageErrorNotInvalidArgument()
+    {
+        _manager.RefreshOverlayAsync(
+                    Arg.Any<RepoId>(), Arg.Any<Core.Types.WorkspaceId>(),
+                    Arg.Any<IReadOnlyList<FilePath>?>(), Arg.Any<CancellationToken>())
+                 .Returns<Result<RefreshOverlayResponse, CodeMapError>>(_ => throw new IOException("disk full"));
+
+        var result = await _handler.HandleAsync(Args(RepoPath, WorkspaceId, null), CancellationToken.None);
+
+        var json = JsonNode.Parse(result.Content)!;
+        json["code"]!.GetValue<string>().Should().Be("STORAGE_ERROR");
+        json["retryable"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Refresh_WalLocked_ReturnsWorkspaceInUse()
+    {
+        var sharing = new IOException("The process cannot access the file 'overlay.wal' because it is being used by another process.",
+            OperatingSystem.IsWindows() ? unchecked((int)0x80070020) : OperatingSystem.IsMacOS() ? 35 : 11);
+        _manager.RefreshOverlayAsync(
+                    Arg.Any<RepoId>(), Arg.Any<Core.Types.WorkspaceId>(),
+                    Arg.Any<IReadOnlyList<FilePath>?>(), Arg.Any<CancellationToken>())
+                 .Returns<Result<RefreshOverlayResponse, CodeMapError>>(_ => throw sharing);
+
+        var result = await _handler.HandleAsync(Args(RepoPath, WorkspaceId, null), CancellationToken.None);
+
+        JsonNode.Parse(result.Content)!["code"]!.GetValue<string>().Should().Be("WORKSPACE_IN_USE");
+    }
+
     private static JsonObject Args(string? repoPath, string? workspaceId, string[]? filePaths)
     {
         var obj = new JsonObject();

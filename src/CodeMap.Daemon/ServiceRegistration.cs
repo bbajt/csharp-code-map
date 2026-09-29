@@ -27,13 +27,17 @@ public static class ServiceRegistration
     /// Base directory for data storage. Use <c>~/.codemap</c> to resolve
     /// to the user's home directory at runtime.
     /// </param>
+    /// <param name="sharedCacheDir">
+    /// Absolute shared baseline cache directory (<c>CODEMAP_CACHE_DIR</c>, resolved by
+    /// <see cref="CodeMapHome.ResolveCacheDir"/>), or <c>null</c> to disable the shared cache.
+    /// </param>
     /// <remarks>
     /// Registration order is significant:
     /// <list type="number">
     /// <item><b>Git</b> — IGitService singleton (stateless, no deps)</item>
     /// <item><b>Roslyn</b> — IRoslynCompiler + IResolutionWorker (MSBuildWorkspace, expensive, singleton)</item>
     /// <item><b>Storage</b> — CustomSymbolStore (v2 engine) registered as ISymbolStore</item>
-    /// <item><b>Cache</b> — IBaselineCacheManager (reads CODEMAP_CACHE_DIR env var; null = disabled)</item>
+    /// <item><b>Cache</b> — IBaselineCacheManager (sharedCacheDir from CodeMapHome.ResolveCacheDir; null = disabled)</item>
     /// <item><b>Overlay</b> — CustomEngineOverlayStore (v2 engine) registered as IOverlayStore</item>
     /// <item><b>IncrementalCompiler</b> — singleton to reuse cached MSBuildWorkspace across RefreshOverlay calls</item>
     /// <item><b>Query</b> — ICacheService + ITokenSavingsTracker (tracker loads savings from disk at startup)</item>
@@ -46,7 +50,8 @@ public static class ServiceRegistration
     /// </remarks>
     public static IServiceCollection AddCodeMapServices(
         this IServiceCollection services,
-        string baseDir = "~/.codemap")
+        string baseDir = "~/.codemap",
+        string? sharedCacheDir = null)
     {
         var resolvedBaseDir = baseDir.StartsWith("~/", StringComparison.Ordinal)
             ? Path.Combine(
@@ -69,8 +74,8 @@ public static class ServiceRegistration
         services.AddSingleton<IOverlayStore>(new CustomEngineOverlayStore(customStore, storeDir));
 
         // ── Shared baseline cache ─────────────────────────────────────────────
-        // CODEMAP_CACHE_DIR env var sets the shared cache directory (null = disabled).
-        var sharedCacheDir = Environment.GetEnvironmentVariable("CODEMAP_CACHE_DIR");
+        // Shared cache directory, already resolved by CodeMapHome.ResolveCacheDir (null = disabled;
+        // blank = disabled, relative = startup error, F11 / ADR-047).
         services.AddSingleton<IBaselineCacheManager>(sp =>
             new EngineBaselineCacheManager(storeDir, sharedCacheDir,
                 sp.GetRequiredService<ILogger<EngineBaselineCacheManager>>()));

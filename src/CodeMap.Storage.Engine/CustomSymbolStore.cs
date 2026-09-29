@@ -57,10 +57,10 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
 
     public Task<bool> BaselineExistsAsync(RepoId repoId, CommitSha commitSha, CancellationToken ct = default)
     {
+        // Complete = manifest parses AND every segment is present. A gutted baseline reports
+        // false so ensure_baseline rebuilds (and quarantines) it instead of serving it (F6).
         var baselineDir = BaselineDir(repoId.Value, commitSha.Value);
-        var manifestPath = Path.Combine(baselineDir, "manifest.json");
-        var exists = File.Exists(manifestPath) && ManifestWriter.Read(manifestPath) != null;
-        return Task.FromResult(exists);
+        return Task.FromResult(BaselinePublisher.IsComplete(baselineDir));
     }
 
     // ── Symbol queries ───────────────────────────────────────────────────────
@@ -92,26 +92,22 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
     {
         var (reader, merged) = GetOrOpen(repoId.Value, commitSha.Value);
 
-        // Single-kind filter is forwarded into the engine fast path. Multi-kind is
-        // post-filtered below (the engine filter struct holds only one kind).
+        // Every kind filter runs inside the engine, before scoring and the limit (PHASE-21-08 T02).
+        // Pre-fix, 2+ kinds were post-filtered here after the engine had already cut the result to
+        // `limit` across all kinds, so higher-scored symbols of other kinds used up the page.
+        var kinds = filters?.Kinds;
         var filter = new SymbolSearchFilter(
-            Kind: filters?.Kinds?.Count == 1 ? RecordMappers.MapSymbolKind(filters.Kinds[0]) : null,
+            Kind: kinds?.Count == 1 ? RecordMappers.MapSymbolKind(kinds[0]) : null,
             NamespacePrefix: string.IsNullOrEmpty(filters?.Namespace) ? null : filters.Namespace,
             FilePathPrefix: string.IsNullOrEmpty(filters?.FilePath) ? null : filters.FilePath,
             ProjectName: string.IsNullOrEmpty(filters?.ProjectName) ? null : filters.ProjectName,
-            Limit: limit);
+            Limit: limit,
+            Kinds: kinds is { Count: > 1 } ? kinds.Select(RecordMappers.MapSymbolKind).ToHashSet() : null);
 
         var results = merged.SearchSymbols(query, filter);
         var hits = new List<SymbolSearchHit>(results.Length);
         foreach (var r in results)
-        {
-            if (filters?.Kinds is { Count: > 1 } multiKinds)
-            {
-                var symKind = RecordToCoreMappings.ReverseSymbolKind(r.Symbol.Kind);
-                if (!multiKinds.Contains(symKind)) continue;
-            }
             hits.Add(RecordToCoreMappings.ToSearchHit(r.Symbol, reader, r.Score));
-        }
 
         return Task.FromResult<IReadOnlyList<SymbolSearchHit>>(hits);
     }
@@ -385,16 +381,9 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
         if (manifest?.ProjectDiagnostics is not { Count: > 0 } diags)
             return Task.FromResult<SemanticLevel?>(null);
 
-        var compiledCount = diags.Count(d => d.Compiled);
-        SemanticLevel level;
-        if (compiledCount == diags.Count)
-            level = SemanticLevel.Full;
-        else if (compiledCount > 0)
-            level = SemanticLevel.Partial;
-        else
-            level = SemanticLevel.SyntaxOnly;
-
-        return Task.FromResult<SemanticLevel?>(level);
+        // Same rule as the build (F13, PHASE-21-07): a recomputation from Compiled alone
+        // reported Full for baselines the build had marked Partial (e.g. F10 generator failures).
+        return Task.FromResult<SemanticLevel?>(SemanticLevels.Compute(diags));
     }
 
     public Task<IReadOnlyList<SymbolSummary>> GetAllSymbolSummariesAsync(RepoId repoId, CommitSha commitSha, CancellationToken ct = default)
@@ -463,7 +452,7 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
     public async Task UpgradeEdgeAsync(RepoId repoId, CommitSha commitSha, EdgeUpgrade upgrade, CancellationToken ct = default)
     {
         var (reader, merged) = GetOrOpen(repoId.Value, commitSha.Value);
-        var overlay = GetOrCreateOverlay(commitSha.Value, reader);
+        var overlay = GetOrCreateOverlay(repoId.Value, commitSha.Value, reader);
         var fromIntId = ResolveSymbolIntId(merged, upgrade.FromSymbolId);
         var toIntId = ResolveSymbolIntId(merged, upgrade.ResolvedToSymbolId.Value);
         var file = merged.GetFileByPath(upgrade.FileId);
@@ -478,7 +467,7 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
     {
         if (stubs.Count == 0) return 0;
         var (reader, _) = GetOrOpen(repoId.Value, commitSha.Value);
-        var overlay = GetOrCreateOverlay(commitSha.Value, reader);
+        var overlay = GetOrCreateOverlay(repoId.Value, commitSha.Value, reader);
 
         using var batch = overlay.BeginBatch();
         foreach (var stub in stubs)
@@ -511,7 +500,7 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
     public async Task InsertVirtualFileAsync(RepoId repoId, CommitSha commitSha, string virtualPath, string content, IReadOnlyList<ExtractedReference>? decompiledRefs = null, CancellationToken ct = default)
     {
         var (reader, _) = GetOrOpen(repoId.Value, commitSha.Value);
-        var overlay = GetOrCreateOverlay(commitSha.Value, reader);
+        var overlay = GetOrCreateOverlay(repoId.Value, commitSha.Value, reader);
 
         using var batch = overlay.BeginBatch();
         var pathSid = batch.InternString(virtualPath);
@@ -525,7 +514,7 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
     public async Task UpgradeDecompiledSymbolAsync(RepoId repoId, CommitSha commitSha, SymbolId symbolId, string virtualFilePath, CancellationToken ct = default)
     {
         var (reader, merged) = GetOrOpen(repoId.Value, commitSha.Value);
-        var overlay = GetOrCreateOverlay(commitSha.Value, reader);
+        var overlay = GetOrCreateOverlay(repoId.Value, commitSha.Value, reader);
         var rec = symbolId.Value.StartsWith("sym_", StringComparison.Ordinal)
             ? merged.GetSymbolByStableId(symbolId.Value)
             : merged.GetSymbolByFqn(symbolId.Value);
@@ -566,6 +555,12 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
             if (!File.Exists(Path.Combine(baselineDir, "manifest.json")))
                 throw new StorageFormatException($"No baseline found for repo {repoId} commit {commitSha}");
 
+            // Never serve a gutted baseline (segments missing) — it would answer with empty or
+            // partial results at high confidence (F6). ensure_baseline rebuilds it (ADR-040).
+            if (!BaselinePublisher.IsComplete(baselineDir))
+                throw new StorageCorruptionException(
+                    $"Baseline for repo {repoId} commit {commitSha} is incomplete (missing segments); run index.ensure_baseline to rebuild it.");
+
             var reader = new EngineBaselineReader(baselineDir);
 
             // Init search index
@@ -599,46 +594,54 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
         }
     }
 
-    internal EngineOverlay GetOrCreateOverlay(string workspaceId, EngineBaselineReader reader)
+    /// <summary>
+    /// Returns the cached overlay for <paramref name="overlayKey"/> in <paramref name="repoId"/>,
+    /// opening it at <c>&lt;store&gt;/&lt;repoId&gt;/overlays/&lt;overlayKey&gt;/</c> on first use.
+    /// The key is a workspace id, or a commit SHA for the baseline-level writes. Overlays are
+    /// scoped by repo so the same id in two repos never shares state (ADR-043).
+    /// </summary>
+    internal EngineOverlay GetOrCreateOverlay(string repoId, string overlayKey, EngineBaselineReader reader)
     {
+        var cacheKey = CacheKey(repoId, overlayKey);
         lock (_cacheLock)
         {
-            if (_overlays.TryGetValue(workspaceId, out var existing))
+            if (_overlays.TryGetValue(cacheKey, out var existing))
                 return existing;
 
-            var overlayDir = Path.Combine(_storeBaseDir, "overlays", workspaceId);
-            var overlay = new EngineOverlay(overlayDir, workspaceId, reader);
-            _overlays[workspaceId] = overlay;
+            var overlay = new EngineOverlay(OverlayDir(repoId, overlayKey), overlayKey, reader);
+            _overlays[cacheKey] = overlay;
             return overlay;
         }
     }
 
-    internal bool OverlayExists(string workspaceId)
+    /// <summary>True when the overlay is open in this process or has a manifest on disk.</summary>
+    internal bool OverlayExists(string repoId, string overlayKey)
     {
         lock (_cacheLock)
         {
-            if (_overlays.ContainsKey(workspaceId)) return true;
+            if (_overlays.ContainsKey(CacheKey(repoId, overlayKey))) return true;
         }
-        var manifestPath = Path.Combine(_storeBaseDir, "overlays", workspaceId, "manifest.json");
-        return File.Exists(manifestPath);
+        return File.Exists(Path.Combine(OverlayDir(repoId, overlayKey), "manifest.json"));
     }
 
-    internal EngineOverlay? TryGetOverlay(string workspaceId)
+    /// <summary>Returns the overlay if it is open in this process; otherwise null.</summary>
+    internal EngineOverlay? TryGetOverlay(string repoId, string overlayKey)
     {
         lock (_cacheLock)
         {
-            return _overlays.GetValueOrDefault(workspaceId);
+            return _overlays.GetValueOrDefault(CacheKey(repoId, overlayKey));
         }
     }
 
-    internal void DeleteOverlay(string workspaceId)
+    /// <summary>Closes the overlay and deletes its directory (best effort).</summary>
+    internal void DeleteOverlay(string repoId, string overlayKey)
     {
         lock (_cacheLock)
         {
-            if (_overlays.Remove(workspaceId, out var overlay))
+            if (_overlays.Remove(CacheKey(repoId, overlayKey), out var overlay))
                 overlay.Dispose();
 
-            var overlayDir = Path.Combine(_storeBaseDir, "overlays", workspaceId);
+            var overlayDir = OverlayDir(repoId, overlayKey);
             try
             {
                 if (Directory.Exists(overlayDir))
@@ -656,8 +659,11 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
     private string BaselineDir(string repoId, string commitSha)
         => Path.Combine(_storeBaseDir, SanitizeRepoId(repoId), "baselines", commitSha);
 
-    private static string CacheKey(string repoId, string commitSha)
-        => $"{repoId}|{commitSha}";
+    private string OverlayDir(string repoId, string overlayKey)
+        => Path.Combine(_storeBaseDir, SanitizeRepoId(repoId), "overlays", overlayKey);
+
+    private static string CacheKey(string repoId, string key)
+        => $"{repoId}|{key}";
 
     private static string SanitizeRepoId(string repoId)
     {

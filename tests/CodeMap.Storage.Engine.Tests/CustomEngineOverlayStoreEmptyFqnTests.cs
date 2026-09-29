@@ -57,7 +57,7 @@ public sealed class CustomEngineOverlayStoreEmptyFqnTests : IAsyncLifetime
     {
         // Inject directly into the overlay to simulate a pre-fix overlay already on disk:
         // a symbol searchable by the token "reg" but with FqnStringId = 0 (resolves to "").
-        var overlay = _symbolStore.TryGetOverlay(Ws.Value)!;
+        var overlay = _symbolStore.TryGetOverlay(Repo.Value, Ws.Value)!;
 
         var badStableSid = overlay.InternStringInternal("sym_overlay_bad");
         var badDisplaySid = overlay.InternStringInternal("Reg");
@@ -116,7 +116,7 @@ public sealed class CustomEngineOverlayStoreEmptyFqnTests : IAsyncLifetime
         await act.Should().NotThrowAsync();
 
         // The id-less symbol was the only thing in the delta — nothing should have been stored.
-        var overlay = _symbolStore.TryGetOverlay(Ws.Value)!;
+        var overlay = _symbolStore.TryGetOverlay(Repo.Value, Ws.Value)!;
         overlay.GetOverlayNewSymbols().Should().BeEmpty(
             "a symbol with an empty SymbolId is unaddressable and must be dropped at write time");
     }

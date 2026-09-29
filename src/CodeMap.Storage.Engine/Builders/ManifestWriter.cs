@@ -37,6 +37,10 @@ internal static class ManifestWriter
             {
                 ProjectName = d.ProjectName, Compiled = d.Compiled,
                 SymbolCount = d.SymbolCount, ReferenceCount = d.ReferenceCount,
+                Errors = d.Errors?.ToList(),
+                TargetFrameworks = d.TargetFrameworks?.ToList(),
+                GeneratorLoadFailures = d.GeneratorLoadFailures?.ToList(),
+                MissingRestoreOutput = d.MissingRestoreOutput,
             }).ToList(),
             Segments = manifest.Segments.ToDictionary(
                 kv => kv.Key,
@@ -71,7 +75,11 @@ internal static class ManifestWriter
             ?? new Dictionary<string, SegmentInfo>(),
             dto.RepoRootPath,
             dto.ProjectDiagnostics?.Select(d => new ProjectDiagnostic(
-                d.ProjectName ?? "", d.Compiled, d.SymbolCount, d.ReferenceCount)).ToList());
+                d.ProjectName ?? "", d.Compiled, d.SymbolCount, d.ReferenceCount,
+                Errors: d.Errors,
+                TargetFrameworks: d.TargetFrameworks,
+                GeneratorLoadFailures: d.GeneratorLoadFailures,
+                MissingRestoreOutput: d.MissingRestoreOutput)).ToList());
     }
 
     private sealed class ManifestDto
@@ -104,5 +112,14 @@ internal static class ManifestWriter
         public bool Compiled { get; set; }
         public int SymbolCount { get; set; }
         public int ReferenceCount { get; set; }
+
+        // PHASE-21-07 T01 (F13): additive optional fields, omitted when null. Older manifests
+        // lack them (read back as null = "none recorded"); older binaries ignore them.
+        public List<string>? Errors { get; set; }
+        public List<string>? TargetFrameworks { get; set; }
+        public List<string>? GeneratorLoadFailures { get; set; }
+
+        // PHASE-21-07 T02 (F12).
+        public string? MissingRestoreOutput { get; set; }
     }
 }

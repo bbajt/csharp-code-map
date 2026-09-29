@@ -13,7 +13,9 @@ internal readonly record struct SymbolSearchFilter(
     string? ProjectName        = null,
     bool    ExcludeDecompiled  = false,
     bool    ExcludeTestSymbols = false,
-    int     Limit              = 50);
+    int     Limit              = 50,
+    // PHASE-21-08 T02: 2+ kinds, applied inside the engine before scoring and the limit, like Kind.
+    IReadOnlySet<short>? Kinds = null);
 
 /// <summary>Text search filter for code.search_text.</summary>
 internal readonly record struct TextSearchFilter(
@@ -82,4 +84,5 @@ internal sealed record BaselineBuildResult(
     int      FactCount,
     int      FileCount,
     bool     Success,
-    string?  ErrorMessage = null);
+    string?  ErrorMessage = null,
+    bool     AdoptedExisting = false);

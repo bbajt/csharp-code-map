@@ -143,6 +143,37 @@ public static class KnownRepos
         };
     }
 
+    /// <summary>
+    /// Resolves repo names (case-insensitive) against the committed repos plus every repo in
+    /// ~/.codemap/harness-config.json, in the order given. Unknown names return an error listing
+    /// every known name.
+    /// </summary>
+    public static (IReadOnlyList<RepoDescriptor>? Repos, string? Error) ForNames(IReadOnlyList<string> names)
+        => ForNames(names, LoadConfigured());
+
+    /// <summary>
+    /// <see cref="ForNames(IReadOnlyList{string})"/> against an explicit configured-repo list,
+    /// so callers (and tests) control what is configured.
+    /// </summary>
+    public static (IReadOnlyList<RepoDescriptor>? Repos, string? Error) ForNames(
+        IReadOnlyList<string> names, IReadOnlyList<RepoDescriptor> configured)
+    {
+        var known = Committed.Concat(configured).ToList();
+        var result = new List<RepoDescriptor>(names.Count);
+        var unknown = new List<string>();
+        foreach (var name in names)
+        {
+            var match = known.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (match is null) unknown.Add(name);
+            else result.Add(match);
+        }
+
+        if (unknown.Count > 0)
+            return (null, $"--repo-name: unknown repo(s) {string.Join(", ", unknown.Select(u => $"'{u}'"))}. " +
+                          $"Known: {string.Join(", ", known.Select(r => r.Name))}.");
+        return (result, null);
+    }
+
     private static string FindRepoRoot()
     {
         // Walk up from the executing assembly to find the repo root (contains CodeMap.sln)

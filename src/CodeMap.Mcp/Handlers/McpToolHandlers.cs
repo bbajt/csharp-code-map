@@ -72,7 +72,7 @@ public sealed class McpToolHandlers
                     ["repo_path"] = Prop("string", "Absolute path to the repository root. Optional when exactly one repo is indexed in this session."),
                     ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay data. Falls back to the sticky workspace set by the most recent workspace.create."),
                     ["virtual_files"] = VirtualFilesProp(),
-                    ["query"] = Prop("string", "FTS5 search query (optional when kinds is set). Omit to browse all symbols of the specified kinds. Space = implicit AND. Use OR for alternatives: 'Foo OR Bar'. Use * for prefix matching: 'Order*'."),
+                    ["query"] = Prop("string", "Search query (optional when kinds is set). Omit to browse all symbols of the specified kinds. Words are matched by prefix against symbol names, namespaces and doc words ('Order' finds OrderService); all words must match (space = AND). Use OR for alternatives: 'Foo OR Bar'. Quotes group words (\"Order Service\" = both words, not an exact phrase); a trailing * is accepted. NOT / NEAR are not supported."),
                     ["kinds"] = new JsonObject
                     {
                         ["type"] = "array",

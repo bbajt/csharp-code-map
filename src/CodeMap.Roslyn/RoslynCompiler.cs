@@ -37,28 +37,19 @@ public sealed class RoslynCompiler : IRoslynCompiler
         string solutionDir = Path.GetDirectoryName(Path.GetFullPath(solutionPath))!;
         var sw = Stopwatch.StartNew();
 
-        using var workspace = MSBuildWorkspace.Create();
-
-        workspace.RegisterWorkspaceFailedHandler((args) =>
-            _logger.LogWarning("Workspace diagnostic [{Kind}]: {Message}",
-                args.Diagnostic.Kind, args.Diagnostic.Message));
+        // F9 (ADR-042): never evaluate the same checkout concurrently with another CodeMap
+        // process — design-time builds race on generated files under obj/. Held through
+        // extraction (everything that may touch obj/).
+        var checkoutRoot = CheckoutBuildLock.ResolveCheckoutRoot(solutionPath);
+        await using var buildLock = await CheckoutBuildLock.AcquireAsync(
+            checkoutRoot, CheckoutBuildLock.ConfiguredTimeout(), _logger, ct).ConfigureAwait(false);
 
         // Accept either a solution file (.sln/.slnx) or a bare project file
         // (.csproj/.vbproj/.fsproj). The .csproj fallback (M19 PHASE-19-01-T04)
         // unblocks `dotnet new` template scaffolds that ship without a solution.
         var swEval = Stopwatch.StartNew();
-        Solution solution;
-        if (IsProjectFile(solutionPath))
-        {
-            _logger.LogInformation("Opening project (solution-less): {ProjectPath}", solutionPath);
-            var project = await workspace.OpenProjectAsync(solutionPath, cancellationToken: ct);
-            solution = project.Solution;
-        }
-        else
-        {
-            _logger.LogInformation("Opening solution: {SolutionPath}", solutionPath);
-            solution = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct);
-        }
+        var (workspace, solution) = await OpenWithTransientRetryAsync(solutionPath, ct).ConfigureAwait(false);
+        using var workspaceScope = workspace;
         swEval.Stop();
         var totalProjectsLoaded = solution.Projects.Count();
         _logger.LogInformation(
@@ -77,6 +68,63 @@ public sealed class RoslynCompiler : IRoslynCompiler
 
         var stats = result.Stats with { ElapsedSeconds = sw.Elapsed.TotalSeconds };
         return result with { Stats = stats };
+    }
+
+    /// <summary>
+    /// Opens the solution/project in a new MSBuildWorkspace. If the load reports a transient
+    /// file-conflict failure (another build writing the same <c>obj/</c>, e.g. an IDE or
+    /// <c>dotnet build</c> the checkout lock can't see), disposes and reopens once (F9, ADR-042).
+    /// A second failure is kept and logged as before.
+    /// </summary>
+    private async Task<(MSBuildWorkspace Workspace, Solution Solution)> OpenWithTransientRetryAsync(
+        string solutionPath, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var workspace = MSBuildWorkspace.Create();
+            var transient = new List<string>();
+            workspace.RegisterWorkspaceFailedHandler(args =>
+            {
+                _logger.LogWarning("Workspace diagnostic [{Kind}]: {Message}",
+                    args.Diagnostic.Kind, args.Diagnostic.Message);
+                if (args.Diagnostic.Kind == WorkspaceDiagnosticKind.Failure &&
+                    CheckoutBuildLock.IsTransientWorkspaceFailure(args.Diagnostic.Message))
+                {
+                    lock (transient) transient.Add(args.Diagnostic.Message);
+                }
+            });
+
+            try
+            {
+                Solution solution;
+                if (IsProjectFile(solutionPath))
+                {
+                    _logger.LogInformation("Opening project (solution-less): {ProjectPath}", solutionPath);
+                    var project = await workspace.OpenProjectAsync(solutionPath, cancellationToken: ct);
+                    solution = project.Solution;
+                }
+                else
+                {
+                    _logger.LogInformation("Opening solution: {SolutionPath}", solutionPath);
+                    solution = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct);
+                }
+
+                if (transient.Count == 0 || attempt > 1)
+                    return (workspace, solution);
+
+                _logger.LogWarning(
+                    "Transient MSBuild file conflict while loading {SolutionPath}; retrying once: {Failure}",
+                    solutionPath, transient[0]);
+            }
+            catch
+            {
+                workspace.Dispose();
+                throw;
+            }
+
+            workspace.Dispose();
+            await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc/>
@@ -143,7 +191,9 @@ public sealed class RoslynCompiler : IRoslynCompiler
         IReadOnlyList<SymbolCard> Symbols,
         IReadOnlyDictionary<string, StableId> StableIdMap,
         IReadOnlyList<DiagnosticSeverity> ErrorSeverities,
-        IReadOnlyList<string> ErrorMessages);
+        IReadOnlyList<string> ErrorMessages,
+        IReadOnlyList<string>? GeneratorLoadFailures = null,
+        string? MissingRestoreOutput = null);
 
     private sealed record FSharpPassData(
         string ProjectName,
@@ -217,7 +267,9 @@ public sealed class RoslynCompiler : IRoslynCompiler
             SymbolCount: pd.Symbols.Count,
             ReferenceCount: references.Count,
             Errors: pd.ErrorMessages.Count > 0 ? pd.ErrorMessages : null,
-            TargetFrameworks: pd.TargetFrameworks);
+            TargetFrameworks: pd.TargetFrameworks,
+            GeneratorLoadFailures: pd.GeneratorLoadFailures is { Count: > 0 } ? pd.GeneratorLoadFailures : null,
+            MissingRestoreOutput: pd.MissingRestoreOutput);
 
         return new Pass2Result(references, facts, diagnostic, swRefs.ElapsedMilliseconds, swFacts.ElapsedMilliseconds);
     }
@@ -242,6 +294,8 @@ public sealed class RoslynCompiler : IRoslynCompiler
         // build-dependency order, so a streaming accumulation cannot work.
         var passData = new List<ProjectPassData>();
         var fsPassData = new List<FSharpPassData>();
+        var generatorAssemblyCache = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var warnedGeneratorFailures = new HashSet<string>(StringComparer.Ordinal);
 
         // ── Pass 0: F# projects (MSBuildWorkspace doesn't load them at all).
         // Scan the .sln for .fsproj entries and process via FCS bridge.
@@ -398,6 +452,36 @@ public sealed class RoslynCompiler : IRoslynCompiler
                         confidence = Confidence.Medium;
                 }
 
+                // F10: generators the compiler refused to load (e.g. an SDK's Razor compiler built for
+                // a newer Roslyn) leave their generated code out of the compilation — report, never
+                // silently index without it (ADR-046).
+                var generatorFailures = GeneratorLoadFailureTracker.Inspect(winningProject, generatorAssemblyCache);
+                if (generatorFailures.Count > 0)
+                {
+                    foreach (var failure in generatorFailures)
+                    {
+                        if (warnedGeneratorFailures.Add(failure))
+                            _logger.LogWarning(
+                                "Source generator could not be loaded — code it generates (e.g. Razor components) is missing from the index. " +
+                                "Update CodeMap, or use an SDK whose generators match its Roslyn. Project {Project}: {Failure}",
+                                group.CanonicalName, failure);
+                    }
+                    if (confidence == Confidence.High)
+                        confidence = Confidence.Medium;
+                }
+
+                // F12: a checkout that was never restored (fresh clone / git worktree — obj/ is
+                // gitignored, MSBuildWorkspace doesn't restore) compiles with unresolved references,
+                // sometimes including the framework's. Always reported; with errors it lowers the
+                // level via SemanticLevels.IsComplete (ADR-054).
+                var missingRestoreOutput = RestoreOutputProbe.FindMissing(winningProject, solutionDir);
+                if (missingRestoreOutput is not null && errors.Count > 0)
+                    _logger.LogWarning(
+                        "Project {Project} has no NuGet restore output ({Path}) and {Count} compile error(s): " +
+                        "package references are unresolved and the index is incomplete. Run 'dotnet restore' on the " +
+                        "solution in this checkout, then rebuild the baseline (next commit, or index.remove_repo).",
+                        group.CanonicalName, missingRestoreOutput, errors.Count);
+
                 var (symbols, stableIdMap) = SymbolExtractor.ExtractAllWithStableIds(
                     winningCompilation, group.CanonicalName, solutionDir);
                 var files = ExtractFiles(winningProject, winningCompilation, group.CanonicalName, solutionDir);
@@ -415,7 +499,9 @@ public sealed class RoslynCompiler : IRoslynCompiler
                     Symbols: symbols,
                     StableIdMap: stableIdMap,
                     ErrorSeverities: errors.Select(e => e.Severity).ToList(),
-                    ErrorMessages: errors.Take(5).Select(e => e.GetMessage()).ToList()));
+                    ErrorMessages: errors.Take(5).Select(e => e.GetMessage()).ToList(),
+                    GeneratorLoadFailures: generatorFailures,
+                    MissingRestoreOutput: missingRestoreOutput));
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception extractionEx)
@@ -491,15 +577,7 @@ public sealed class RoslynCompiler : IRoslynCompiler
             "PHASE_TIMING pass2_total_ms={TotalMs} refs_sum_ms={RefsMs} facts_sum_ms={FactsMs}",
             swPass2.ElapsedMilliseconds, totalRefsMs, totalFactsMs);
 
-        // Compute SemanticLevel from per-project outcomes
-        int compiledCount = projectDiagnostics.Count(d => d.Compiled);
-        int totalCount = projectDiagnostics.Count;
-        var semanticLevel = (compiledCount, totalCount) switch
-        {
-            (var c, var t) when c == t => Core.Enums.SemanticLevel.Full,
-            (0, _) => Core.Enums.SemanticLevel.SyntaxOnly,
-            _ => Core.Enums.SemanticLevel.Partial
-        };
+        var semanticLevel = ComputeSemanticLevel(projectDiagnostics);
 
         var stats = new IndexStats(
             SymbolCount: allSymbols.Count,
@@ -696,6 +774,17 @@ public sealed class RoslynCompiler : IRoslynCompiler
 
         return files;
     }
+
+    /// <summary>
+    /// Run-level <see cref="Core.Enums.SemanticLevel"/> from per-project outcomes: <c>Full</c> only
+    /// when every project compiled <em>and</em> every source generator loaded; <c>SyntaxOnly</c> when
+    /// none compiled; otherwise <c>Partial</c>. A project whose generators failed to load
+    /// (<see cref="Core.Models.ProjectDiagnostic.GeneratorLoadFailures"/>) is missing its generated
+    /// code, so it doesn't count as fully compiled (F10, ADR-046). Delegates to
+    /// <see cref="Core.Models.SemanticLevels.Compute"/>, the rule stored baselines use too (F13).
+    /// </summary>
+    internal static Core.Enums.SemanticLevel ComputeSemanticLevel(IReadOnlyList<Core.Models.ProjectDiagnostic> projects) =>
+        Core.Models.SemanticLevels.Compute(projects);
 
     /// <summary>
     /// Returns true when <paramref name="candidate"/> resolves to a path inside

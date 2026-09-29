@@ -15,6 +15,18 @@ workspace.create       { repo_path: ".", workspace_id: "session" }
 
 Fast (<2s total). Do this before reading any code or planning any changes.
 
+**Fresh clone or git worktree?** Run `dotnet restore <solution>` before `index.ensure_baseline`.
+CodeMap doesn't restore, and an unrestored checkout is indexed with unresolved packages.
+
+**`semantic_level: partial` in a response** means some projects are indexed incompletely: missing
+results there are not proof that code doesn't exist. `project_diagnostics` in the
+`index.ensure_baseline` result says why (`missing_restore_output`: the checkout wasn't restored;
+`generator_load_failures`: an SDK source generator didn't load). Tell the user rather than working
+around it.
+
+**`WORKSPACE_IN_USE`** means another CodeMap process (e.g. a parallel agent) holds that workspace.
+Retry, or give each agent its own `workspace_id` (e.g. `"session-reviewer"`).
+
 ---
 
 ### Decision Table — What to Use Instead

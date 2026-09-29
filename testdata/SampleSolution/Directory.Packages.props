@@ -1,0 +1,18 @@
+<Project>
+  <!--
+    Test fixture only: SampleApp.Tests is an xUnit v2 project that CodeMap indexes; it is never run.
+    The repo-root Directory.Packages.props dropped these versions in the xUnit v3 migration (56f44ba),
+    which left SampleSolution unrestorable (NU1010). NuGet imports only the nearest
+    Directory.Packages.props, so this file applies to SampleSolution alone. Versions are the ones the
+    fixture restored with before that migration (PHASE-21-06 T02).
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+</Project>

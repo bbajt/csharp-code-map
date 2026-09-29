@@ -22,8 +22,6 @@ internal sealed class SearchIndexReader : IEngineSearchIndex
     // TokenStringId → index into header table
     private readonly Dictionary<int, int> _tokenIdToHeaderIndex;
 
-    private static readonly char[] QuerySeparators = ['.', '_', '-', '/', '\\', ' ', '\t'];
-
     public SearchIndexReader(EngineBaselineReader reader, string searchIdxPath)
     {
         _reader = reader;
@@ -67,72 +65,43 @@ internal sealed class SearchIndexReader : IEngineSearchIndex
         if (string.IsNullOrWhiteSpace(query))
             return [];
 
-        // Step 1: Normalize query into tokens (SEARCH-DESIGN §2.1, C-017)
-        var queryTokens = NormalizeQuery(query);
-        if (queryTokens.Length == 0) return [];
+        // Step 1: Parse into OR-of-AND groups (PHASE-21-08, ADR-055). Pre-fix, "OR" was just another
+        // token ANDed with the rest, so every OR query returned nothing.
+        var parsed = SearchQuery.Parse(query);
+        if (parsed.Groups.Count == 0) return [];
 
-        // Step 2: Per-token postings lookup with prefix expansion
-        HashSet<int>? intersection = null;
-        foreach (var qt in queryTokens)
+        // Step 2: per group, intersect the prefix-expanded postings of its tokens; union across
+        // groups. A symbol's score is the best score of any group it matches.
+        var bestScore = new Dictionary<int, int>();
+        var rejected = new HashSet<int>();
+        foreach (var group in parsed.Groups)
         {
-            var postings = GetPostingsForPrefix(qt);
-            if (postings.Count == 0) return [];
+            var matches = MatchGroup(group);
+            if (matches is null) continue;
 
-            if (intersection == null)
-                intersection = postings;
-            else
-                intersection.IntersectWith(postings);
+            foreach (var symbolIntId in matches)
+            {
+                if (rejected.Contains(symbolIntId)) continue;
+                if (symbolIntId < 1 || symbolIntId > _reader.SymbolCount) continue;
 
-            if (intersection.Count == 0) return [];
+                ref readonly var sym = ref _reader.GetSymbolByIntId(symbolIntId);
+                if (!bestScore.ContainsKey(symbolIntId) && !PassesFilter(sym, filter))
+                {
+                    rejected.Add(symbolIntId);
+                    continue;
+                }
+
+                var score = ComputeScore(sym, group.RawText, group.Tokens);
+                if (!bestScore.TryGetValue(symbolIntId, out var existing) || score > existing)
+                    bestScore[symbolIntId] = score;
+            }
         }
 
-        if (intersection == null || intersection.Count == 0) return [];
+        // Step 3: Sort by score descending, limit
+        var results = new List<SymbolSearchResult>(bestScore.Count);
+        foreach (var (symbolIntId, score) in bestScore)
+            results.Add(new SymbolSearchResult(_reader.GetSymbolByIntId(symbolIntId), score));
 
-        // Step 3: Score and filter
-        var results = new List<SymbolSearchResult>();
-        var queryLower = query.Trim().ToLowerInvariant();
-
-        foreach (var symbolIntId in intersection)
-        {
-            if (symbolIntId < 1 || symbolIntId > _reader.SymbolCount) continue;
-
-            ref readonly var sym = ref _reader.GetSymbolByIntId(symbolIntId);
-
-            // Apply filters
-            if (filter.Kind.HasValue && sym.Kind != filter.Kind.Value) continue;
-            if (filter.ExcludeDecompiled && (sym.Flags & (1 << 7)) != 0) continue;
-            if (filter.ExcludeTestSymbols && (sym.Flags & (1 << 8)) != 0) continue;
-
-            if (filter.NamespacePrefix != null)
-            {
-                var ns = sym.NamespaceStringId > 0 ? _reader.ResolveString(sym.NamespaceStringId) : "";
-                if (!ns.StartsWith(filter.NamespacePrefix, StringComparison.OrdinalIgnoreCase))
-                    continue;
-            }
-
-            if (filter.FilePathPrefix != null)
-            {
-                if (sym.FileIntId < 1 || sym.FileIntId > _reader.FileCount) continue;
-                ref readonly var file = ref _reader.GetFileByIntId(sym.FileIntId);
-                var path = file.PathStringId > 0 ? _reader.ResolveString(file.PathStringId) : "";
-                if (!path.StartsWith(filter.FilePathPrefix, StringComparison.OrdinalIgnoreCase))
-                    continue;
-            }
-
-            if (filter.ProjectName != null)
-            {
-                if (sym.ProjectIntId < 1 || sym.ProjectIntId > _reader.ProjectCount) continue;
-                ref readonly var proj = ref _reader.GetProjectByIntId(sym.ProjectIntId);
-                var name = proj.NameStringId > 0 ? _reader.ResolveString(proj.NameStringId) : "";
-                if (!string.Equals(name, filter.ProjectName, StringComparison.OrdinalIgnoreCase))
-                    continue;
-            }
-
-            var score = ComputeScore(sym, queryLower, queryTokens);
-            results.Add(new SymbolSearchResult(sym, score));
-        }
-
-        // Step 4: Sort by score descending, limit
         results.Sort((a, b) => b.Score.CompareTo(a.Score));
         if (results.Count > filter.Limit)
             results.RemoveRange(filter.Limit, results.Count - filter.Limit);
@@ -140,7 +109,65 @@ internal sealed class SearchIndexReader : IEngineSearchIndex
         return results.ToArray();
     }
 
-    private int ComputeScore(in SymbolRecord sym, string queryLower, string[] queryTokens)
+    /// <summary>
+    /// Symbols matching every token of <paramref name="group"/> (token-prefix match), or
+    /// <see langword="null"/> when none do.
+    /// </summary>
+    private HashSet<int>? MatchGroup(SearchQuery.Group group)
+    {
+        HashSet<int>? intersection = null;
+        foreach (var qt in group.Tokens)
+        {
+            var postings = GetPostingsForPrefix(qt);
+            if (postings.Count == 0) return null;
+
+            if (intersection == null)
+                intersection = postings;
+            else
+                intersection.IntersectWith(postings);
+
+            if (intersection.Count == 0) return null;
+        }
+        return intersection;
+    }
+
+    /// <summary>The <see cref="SymbolSearchFilter"/> predicates (kind, flags, namespace, file, project).</summary>
+    private bool PassesFilter(in SymbolRecord sym, SymbolSearchFilter filter)
+    {
+        if (filter.Kind.HasValue && sym.Kind != filter.Kind.Value) return false;
+        if (filter.Kinds is { } kinds && !kinds.Contains(sym.Kind)) return false;
+        if (filter.ExcludeDecompiled && (sym.Flags & (1 << 7)) != 0) return false;
+        if (filter.ExcludeTestSymbols && (sym.Flags & (1 << 8)) != 0) return false;
+
+        if (filter.NamespacePrefix != null)
+        {
+            var ns = sym.NamespaceStringId > 0 ? _reader.ResolveString(sym.NamespaceStringId) : "";
+            if (!ns.StartsWith(filter.NamespacePrefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        if (filter.FilePathPrefix != null)
+        {
+            if (sym.FileIntId < 1 || sym.FileIntId > _reader.FileCount) return false;
+            ref readonly var file = ref _reader.GetFileByIntId(sym.FileIntId);
+            var path = file.PathStringId > 0 ? _reader.ResolveString(file.PathStringId) : "";
+            if (!path.StartsWith(filter.FilePathPrefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        if (filter.ProjectName != null)
+        {
+            if (sym.ProjectIntId < 1 || sym.ProjectIntId > _reader.ProjectCount) return false;
+            ref readonly var proj = ref _reader.GetProjectByIntId(sym.ProjectIntId);
+            var name = proj.NameStringId > 0 ? _reader.ResolveString(proj.NameStringId) : "";
+            if (!string.Equals(name, filter.ProjectName, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        return true;
+    }
+
+    private int ComputeScore(in SymbolRecord sym, string queryLower, IReadOnlyList<string> queryTokens)
     {
         var score = 0;
         var displayName = sym.DisplayNameStringId > 0 ? _reader.ResolveString(sym.DisplayNameStringId) : "";
@@ -176,7 +203,7 @@ internal sealed class SearchIndexReader : IEngineSearchIndex
                         }
                     }
                 }
-                score += (int)(20.0 * matched / queryTokens.Length);
+                score += (int)(20.0 * matched / queryTokens.Count);
             }
         }
 
@@ -184,25 +211,6 @@ internal sealed class SearchIndexReader : IEngineSearchIndex
         if (displayName.Length < 30) score += 5;
 
         return score;
-    }
-
-    private static string[] NormalizeQuery(string rawQuery)
-    {
-        // C-017: Split on dots/separators first, then camelCase split within segments
-        // Strip FTS5 wildcard suffix (*) — v2 engine uses prefix matching natively
-        var cleaned = rawQuery.Trim().TrimEnd('*').ToLowerInvariant();
-        var segments = cleaned.Split(QuerySeparators, StringSplitOptions.RemoveEmptyEntries);
-        var tokens = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var seg in segments)
-        {
-            tokens.Add(seg);
-            foreach (var part in SearchIndexBuilder.Tokenize("", seg, null))
-            {
-                if (part.Length >= 1)
-                    tokens.Add(part);
-            }
-        }
-        return tokens.ToArray();
     }
 
     private HashSet<int> GetPostingsForPrefix(string prefix)

@@ -51,4 +51,23 @@ public record CodeMapError(
     public static CodeMapError Ambiguous(string message, IReadOnlyList<string> candidates) =>
         new(ErrorCodes.Ambiguous, message,
             new Dictionary<string, object> { ["candidates"] = candidates });
+
+    /// <summary>
+    /// The workspace's overlay is held by another CodeMap process. Retryable; the message tells
+    /// the agent how to recover.
+    /// </summary>
+    public static CodeMapError WorkspaceInUse(string workspaceId, string detail) =>
+        new(ErrorCodes.WorkspaceInUse,
+            $"Workspace '{workspaceId}' is in use by another CodeMap process ({detail}). " +
+            "Use a different workspace_id, or retry after that session ends.",
+            new Dictionary<string, object> { ["workspace_id"] = workspaceId },
+            Retryable: true);
+
+    /// <summary>An I/O or storage-engine failure. Retryable.</summary>
+    public static CodeMapError StorageError(string message) =>
+        new(ErrorCodes.StorageError, message, Retryable: true);
+
+    /// <summary>An unexpected exception inside a tool handler. Not retryable.</summary>
+    public static CodeMapError InternalError(string message) =>
+        new(ErrorCodes.InternalError, message);
 }

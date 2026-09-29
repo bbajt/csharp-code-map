@@ -72,10 +72,13 @@ public sealed class QueryEngine : IQueryEngine
                     "To browse by type, omit query and pass a kinds filter (e.g. kinds=[\"Class\"])."));
         }
 
+        if (FtsQuerySanitizer.UnsupportedOperator(query) is { } op)
+            return Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Failure(
+                CodeMapError.InvalidArgument(FtsQuerySanitizer.UnsupportedOperatorMessage(op)));
         var sanitized = FtsQuerySanitizer.Sanitize(query) ?? "";
         if (string.IsNullOrEmpty(sanitized))
             return Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>.Failure(
-                CodeMapError.InvalidArgument("Query contains only unsupported FTS5 special characters. Try a plain symbol name."));
+                CodeMapError.InvalidArgument(FtsQuerySanitizer.NothingSearchableMessage));
         query = sanitized;
 
         // 2. Resolve commit

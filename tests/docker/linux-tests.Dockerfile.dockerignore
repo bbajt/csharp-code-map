@@ -1,0 +1,18 @@
+# Allow-list for the Linux test rig. Everything is excluded unless re-included below, so local
+# secrets (.nuget-key), IDE state (.vs) and build output never enter the image.
+*
+!CodeMap.sln
+!Directory.Build.props
+!Directory.Packages.props
+!global.json
+!.editorconfig
+!src
+!tests
+!testdata
+# The concurrency harness clones the repo (git clone --local) — needs the object store.
+!.git
+
+**/bin
+**/obj
+**/BenchmarkDotNet.Artifacts
+**/TestResults

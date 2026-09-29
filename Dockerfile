@@ -1,5 +1,5 @@
 # === Build stage ===
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copy solution and project files first for layer caching
@@ -7,7 +7,7 @@ COPY *.sln Directory.Packages.props Directory.Build.props ./
 COPY src/CodeMap.Core/*.csproj src/CodeMap.Core/
 COPY src/CodeMap.Git/*.csproj src/CodeMap.Git/
 COPY src/CodeMap.Roslyn/*.csproj src/CodeMap.Roslyn/
-COPY src/CodeMap.Storage/*.csproj src/CodeMap.Storage/
+COPY src/CodeMap.Storage.Engine/*.csproj src/CodeMap.Storage.Engine/
 COPY src/CodeMap.Query/*.csproj src/CodeMap.Query/
 COPY src/CodeMap.Mcp/*.csproj src/CodeMap.Mcp/
 COPY src/CodeMap.Daemon/*.csproj src/CodeMap.Daemon/
@@ -25,7 +25,7 @@ RUN dotnet publish src/CodeMap.Daemon -c Release -o /app/publish --no-restore
 # Alternatives:
 # (b) Copy MSBuild from build stage into the runtime image — more complex, smaller.
 # (c) Use runtime image + pre-built baselines from shared cache only (no indexing).
-FROM mcr.microsoft.com/dotnet/sdk:9.0
+FROM mcr.microsoft.com/dotnet/sdk:10.0
 WORKDIR /app
 
 COPY --from=build /app/publish .

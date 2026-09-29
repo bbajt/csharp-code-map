@@ -74,7 +74,7 @@ public sealed class RecordToCoreMappingsConfidenceTests : IAsyncLifetime
     {
         // Simulate a syntactic-fallback symbol: a SymbolRecord with FileIntId=0,
         // injected directly into the overlay (the baseline builder would drop it).
-        var overlay = _symbolStore.TryGetOverlay(Ws.Value)!;
+        var overlay = _symbolStore.TryGetOverlay(Repo.Value, Ws.Value)!;
 
         var stableSid = overlay.InternStringInternal("sym_overlay_ghost");
         var fqnSid = overlay.InternStringInternal("T:MyApp.Ghost");

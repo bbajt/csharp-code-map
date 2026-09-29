@@ -17,6 +17,86 @@ using CodeMap.Mcp.Serialization;
 /// </summary>
 internal static class HandlerHelpers
 {
+    // ── Exception → error-code classification (ADR-041) ───────────────────────
+
+    private const int WinErrorSharingViolation = 32;
+    private const int WinErrorLockViolation = 33;
+    private const int EWouldBlockLinux = 11;
+    private const int EWouldBlockMacOs = 35;
+
+    /// <summary>
+    /// Maps an exception caught by a handler's outer <c>catch</c> to an honest error:
+    /// sharing violation → <c>WORKSPACE_IN_USE</c> (workspace-scoped) or <c>STORAGE_ERROR</c>;
+    /// <see cref="IStorageFailure"/> / I/O / access denied → <c>STORAGE_ERROR</c> (retryable);
+    /// <see cref="ArgumentException"/> (value-type guards on caller input) → <c>INVALID_ARGUMENT</c>;
+    /// anything else → <c>INTERNAL_ERROR</c>. Never maps to <c>COMPILATION_FAILED</c>, and never
+    /// labels an I/O conflict or a bug as <c>INVALID_ARGUMENT</c>.
+    /// The original message is always kept. Callers still log the exception.
+    /// </summary>
+    /// <param name="ex">The caught exception (never <see cref="OperationCanceledException"/>).</param>
+    /// <param name="operation">Tool name used as the message prefix, e.g. <c>workspace.create</c>.</param>
+    /// <param name="workspaceId">Non-null for workspace-scoped operations.</param>
+    internal static CodeMapError ClassifyException(Exception ex, string operation, string? workspaceId)
+    {
+        if (ex is IOException io && IsSharingViolation(io))
+        {
+            return workspaceId is not null
+                ? CodeMapError.WorkspaceInUse(workspaceId, $"{operation}: {ex.Message}")
+                : CodeMapError.StorageError($"{operation} failed: {ex.Message} In use by another process; retry shortly.");
+        }
+
+        return ex switch
+        {
+            // Value-type guards (WorkspaceId.From, FilePath.From, CommitSha.From) throw
+            // ArgumentException for bad caller input inside the try — that IS a caller error.
+            ArgumentException => CodeMapError.InvalidArgument($"{operation}: {ex.Message}"),
+            IStorageFailure { IsTransient: true } => CodeMapError.StorageError($"{operation} failed: {ex.Message} Retry shortly."),
+            IStorageFailure or IOException or UnauthorizedAccessException => CodeMapError.StorageError($"{operation} failed: {ex.Message}"),
+            _ => CodeMapError.InternalError($"{operation} failed: {ex.Message}"),
+        };
+    }
+
+    /// <summary>
+    /// Classifies an exception that escaped a tool handler entirely (the <c>tools/call</c>
+    /// boundary in <see cref="McpServer"/>, ADR-045). Same mapping as <see cref="ClassifyException"/>
+    /// with one deliberate difference: <see cref="ArgumentException"/> → <c>INTERNAL_ERROR</c>.
+    /// Handlers validate caller input themselves, so an argument exception that reaches the
+    /// boundary is a defect (v2.6.2: <c>SymbolId.From("")</c> on an overlay symbol), not bad input.
+    /// <c>INTERNAL_ERROR</c> carries <c>details.exception_type</c> for diagnosis.
+    /// </summary>
+    /// <param name="ex">The escaped exception (never <see cref="OperationCanceledException"/>).</param>
+    /// <param name="tool">Tool name used as the message prefix.</param>
+    /// <param name="workspaceId">The call's explicit <c>workspace_id</c>, if any (no sticky-default lookup).</param>
+    internal static CodeMapError ClassifyUnhandled(Exception ex, string tool, string? workspaceId)
+    {
+        var error = ex is ArgumentException
+            ? CodeMapError.InternalError($"{tool} failed: {ex.Message}")
+            : ClassifyException(ex, tool, workspaceId);
+
+        return error.Code == ErrorCodes.InternalError
+            ? error with { Details = new Dictionary<string, object> { ["exception_type"] = ex.GetType().FullName ?? ex.GetType().Name } }
+            : error;
+    }
+
+    /// <summary>Renders <paramref name="error"/> as the standard error-envelope tool result.</summary>
+    internal static ToolCallResult ErrorResult(CodeMapError error) => Err(error);
+
+    /// <summary>
+    /// True when <paramref name="ex"/> is a file sharing/lock conflict with another process:
+    /// Windows <c>ERROR_SHARING_VIOLATION</c> / <c>ERROR_LOCK_VIOLATION</c>, or on Unix the
+    /// <c>EWOULDBLOCK</c> errno .NET reports when its advisory lock is held elsewhere.
+    /// </summary>
+    internal static bool IsSharingViolation(IOException ex)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var code = ex.HResult & 0xFFFF;
+            return (ex.HResult & unchecked((int)0xFFFF0000)) == unchecked((int)0x80070000)
+                && code is WinErrorSharingViolation or WinErrorLockViolation;
+        }
+        return ex.HResult == (OperatingSystem.IsMacOS() ? EWouldBlockMacOs : EWouldBlockLinux);
+    }
+
     // ── Tool annotation presets (MCP 2025-03-26 spec) ─────────────────────────
     //
     // All CodeMap tools are closed-world (local index, no network), so OpenWorld
@@ -174,11 +254,21 @@ internal static class HandlerHelpers
         if (string.IsNullOrEmpty(query))
         {
             return "0 hits. Tip: pass `kinds` (e.g. [\"Class\"]) to browse all symbols of a kind, "
-                + "or `query` (FTS5 — supports OR and * prefix) to search by name.";
+                + "or `query` to search by name (words must all match; `A OR B` for alternatives).";
         }
-        return "0 hits. Tip: FTS5 search is by symbol name only. For literal text inside source "
-            + "bodies (string constants, comments) use code.search_text. To match partial names "
-            + "use a wildcard like `" + query + "*`.";
+
+        // PHASE-21-08: the v2 engine isn't FTS5. Terms already match by prefix, so suggesting
+        // `query*` didn't help; for several words, every word must match, so suggest OR.
+        var words = query.Split((char[])[' ', '\t'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => w.Trim('"'))
+            .Where(w => w.Length > 0 && w is not ("OR" or "AND"))
+            .ToList();
+        var orTip = words.Count > 1 && !query.Contains(" OR ", StringComparison.Ordinal)
+            ? $"Every word must match; to accept any of them use `{string.Join(" OR ", words)}`. "
+            : "";
+        return "0 hits. Tip: " + orTip + "Terms match symbol names, namespaces and doc words by prefix "
+            + "(`Order` finds `OrderService`), so try a shorter or different part of the name. "
+            + "For literal text inside source bodies (string constants, comments) use code.search_text.";
     }
 
     /// <summary>

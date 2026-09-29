@@ -189,6 +189,41 @@ public sealed class WorkspaceHandlerTests : IDisposable
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    // ── Error-code taxonomy (PHASE-21-02 T02, ADR-041) ───────────────────────
+
+    [Fact]
+    public async Task Create_OverlayWalLocked_ReturnsWorkspaceInUseRetryable()
+    {
+        // F3: a second process opening the same workspace's overlay.wal hits a sharing violation.
+        _manager.CreateWorkspaceAsync(
+                    Arg.Any<RepoId>(), Arg.Any<Core.Types.WorkspaceId>(), Arg.Any<CommitSha>(),
+                    Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                 .Returns<Result<CreateWorkspaceResponse, CodeMapError>>(_ => throw SharingViolation());
+
+        var result = await _handler.HandleCreateAsync(Args(RepoPath, WorkspaceId, SlnPath), CancellationToken.None);
+
+        var json = JsonNode.Parse(result.Content)!;
+        json["code"]!.GetValue<string>().Should().Be("WORKSPACE_IN_USE");
+        json["retryable"]!.GetValue<bool>().Should().BeTrue();
+        json["message"]!.GetValue<string>().Should().Contain(WorkspaceId);
+    }
+
+    [Fact]
+    public async Task Reset_UnexpectedException_ReturnsInternalErrorNotInvalidArgument()
+    {
+        _manager.ResetWorkspaceAsync(
+                    Arg.Any<RepoId>(), Arg.Any<Core.Types.WorkspaceId>(), Arg.Any<CancellationToken>())
+                 .Returns<Result<ResetWorkspaceResponse, CodeMapError>>(_ => throw new InvalidOperationException("bug"));
+
+        var result = await _handler.HandleResetAsync(ResetArgs(RepoPath, WorkspaceId), CancellationToken.None);
+
+        JsonNode.Parse(result.Content)!["code"]!.GetValue<string>().Should().Be("INTERNAL_ERROR");
+    }
+
+    private static IOException SharingViolation() =>
+        new("The process cannot access the file 'overlay.wal' because it is being used by another process.",
+            OperatingSystem.IsWindows() ? unchecked((int)0x80070020) : OperatingSystem.IsMacOS() ? 35 : 11);
+
     private static JsonObject Args(string? repoPath, string? workspaceId, string? solutionPath)
     {
         var obj = new JsonObject();

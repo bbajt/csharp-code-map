@@ -167,7 +167,7 @@ public sealed class WorkspaceHandler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "workspace.create failed for {RepoPath}", repoPath);
-            return InvalidArg($"workspace.create failed: {ex.Message}");
+            return Err(HandlerHelpers.ClassifyException(ex, "workspace.create", workspaceStr));
         }
     }
 
@@ -193,7 +193,7 @@ public sealed class WorkspaceHandler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "workspace.reset failed for {RepoPath}", repoPath);
-            return InvalidArg($"workspace.reset failed: {ex.Message}");
+            return Err(HandlerHelpers.ClassifyException(ex, "workspace.reset", workspaceStr));
         }
     }
 
@@ -215,7 +215,7 @@ public sealed class WorkspaceHandler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "workspace.list failed for {RepoPath}", repoPath);
-            return InvalidArg($"workspace.list failed: {ex.Message}");
+            return Err(HandlerHelpers.ClassifyException(ex, "workspace.list", workspaceId: null));
         }
     }
 
@@ -245,7 +245,7 @@ public sealed class WorkspaceHandler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "workspace.delete failed for {RepoPath}", repoPath);
-            return InvalidArg($"workspace.delete failed: {ex.Message}");
+            return Err(HandlerHelpers.ClassifyException(ex, "workspace.delete", workspaceStr));
         }
     }
 

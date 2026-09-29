@@ -1219,3 +1219,603 @@ tail so the existing explicit-impl prefix-strip logic applies.
   text adapts to "already applied". 1635 unit tests pass.
 - Deferred to future milestones: `graph.callees` inverse (interface → impls),
   `virtual`/`override` upward walk, member-level storage edges.
+
+---
+
+## ADR-039: `CODEMAP_HOME` Data-Root Override
+
+**Date:** 2026-09-27
+**Status:** Accepted
+
+**Context:**
+The multi-agent concurrency benchmark (PHASE-21-01, findings doc §10.2) must start
+N real `codemap-mcp` processes. The data root was hard-coded to `~/.codemap` in two
+places (`Program.Main` for config + logs, `AddCodeMapServices("~/.codemap")` for
+store, overlays and `_savings.json`), so any such run would read and write the
+developer's live store.
+
+**Decision:**
+Add an optional `CODEMAP_HOME` environment variable, resolved once in
+`CodeMapHome.ResolveFromEnvironment()` and passed to both sites.
+
+- Unset/blank → `~/.codemap` (unchanged default).
+- `~`, `~/x`, `~\x` → expanded against the user profile.
+- Fully qualified → normalised full path.
+- Relative → startup fails: one-line message on stderr, exit code 2, stdout untouched.
+  MCP clients launch servers from an unpredictable working directory, so resolving
+  against CWD would silently scatter stores.
+- Scope: `config.json`, `logs/`, `store/` (baselines + overlays), `_savings.json`.
+  Not the install layout (`bin/`, `swap.bat`) and not `CODEMAP_CACHE_DIR`.
+
+**Rejected alternatives:**
+- Overriding `USERPROFILE`/`HOME` for child processes: unreliable on Windows
+  (known-folder API ignores the env var), and it also moves `~/.nuget`, MSBuild
+  and git config, which skews the measurement.
+- `--home` CLI flag: MCP configs already carry env vars (`CODEMAP_CACHE_DIR`);
+  one mechanism is enough.
+
+**Consequences:**
+Additive and backward compatible. It's the groundwork for isolated test installs,
+CI and per-worktree data roots (ADR-06/ADR-07 in the scaling findings). If ADR-07
+later moves the *default* to an OS data dir, `CODEMAP_HOME` remains the override.
+
+---
+
+## ADR-040: Non-Destructive Baseline Publication
+
+**Date:** 2026-09-27
+**Status:** Accepted
+
+**Context:**
+PHASE-21-01's multi-process driver reproduced F6: with N daemons indexing the same
+(repo, commit), publication failed intermittently with `adjacency-in.idx ... used by
+another process` or `baselines/<sha> ... already exists`. Root cause
+(`EngineBaselineBuilder` phase 13, and identically `EngineBaselineCacheManager`
+pull/push): `if (Directory.Exists(final)) Directory.Delete(final, recursive: true);
+Directory.Move(temp, final);`. On Windows the delete removed the unmapped files of a
+baseline another process had open (`checksums.bin`, `manifest.json`, `search.idx`),
+then threw on the first mapped segment, leaving a gutted baseline (verified by
+`BaselineConcurrentPublishTests`). `BaselineExistsAsync` checked only the manifest, so a
+gutted baseline could be served, and `GetOrOpen` silently skipped a missing search index.
+
+**Decision:**
+- Baselines are immutable once published. A single `BaselinePublisher` owns
+  publication for the builder and for cache pull/push: an existing complete baseline
+  is adopted (staging discarded); an incomplete one is renamed into
+  `<repo>/temp/quarantine-*` (never deleted in place); staging → final is an atomic
+  rename, and losing that race adopts the winner.
+- Completeness = manifest parses + all 12 segment files present
+  (`BaselinePublisher.RequiredFiles`). `BaselineExistsAsync` and the shared-cache
+  checks use it; `GetOrOpen` throws `StorageCorruptionException` for an incomplete
+  baseline instead of serving it.
+- An incomplete baseline that cannot be moved aside (still open elsewhere) raises the
+  new transient `StorageBusyException`.
+- Quarantine dirs are swept best-effort at the start of each build.
+
+**Why adopt instead of replace:** a baseline is a pure function of (repo, commit,
+solution, CodeMap version), so a peer's complete baseline is equivalent to ours.
+Replacing it buys nothing and can destroy data another process is reading.
+
+**Consequences:** no format change, no re-index (all 331 baselines in a real store
+already contain the 12 files). F2 (duplicate builds) is unchanged — only publication
+is safe; build coalescing is Phase 2 (shared host). `index.cleanup`/`remove_repo`
+still delete on explicit request.
+
+---
+
+## ADR-041: Error Taxonomy for I/O Conflicts and Unexpected Failures
+
+**Date:** 2026-09-27
+**Status:** Accepted
+
+**Context:**
+Handler outer `catch (Exception)` blocks labelled every failure with one fixed code:
+`IndexHandler.Error()` hard-coded `COMPILATION_FAILED` (for storage races, I/O, git
+errors *and* validation such as "solution_path not found"); `WorkspaceHandler`,
+`OverlayRefreshHandler` and `RepoStatusHandler` returned `INVALID_ARGUMENT`. The
+multi-process driver (PHASE-21-01) showed F3 (`overlay.wal` sharing violation) as
+`INVALID_ARGUMENT` and F6 (baseline publish race) as `COMPILATION_FAILED`. Agents
+reading those codes change their input or hunt for build errors instead of retrying.
+
+**Decision:**
+- Three codes: `WORKSPACE_IN_USE` (retryable; `details.workspace_id`),
+  `STORAGE_ERROR` (retryable), `INTERNAL_ERROR` (not retryable).
+- One classifier, `HandlerHelpers.ClassifyException(ex, operation, workspaceId)`, used by
+  every handler outer catch (11 sites): sharing/lock violation → `WORKSPACE_IN_USE`
+  (workspace-scoped) or `STORAGE_ERROR`; `IStorageFailure` / `IOException` /
+  `UnauthorizedAccessException` → `STORAGE_ERROR`; `ArgumentException` (value-type guards
+  such as `WorkspaceId.From` on caller input) → `INVALID_ARGUMENT`; anything else →
+  `INTERNAL_ERROR`. Messages keep the original exception text.
+- `IndexHandler.Error(string)` now means `INVALID_ARGUMENT`; the genuine
+  "no symbols" compile failure keeps `COMPILATION_FAILED` (with `failed_projects`).
+- **Dependency rule:** CodeMap.Mcp must not reference Storage.Engine, so the storage layer
+  is recognised through a Core marker interface `CodeMap.Core.Interfaces.IStorageFailure`
+  (`bool IsTransient`), implemented by `StorageEngineException` (transient = `Busy`).
+- Sharing-violation detection: Windows HRESULT `0x80070020` / `0x80070021`; Unix
+  `EWOULDBLOCK` (11 Linux / 35 macOS) — the Unix branch is unverified until PHASE-21-03.
+
+**Consequences:** additive codes, envelope unchanged (`retryable` already serialised).
+Behaviour change where the old code was wrong (called out in CHANGELOG v2.8.2). Query
+tools without an outer catch (e.g. `symbols.search` hitting an incomplete baseline) still
+surface as JSON-RPC `-32603` — follow-up.
+
+---
+
+## ADR-042: Per-Checkout Build Lock for MSBuild Evaluation
+
+**Date:** 2026-09-27
+**Status:** Accepted
+
+**Context:**
+F9 (PHASE-21-03): two CodeMap processes running `ensure_baseline` on the same checkout
+raced MSBuild design-time targets on generated files under `obj/`
+(`Could not write lines to file "…\obj\Debug\net10.0\EmbeddedAttribute.cs". Cannot create a
+file when that file already exists.`). The losing project loaded without the file and
+compiled with errors — which still counts as `Compiled` — so a degraded baseline was
+published under (repo, commit) and, after ADR-040, adopted by every other process. An
+in-process regression test reproduced it in 4/4 runs.
+
+**Decision:**
+- `CheckoutBuildLock`: an OS-level `FileShare.None` handle on
+  `<TEMP>/codemap-locks/<sha256(checkout root)[..16]>.lock`. Checkout root = nearest ancestor
+  with `.git` (directory or worktree file), else the solution directory; normalised and
+  case-folded except on Linux. Keyed outside `CODEMAP_HOME` so processes with different data
+  roots still exclude each other; the OS releases it if the holder dies.
+- Held by `RoslynCompiler.CompileAndExtractAsync` from workspace open through extraction, and by
+  `IncrementalCompiler`'s cold-path workspace open. Warm-path document edits do not take it.
+- Waiters poll every 250 ms; timeout 30 min (`CODEMAP_BUILD_LOCK_TIMEOUT_SECONDS`), then
+  `IOException` → `STORAGE_ERROR` (retryable, ADR-041).
+- One retry when an MSBuild `Failure` diagnostic matches a file-conflict pattern
+  (conflicts with IDE / `dotnet build`, which the lock cannot see); a second failure is kept.
+
+**Consequences:** same-checkout builds are serialised (not deduplicated — F2 stays for
+Phase 2); separate worktrees/clones never contend (0 waits at N=4 isolated, throughput
+unchanged). No format change.
+
+## ADR-043: Repo-Scoped Overlays
+
+**Date:** 2026-09-28
+**Status:** Accepted
+
+**Context:**
+`WorkspaceManager` keys workspaces by `(RepoId, WorkspaceId)`, but the storage layer keyed
+overlays by `workspaceId` alone: the `CustomSymbolStore` overlay cache, the directory
+`store/overlays/<workspaceId>/`, and `CustomEngineOverlayStore`'s workspace → (repo, commit)
+map. The same id in two repos (every agent is told to use `"session"`) therefore shared one
+`EngineOverlay` bound to the first repo's baseline, the last `workspace.create` rebound the
+map, and delete/reset of one repo's workspace destroyed the other's. Across processes, two
+unrelated repos collided on one `overlay.wal` → `WORKSPACE_IN_USE` (F3). The baseline-level
+writes in `CustomSymbolStore` (edge upgrades, metadata stubs, virtual files, decompiled-symbol
+upgrades) used the commit SHA as the overlay key and collided the same way for two RepoIds at
+one commit (e.g. two remote-less clones).
+
+**Decision:**
+- Overlays live at `<store>/<repoId>/overlays/<key>/` next to that repo's `baselines/`;
+  the in-memory cache and `_wsToCommit` are keyed by `(repoId, key)`. Key = workspace id, or
+  the commit SHA for the baseline-level writes. Internal methods only — `IOverlayStore` already
+  carried `RepoId` on every call, so no interface change (`ISymbolStore` stays at 27).
+- The legacy flat `store/overlays/` tree is never read or written. Overlays are session scratch
+  state, so there is no migration: a workspace re-created after the upgrade starts empty.
+  `index.cleanup` (non-dry-run) sweeps the legacy tree best-effort, skipping any directory
+  whose `overlay.wal` cannot be opened `FileShare.None` (held by a running pre-v2.8.2 daemon —
+  .NET enforces this on Unix too), and removes the root once empty.
+- `index.remove_repo` deletes `<store>/<repoId>/`, which now includes that repo's overlays.
+
+**Consequences:** the same workspace id in two repos is fully isolated in one process and
+across processes; F3 remains only for the same `(repo, workspace)`. No baseline change, no
+re-index. A workspace id that equals a commit SHA still shares the baseline-level overlay of
+that repo (pre-existing, unchanged).
+
+## ADR-044: Exclusive Overlay Writer Lock (F4)
+
+**Date:** 2026-09-28
+**Status:** Accepted
+
+**Context:**
+F4 (PHASE-21-04): `WalWriter` opens `overlay.wal` with `FileShare.Read`. On Unix .NET emulates
+`FileShare` with advisory `flock`: `FileShare.None` takes `LOCK_EX`, every other mode `LOCK_SH`.
+A second process opening the same overlay therefore succeeded without error, replayed the WAL,
+wrote the manifest if absent, and appended its own records. On dispose, each process checkpoints
+its in-memory state and truncates the WAL, so **whichever process checkpointed last silently
+discarded the other's edits.** Reproduced in the Linux rig: after two writers,
+the owning writer's `T:MyApp.Yod` was gone. Windows was already protected by F3. The per-overlay
+`lock` file in `STORAGE-FORMAT.MD` had been documented but never implemented.
+
+**Decision:**
+- `EngineOverlay` opens `<overlay>/overlay.lock` with `FileShare.None` right after creating the
+  directory, **before** reading or writing manifest, snapshot or WAL. It holds the lock for its
+  lifetime and releases it last in `Dispose` (after the graceful checkpoint), or on constructor
+  failure. The file is never deleted while held; it goes with the overlay directory.
+- The lock is a live handle, not file presence. The OS releases it when the process dies, so a
+  crashed holder never blocks the next opener.
+- Failure surfaces the OS `IOException` unchanged: `WORKSPACE_IN_USE` for workspaces,
+  `STORAGE_ERROR` for commit-keyed overlays (ADR-041). No waiting inside the store.
+- The same code path runs on every OS (on Windows it's redundant with the WAL share mode, so the
+  Windows suite covers it).
+
+**Also fixed (found by the same Linux rig, all OSes):** `BaselinePublisher.Publish` (ADR-040)
+could quarantine a *complete*, freshly published baseline. A peer's atomic rename landed between
+the "is it complete?" check and the "does it exist?" check. It now re-checks completeness before
+quarantining. Since publication is one atomic rename, an existing final directory is either
+complete or genuinely gutted.
+
+**Consequences:** at most one process writes an overlay on every OS; F3 (`WORKSPACE_IN_USE`) is
+now the only cross-process behaviour for the same workspace. Not enforced where `flock` is a
+no-op (some network filesystems / container bind mounts); the CodeMap data root belongs on local
+storage. No format change beyond the new lock file, no re-index.
+
+## ADR-045: Classify Escaped Tool Exceptions at the `tools/call` Boundary
+
+**Date:** 2026-09-28
+**Status:** Accepted
+
+**Context:**
+ADR-041 gave the write tools honest error codes via `HandlerHelpers.ClassifyException` in each
+handler's catch. The 20 read-only tools have no such catch, and `McpServer.HandleToolCallAsync` had
+none either, so any exception escaping a tool reached `DispatchAsync`'s catch-all and became JSON-RPC
+`-32603 Internal error`: no CodeMap code, no `retryable`, and shown by most clients as a protocol
+failure. Reproduced for sharing violations, storage failures (including the "run
+index.ensure_baseline" message), argument exceptions and plain bugs (PHASE-21-04 T02, 5/5).
+
+**Decision:**
+- `HandleToolCallAsync` wraps `tool.Handler(...)`. `OperationCanceledException` propagates; any other
+  exception is logged at Error and returned as the standard error envelope via the new
+  `HandlerHelpers.ClassifyUnhandled`.
+- `ClassifyUnhandled` = `ClassifyException` except **`ArgumentException` → `INTERNAL_ERROR`**. Inside a
+  handler's try, argument exceptions come from value-type guards on caller input (ADR-041 keeps
+  `INVALID_ARGUMENT` there). One that escapes the handler was not caught by input validation, so it
+  is a defect (v2.6.2: `SymbolId.From("")` on an overlay symbol).
+- `INTERNAL_ERROR` from the boundary carries `details.exception_type`, the diagnosability that
+  `-32603`'s `error.data.exceptionType` provided since v2.6.2.
+- The boundary uses only an explicit `workspace_id` argument (no sticky-default lookup: the boundary
+  does no I/O). A sharing violation without one is `STORAGE_ERROR` (retryable).
+- `-32603` stays for failures outside any tool.
+
+**Consequences:** clients always get a machine-readable code and `retryable` for tool failures.
+Bugs are still loud (Error log, `isError: true`, `INTERNAL_ERROR` with the exception type), but they
+are no longer protocol errors. Finding: the realistic query-side storage failure (gutted baseline)
+never threw; the query path pre-checks completeness and already returned `INDEX_NOT_AVAILABLE`, so
+this boundary is defence-in-depth for unexpected exceptions.
+
+## ADR-046: Report Source Generators the Compiler Refused to Load (F10)
+
+**Date:** 2026-09-28
+**Status:** Accepted
+
+**Context:**
+F10 (PHASE-21-05): on .NET SDK 10.0.401 the Razor source generator references Roslyn 5.9; CodeMap
+bundles 5.3. Roslyn refuses to load a generator built for a newer compiler
+(`ReferencesNewerCompiler`), and MSBuildWorkspace swallows that. The compilation succeeds without
+the generated code, so Razor components, `@code` members and `@page` routes vanished from the index
+while the run reported `semantic_level: full`, `confidence: high` (the Blazor sample: 6 symbols).
+It isn't OS-specific: any machine whose SDK is newer than CodeMap's Roslyn is affected, including
+users of the shipped v2.8.1. Bumping Roslyn fixes current SDKs, but the next SDK band can break it
+again, so the silence is the defect to fix first.
+
+**Decision:**
+- `GeneratorLoadFailureTracker.Inspect(project)`: for every `AnalyzerFileReference` that yields no
+  generators, read its metadata (no load). If it declares a `[Microsoft.CodeAnalysis.Generator]` type,
+  a generator failed to load. The reason comes from the `Microsoft.CodeAnalysis` version it references:
+  newer than the running compiler → `ReferencesNewerCompiler (built for Roslyn X, CodeMap runs Y)`,
+  else `UnableToLoadGenerator`. Plain analyzers are ignored (they don't affect the index).
+- **Not the `AnalyzerLoadFailed` event**: it fires once per analyzer reference, which is shared and
+  cached across projects, so a second project using the same generator would stay silent.
+- Results go to `ProjectDiagnostic.GeneratorLoadFailures` (additive, null when none). Such a project
+  doesn't count as fully compiled in `ComputeSemanticLevel` (→ at most `Partial`), confidence drops to
+  `Medium`, and a Warning naming the fix is logged once per failure per run.
+- `Compiled` stays true (the compilation did succeed); the level and the new field carry the degradation.
+
+**Consequences:** a generator/compiler version mismatch is visible in `index.ensure_baseline`, in
+every query's `semantic_level` and in the log, instead of silently returning an incomplete index at
+full confidence. The Roslyn bump itself is PHASE-21-05 T02. Baselines built silently degraded before
+the upgrade aren't detected retroactively (KNOWN-LIMITATIONS L-11).
+
+## ADR-047: `CODEMAP_CACHE_DIR` Follows the `CODEMAP_HOME` Path Rules (F11)
+
+**Date:** 2026-09-28
+**Status:** Accepted
+
+**Context:**
+F11 (found during PHASE-21-05 T02): `ServiceRegistration` passed `CODEMAP_CACHE_DIR` to
+`EngineBaselineCacheManager` as-is. A blank value (e.g. an MCP client config with
+`"CODEMAP_CACHE_DIR": ""`, or a script's `CODEMAP_CACHE_DIR=`) counted as an *enabled* cache, and
+`Path.Combine("", repoId, sha)` is relative. So every new baseline was pushed into the daemon's
+working directory, which MCP clients usually set to the repo root, leaving an untracked
+`local-<hash>/<sha>/` in the user's working tree that can get committed. A relative value had the same
+effect, anchored wherever the client happened to start the server. Reproduced by a subprocess test:
+`…\cwd\local-b73d0e677cfb93f6` appeared in the working directory after `ensure_baseline`.
+
+**Decision:**
+- `CodeMapHome.ResolveCacheDir(env, profile)` (pure, next to ADR-039's `Resolve`): unset/blank →
+  `null` (disabled); `~`, `~/x`, `~\x` → expanded; fully qualified → normalised; relative →
+  `INVALID_ARGUMENT`. `Program` resolves it at startup: stderr message + exit code 2 on failure, like
+  `CODEMAP_HOME`.
+- `AddCodeMapServices(baseDir, sharedCacheDir)` receives the resolved value and no longer reads the
+  environment variable.
+- Defence in depth: `EngineBaselineCacheManager` treats a blank directory as disabled.
+
+**Consequences:** a blank value now means "no cache"; a relative value fails loudly instead of
+writing into an arbitrary directory. Anyone relying on a relative cache dir (which only ever worked
+relative to the client's working directory) must switch to an absolute path. Not addressed:
+`config.json`'s `shared_cache_dir` is still not read (documented gap).
+
+---
+
+> **ADR-048…053 are the multi-agent scaling ADRs 01–06** from
+> `docs/CODEMAP-MULTI-AGENT-SCALING-FINDINGS.md` §8, renumbered because this log already uses
+> ADR-001…047. Drafted as Proposed in PHASE-21-06 T02; **all six accepted by the user on 2026-09-29**,
+> ADR-051 and ADR-053 with the refinements noted in them. Evidence is from Phase 0 (PHASE-21-01…06)
+> unless marked otherwise.
+
+## ADR-048: Process Model — Shared Host + Thin Adapter, Standalone Retained (Scaling ADR-01)
+
+**Date:** 2026-09-28
+**Status:** Accepted (2026-09-29, by the user)
+
+**Context:**
+Today every MCP client (and every sub-agent) starts its own stdio daemon (topology T1). Phase 0 measured
+T1 on five repos at N = 1, 4, 8, 16 agents (`docs/benchmarks/phase-21-06/`, findings §6.5):
+- **Memory (F1) is linear in N with no sharing.** Peak total working set at N=16 is 13.9–16.2 × N=1;
+  per-process memory is flat per repo: ~0.3 GB (SampleSolution), ~0.5 GB (eShopOnWeb, CodeMap),
+  ~2.5 GB (Bitwarden), ~3.9 GB (nopCommerce). nopCommerce at N=8 used 25.8 GiB; N=16 was projected
+  at 62.4 GiB on a 64 GB machine and not run.
+- **Every agent builds the same baseline (F2), and the duplicates slow each other down.** Cold build
+  p50 on Bitwarden: 79 s alone, 129 s at N=8, 178 s at N=16 (16 processes, 35.5 GiB, for work one
+  build does in 79 s). With a 120 s client timeout, no agent at N=8 or N=16 ever got an index.
+- **Per-agent throughput falls to 44–51% of N=1 at N=16** on the small/medium repos. Light-read
+  latency stays low (`symbols.search` p95 ≈ 10–11 ms at N=16), so the host is not latency-bound
+  there. The cost is memory and build time.
+- Process start is cheap (~250 ms); the cold build dominates time to first answer (F8).
+
+**Options:** (1) keep stdio-only T1; (2) opt-in HTTP only (clients that support it share a host;
+stdio clients stay T1); (3) shared host per user/data root + thin stdio adapter, standalone retained.
+
+**Decision:** **(3)**. One host owns Roslyn/MSBuild, baseline builds (coalesced per
+repo + commit) and all overlay writers. Stdio clients reach it through a thin adapter (no Roslyn;
+ADR-049 decides the IPC). HTTP-capable clients connect directly (Phase 3). **Standalone T1 stays**
+for single-agent users, CI and diagnostics, and remains the default until the Phase 6 gates pass
+(findings ADR-12).
+
+**Consequences:** Phases 2–4 of findings §9. Gates are measured with this harness against these T1
+numbers. Findings §10.2 asks for ≤ 1.5× memory at N=8. T1 is 7.1–8.0× at N=8 on every repo that ran, so
+the gate is far from today's numbers and meaningful. Build coalescing alone (the F2 fix inside a host)
+removes the N-fold cold-build time the numbers above show.
+
+**Design input for Phase 2 (added at acceptance):** `IncrementalCompiler` (singleton,
+`src/CodeMap.Roslyn/IncrementalCompiler.cs`) caches **one** Roslyn `Solution`, keyed by the solution's
+absolute path, and stores each refresh's edited documents back into that cache. That fits T1 (one
+process, one checkout). In a shared host serving agents in different worktrees it would (a) evict the
+cache whenever a refresh comes from another worktree, so every refresh takes the cold path (~1.4 s on
+CodeMap, far more on large repos, instead of ~63 ms), and (b) if shared, carry one agent's edits into
+another agent's compilation. The host needs one base `Solution` per (repo identity, commit, solution)
+plus an immutable fork per workspace, with documents matched by **repo-relative** path, not absolute
+path (the ADR-053 identity principle applied to Roslyn). Forks share syntax trees, metadata references
+and unaffected project compilations, so per-agent cost is the changed documents plus the recompiled
+projects. Overlay change detection already diffs against the baseline commit
+(`WorkspaceManager.RefreshOverlayAsync`), so an agent committing on its own branch needs no new
+baseline.
+
+## ADR-049: Adapter ↔ Host IPC (Scaling ADR-02)
+
+**Date:** 2026-09-28
+**Status:** Accepted (2026-09-29, by the user)
+
+**Context:**
+If ADR-048 adopts a shared host, stdio-only clients need a thin adapter that relays JSON-RPC to it.
+The candidates are loopback HTTP (MGsCodeMapMCP) and named pipes / Unix domain sockets (charpcodemap).
+Phase 0 measured nothing that separates them. Every Phase 0 number is topology T1 (one process per
+agent, no IPC hop). The harness already hides transport behind `IMcpClient`, so a T2/T3 client can be
+measured with the same workload later.
+
+**Options:**
+1. Loopback HTTP: one stack shared with direct-HTTP clients (Phase 3). Port allocation and conflicts;
+   needs `Origin`/`Host` validation and a token against DNS rebinding and other local users.
+2. Named pipes (Windows) + Unix sockets: no ports; the OS ACL / `0600` restricts access to the user;
+   no browser-reachable surface. It's a second transport to maintain beside HTTP.
+3. Both.
+
+**Decision:** **defer the choice to a Phase 4 spike, with these acceptance criteria fixed
+now**: works without admin rights on Windows, Linux and macOS; adds ≤ 1 ms p95 per call over T1 at
+N=16 on the Phase 0 workload; no listener reachable by other users or by a browser. Until then, host
+internals stay transport-agnostic, and the host's session layer must not assume HTTP. Leaning: pipes/
+sockets for the adapter (option 2), because they remove the port and DNS-rebinding class of problems
+by construction.
+
+**Consequences:** Phase 2 and 3 can proceed without this decision. The spike reuses the harness
+(`IMcpClient`) so the criteria are measured, not argued.
+
+## ADR-050: MCP Implementation — Custom JSON-RPC vs the Official C# SDK (Scaling ADR-03)
+
+**Date:** 2026-09-28
+**Status:** Accepted (2026-09-29, by the user)
+
+**Context:**
+CodeMap's MCP layer is hand-rolled stdio JSON-RPC (protocol `2025-03-26`, tool annotations since
+v2.8.0). Phase 0 hardened its error boundary (ADR-041, ADR-045), and nothing measured in Phase 0 points at
+it as a bottleneck. At micro size one daemon served 50.1 calls/s for one agent (PHASE-21-06 T02, SampleSolution N=1).
+Streamable HTTP, sessions and newer protocol revisions (Phase 3) are exactly what the official SDK
+provides, and would be real work to hand-roll.
+
+**Decision:** **keep the custom stdio implementation now; spike the official SDK at the
+start of Phase 3 and adopt it if**: (a) the full tool surface, annotations, usage hints and error
+envelopes pass the existing Mcp/Integration suites unchanged; (b) p95 per call within 10% of the custom
+stack on the Phase 0 workload; (c) it supports the protocol revision Phase 3 targets. If the spike
+fails, Phase 3 implements Streamable HTTP on the custom stack.
+
+**Consequences:** no churn before it pays off; the decision is made on measured conformance and latency.
+
+## ADR-051: Tool Naming (Scaling ADR-04)
+
+**Date:** 2026-09-28
+**Status:** Accepted (2026-09-29, by the user)
+
+**Context:**
+Tool names are dotted (`symbols.search`). The findings doc plans MCP-safe names (§9 Phase 1, mapping
+in §12); the Phase 1 exit criterion is `^[a-zA-Z0-9_-]{1,64}$`, which dotted names fail.
+**Correction at acceptance [verified 2026-09-29]:** the MCP spec itself does *not* forbid dots. Revision
+2025-11-25 ("Tool Names") says names SHOULD be 1–128 characters of `A-Z a-z 0-9 _ - .` and gives
+`admin.tools.list` as a valid example. The constraint comes from the LLM APIs the client forwards tools
+to: the Claude API requires `^[a-zA-Z0-9_-]{1,128}$` for a tool `name` (no dot), so every client has to
+rewrite dotted names, and each does it its own way. The 64-character cap in the exit criterion is kept as
+a conservative bound for other providers. [verified in this environment] Claude Code already exposes the
+tools as `mcp__codemap__symbols_search`, i.e. the client maps `.` → `_` and adds its own server prefix. A
+`codemap_` prefix inside the name would therefore be doubled in such clients.
+
+**Decision:** canonical names become underscore names (`symbols_search`, mapping in findings
+§12). Dotted names stay accepted as **aliases for at least two minor releases**, answered normally
+plus a deprecation note in the response. **No prefix by default**, because clients already namespace by
+server; an optional configurable prefix only if a client that doesn't namespace is reported.
+Documentation (`codemap.guide`, CLAUDE-INSERT, README, API-SCHEMA, hint texts) switches to the new
+names in the same release.
+
+**Consequences:** Phase 1 work (rename checklist in findings §12). Two names per tool during the alias
+window; the tool-count tests count canonical tools only.
+
+## ADR-052: Workspace Sharing Semantics (Scaling ADR-05)
+
+**Date:** 2026-09-28
+**Status:** Accepted (2026-09-29, by the user)
+
+**Context:**
+Today, two processes can't share a workspace at all: the second gets `WORKSPACE_IN_USE` (F3, ADR-041;
+the overlay writer lock, ADR-044, makes that true on every OS). So F5 (stale overlay views) and F7
+(L1 cache incoherence) can't occur yet. In a shared host they become possible, and the ID decides who
+shares. The shipped guidance (CLAUDE.md, `codemap.guide`) tells *every* agent to call
+`workspace.create { workspace_id: "session" }`. In a shared host, "same ID = shared" would silently
+make every agent in a repo share one overlay: agent A's unsaved edits in B's answers.
+
+**Options:** (1) same ID = shared, as today's leaning; (2) IDs are scoped per client session unless
+the client opts into sharing; (3) no sharing.
+
+**Decision:** **(2): workspace IDs are session-scoped by default; sharing is an explicit
+opt-in** (e.g. `workspace.create { workspace_id, shared: true }` or a `shared:` prefix, settled in
+Phase 2). A shared workspace has one writer lane (findings §7.3); readers pin a revision per query.
+Sticky defaults (the v2.4.0 auto-defaults) are session-scoped. The CLAUDE.md "session" convention
+keeps working because each session's "session" is its own.
+
+**Consequences:** changes the leaning in findings §8 (which assumed same-ID sharing) because of the
+"session" convention. F5/F7 tests move into Phase 2's exit criteria (0 cross-workspace leakage).
+Standalone (T1) behaviour is unchanged.
+
+## ADR-053: Storage Identity for Baselines and Overlays (Scaling ADR-06)
+
+**Date:** 2026-09-28
+**Status:** Accepted (2026-09-29, by the user)
+
+**Context:**
+Baselines are keyed by `(RepoId, commit)`, where `RepoId` is a hash of the remote URL, or
+`local-<pathHash>` without a remote [verified]. So two worktrees or clones of a remote-less repo get
+different RepoIds and each re-indexes the same commit. That's why the harness uses a local clone with
+an `origin`. Overlays are keyed by `(RepoId, workspace)` since ADR-043. Phase 0 also showed the index for
+"the same commit" is **not** a pure function of the commit: it depends on restore state (F12: an
+unrestored checkout indexed eShopOnWeb with 15,158 compile errors, 39% of references missing) and the
+SDK's generators (F10).
+
+**Options:** A. key by repo root path; B. repo identity + commit for baselines, overlays per
+worktree; C. content-addressed (commit + solution path + build inputs).
+
+**Decision:** **B, with two refinements**:
+1. Repo identity = remote URL hash when there is a remote, else the **root commit hash** (stable
+   across clones and worktrees of the same history) instead of the path hash. Worktrees of one repo then
+   share baselines; forks share only commits that are identical anyway. **Refinements at acceptance:**
+   if the history has several root commits, the **oldest** one is used, ties broken by the lower hash (deterministic across clones);
+   a **shallow clone** (whose visible root is a graft, not the real root) keeps the path-hash identity
+   as today rather than get a wrong one, and so shares nothing until it is unshallowed.
+2. A baseline is shareable only if it was built **complete**: every project compiled from restored
+   inputs, no generator load failures (i.e. semantic level Full once F12 is reported). Degraded baselines
+   are kept per checkout and never pushed to the shared cache. The solution path is part of the baseline
+   key (two solutions in one repo, GH #5).
+Overlays stay per `(repo identity, worktree, workspace)`.
+
+**Consequences:** Phase 5 scope; needs the F12 reporting first so "complete" is knowable. Migration:
+existing `local-<pathHash>` baselines keep working and are re-keyed or rebuilt on the next commit. The
+baseline copy-between-roots test (PHASE-21-06 T02) is the precondition that a baseline is
+location-independent.
+
+## ADR-054: Persist Project Diagnostics; One Semantic-Level Rule (F13), Report Unrestored Projects (F12)
+
+**Date:** 2026-09-29
+**Status:** Accepted (spec approved by the user, PHASE-21-07; T01 F13, T02 F12)
+
+**Context:**
+F13 (found while scoping F12, PHASE-21-07 §1.2, reproduced by three tests failing on `bf103d9`):
+`ManifestWriter` persisted only `ProjectName`, `Compiled`, `SymbolCount` and `ReferenceCount` of each
+`ProjectDiagnostic`, and `CustomSymbolStore.GetSemanticLevelAsync` recomputed the level from `Compiled`
+alone, with its own copy of the rule. Every query's `meta.semantic_level` and `codemap.summarize` come from the
+store. So a degradation the build detected, namely F10's generator failures (ADR-046), appeared only in the
+`index.ensure_baseline` response, and every query against that baseline said `full`. **ADR-046's
+consequence "visible … in every query's `semantic_level`" did not hold until this ADR.** Any F12
+detection would have been lost the same way.
+
+**Decision (F13, T01):**
+- One rule, in Core: `SemanticLevels.IsComplete(ProjectDiagnostic)` / `SemanticLevels.Compute(…)`.
+  `RoslynCompiler.ComputeSemanticLevel` and `CustomSymbolStore.GetSemanticLevelAsync` both delegate to it.
+- The manifest keeps `errors`, `target_frameworks` and `generator_load_failures` per project as
+  additive optional JSON properties, omitted when null. **No format version bump:** System.Text.Json ignores
+  unknown properties, so older binaries read newer manifests, and newer binaries read old manifests as "none
+  recorded", which is exactly today's behaviour.
+- Not retroactive: baselines written before this change keep reporting what they reported.
+
+**Context (F12, T02):** MSBuildWorkspace doesn't restore, and it reports nothing when `project.assets.json`
+is missing. A probe showed no workspace diagnostic at all (NETSDK1004 is not raised in design-time
+builds). An unrestored project then gets **no metadata references**: SampleSolution's net9.0 projects
+had 0 references, including the framework (`CS0400: 'System' could not be found`), while a net10.0
+project without packages compiled cleanly with 167 references (its framework ships with the SDK).
+
+**Decision (F12, T02):**
+- `RestoreOutputProbe` (no MSBuild evaluation): a project *uses restore* if it's SDK-style or has a
+  `PackageReference`. Its restore output is *found* if `project.assets.json` is in `<projectDir>/obj/` or
+  within 4 levels up from the intermediate assembly (`CompilationOutputInfo.AssemblyPath`), never above
+  the solution dir. That covers `BaseIntermediateOutputPath` overrides and the artifacts layout.
+  Otherwise, `ProjectDiagnostic.MissingRestoreOutput` = the expected solution-relative path.
+- `SemanticLevels.IsEnvironmentDegraded`: generator load failures, **or** missing restore output
+  **together with** compile errors. A clean compile without restore output is reported, not downgraded.
+  Environment-degraded projects aren't complete (→ `partial`).
+- A Warning per affected project per run names the fix (`dotnet restore`, then rebuild the baseline).
+- `index.ensure_baseline` doesn't push an environment-degraded baseline to the shared cache (ADR-053
+  point 2). A baseline with genuine compile errors is inherent to the commit and is pushed as before.
+- Not done: restoring automatically (runs MSBuild/NuGet against the user's checkout), and rebuilding an
+  existing degraded baseline after a restore (needs replace semantics compatible with memory-mapped
+  readers; ADR-040). Both are follow-ups.
+
+**Consequences:** the level a query reports is the level the build computed. Any future per-project
+degradation signal only needs a field on `ProjectDiagnostic`, the DTO property and a clause in
+`SemanticLevels.IsComplete`; the rule can no longer diverge between build and read.
+
+## ADR-055: `symbols.search` Query Syntax on the v2 Engine (PHASE-21-08)
+
+**Date:** 2026-09-29
+**Status:** Accepted (spec approved by the user, PHASE-21-08; T01 syntax, T02 multi-kind filter)
+
+**Context:**
+`symbols.search` documented SQLite FTS5 syntax (`Foo OR Bar`, `"phrase"`), and the agent guide recommended
+`OR` as the fix for an empty multi-term search. The v2 engine (the only engine since v2.1.0) never
+implemented it: `SearchIndexReader.NormalizeQuery` lowercased and split the query and **intersected**
+every token, `OR` included, and kept `"` inside tokens. So every `OR` query and every quoted query
+returned 0 hits. The overlay path (`CustomEngineOverlayStore.SearchOverlaySymbolsAsync`) had its own
+tokenizer (space and `.` only, `*` and quotes kept), so workspace-mode results differed from committed mode.
+
+**Decision:**
+- One parser, `SearchQuery.Parse` (Storage.Engine), for baseline and overlay: OR of AND-groups. A
+  standalone uppercase `OR` separates groups (lowest precedence, as FTS5); a standalone `AND` is
+  ignored; `"`, `(`, `)` are ignored; a trailing `*` per word is ignored (prefix matching is native).
+  Each word is tokenized exactly as before (lowercase, separator split), so single-term results are unchanged.
+- Baseline: postings intersection per group, union across groups; a symbol's score is the best score of
+  any group it matches (each group scored with its own text), so `Foo OR Bar` ranks both exact names first.
+- `NOT` / `NEAR` (uppercase, standalone) → `INVALID_ARGUMENT` naming the operator; a query with only
+  operators/punctuation → `INVALID_ARGUMENT` (Query layer, `FtsQuerySanitizer`).
+- Quoted words mean "all of these words", not adjacency: the index stores token sets per symbol, not
+  positions. Parentheses don't nest. Both documented.
+- Descriptions and hints describe this syntax, not FTS5. The empty-result hint suggests `A OR B` for a
+  multi-word query instead of a useless `query*`.
+
+**Consequences:** the documented recovery path (`OR`) works. Workspace and committed mode match the
+same symbols for the same query. Query-time only: no format change, no re-index. A trailing `*` no longer
+suppresses the exact/prefix-name bonus in scoring (the old scorer compared against the raw text, `*` included).
+
+**Decision (T02, multi-kind filter):** `SymbolSearchFilter` gains `Kinds` (2+ engine kind codes), checked
+in `SearchIndexReader.PassesFilter` next to `Kind`, before scoring and the limit.
+`CustomSymbolStore.SearchSymbolsAsync` passes every requested kind into the engine and no longer
+post-filters. Before, 2+ kinds were filtered after the engine had cut the result to `limit` across all
+kinds, so results were lost and `truncated` was wrong (the GH #6 family: filter before limit). The overlay
+path already filtered kinds before its limit; browse-by-kinds was already correct.

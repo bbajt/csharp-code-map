@@ -165,14 +165,15 @@ format: `T:Namespace.Class`, `M:Namespace.Class.Method(ParamType)`.
 
 ### 4. Multi-term FTS search returning nothing
 **Symptom:** `symbols.search("Foo Bar Baz")` returns zero results.
-**Fix:** FTS5 treats spaces as AND. Search one term at a time, or use
-`OR` between terms: `"Foo OR Bar OR Baz"`.
+**Fix:** every word must match (space = AND). Search one term at a time, or use
+`OR` between terms: `"Foo OR Bar OR Baz"` (works since v2.8.2; on v2.1.0–v2.8.1 every `OR`
+query returned nothing). Quotes group words but don't require adjacency; `NOT` isn't supported.
 
 ### 5. Using `"*"` to list all symbols of a kind
 **Symptom:** `symbols.search { query: "*", kinds: ["Class"] }` returns
 an error (`-32603 Internal error` on older builds, `INVALID_ARGUMENT`
 on newer ones).
-**Why:** FTS5 does not accept a bare `*` as a match-all wildcard.
+**Why:** a bare `*` isn't a search term (there's no match-all wildcard).
 **Fix (v1.3.1+):** Omit `query` entirely and pass the `kinds` filter:
 ```
 symbols.search { repo_path: ".", kinds: ["Class"], workspace_id: "session" }
@@ -188,6 +189,24 @@ Returns file:line:excerpt for each match, restricted to indexed source files.
 Supports regex. Default limit 50, max 200.
 **When Bash grep is still right:** Non-C# files (YAML, JSON, `.md`, `.csproj`),
 or files outside the project index (bin/, obj/, generated/).
+
+### 6. Indexing a fresh clone or worktree without restoring it
+
+A new clone or `git worktree add` has no restore output (`obj/` is gitignored), and CodeMap doesn't
+restore. Run `dotnet restore <solution>` before `index.ensure_baseline`. Otherwise package references
+(sometimes the framework itself) are unresolved; this is reported as `semantic_level: partial` with
+`missing_restore_output` in `project_diagnostics`.
+
+### 7. Treating a `partial` index as complete
+
+`semantic_level: partial` means some projects are indexed incompletely, so an empty result there is not
+proof. Check `project_diagnostics` in the `index.ensure_baseline` result (`missing_restore_output`,
+`generator_load_failures`, `compiled: false`) and tell the user.
+
+### 8. Sharing one `workspace_id` between parallel agents
+
+Each agent runs its own CodeMap process. If another process holds the workspace, the call returns
+`WORKSPACE_IN_USE` (retryable). Give each agent its own `workspace_id`.
 
 ---
 

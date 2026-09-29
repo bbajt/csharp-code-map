@@ -14,12 +14,20 @@ For architecture decisions, see [DECISIONS.MD](DECISIONS.MD).
 
 ## Prerequisites
 
-- **.NET 9 SDK** — required for build and test
+- **.NET 10 SDK** — required for build and test
 - **Git** — required for LibGit2Sharp integration tests
 - **MSBuild** (included with .NET SDK) — required for integration tests that
   open real solutions via Roslyn MSBuildWorkspace
 - A C# solution to index (or use the built-in `testdata/SampleSolution/`) — both `.sln`
   and `.slnx` formats are accepted by `index.ensure_baseline`
+- **Restored test fixtures** for the integration tests, once per checkout. `CodeMap.sln` doesn't
+  include `testdata/`, and MSBuildWorkspace doesn't restore; an unrestored fixture indexes degraded
+  (F12: `missing_restore_output`, `semantic_level: partial`) and tests that expect `Full` fail:
+  ```bash
+  for s in testdata/SampleSolution/SampleSolution.sln testdata/SampleVbSolution/SampleVbSolution.sln \
+           testdata/SampleBlazorSolution/SampleBlazorSolution.slnx testdata/SampleFSharpSolution/SampleFSharpSolution.sln; do
+    dotnet restore "$s"; done
+  ```
 
 ---
 
@@ -95,10 +103,11 @@ replaces the live daemon while it may be in use.
 
 ```bash
 # Fast unit tests (~5-10s, no MSBuild)
-dotnet test --filter "Category!=Integration&Category!=Benchmark"
+dotnet test --filter "Category!=Integration&Category!=Benchmark&Category!=Concurrency"
 
-# Integration tests (~30-60s, requires MSBuild + SampleSolution)
-dotnet test --filter "Category=Integration"
+# Integration tests (~1-2 min, requires MSBuild + restored testdata fixtures, see Prerequisites).
+# Per project: `dotnet test` at the solution root starts every runner at once and can run out of memory.
+dotnet run --project tests/CodeMap.Integration.Tests   # includes Category=Concurrency (spawns real servers)
 
 # Token savings benchmark (xUnit, validates >=80% savings across 24 tasks)
 dotnet test --filter "Category=Benchmark" -v normal
@@ -110,6 +119,62 @@ dotnet run --project tests/CodeMap.Benchmarks -c Release
 Run the fast suite constantly during development. Run integration tests
 before committing. BenchmarkDotNet is for performance regression checks —
 run it when you change query paths or storage code.
+
+### Linux test rig (Docker)
+
+File locking, `rename(2)` and errno behave differently on Linux, and several storage guarantees
+(overlay writer lock, baseline publication, `WORKSPACE_IN_USE` detection) depend on them. Run the
+Linux rig whenever you touch storage, locking or process-concurrency code (needs Docker Desktop):
+
+```powershell
+.\tests\docker\run-linux-tests.ps1                     # all: storage, mcp, roslyn lock, blazor, concurrency, harness
+.\tests\docker\run-linux-tests.ps1 integration         # the whole Integration project (not part of all)
+.\tests\docker\run-linux-tests.ps1 restore-probe       # RestoreOutputProbeTests (F12)
+.\tests\docker\run-linux-tests.ps1 storage mcp         # selected suites
+.\tests\docker\run-linux-tests.ps1 storage -- --filter-class CodeMap.Storage.Engine.Tests.OverlayWriterExclusionTests
+```
+
+The source is **copied** into the image, not bind-mounted, because advisory locks over Docker
+Desktop's Windows bind mounts aren't reliable. The ignore file `tests/docker/linux-tests.Dockerfile.dockerignore`
+is an allow-list, so local secrets (`.nuget-key`) never enter the image. Logs and harness JSON land
+in `%TEMP%\codemap-linux-out`. Harness runs are measurements and never fail the rig.
+The image restores the four testdata solutions itself (inside the container), so the fixtures are
+indexed as on a restored dev box.
+The rig's SDK is newer than most dev boxes, which is how F10 (source generators built for a newer
+Roslyn silently dropped, PHASE-21-05) was found; the `blazor` suite guards it.
+
+### Concurrency benchmark (harness)
+
+N real daemon processes (one per simulated agent, sharing one `CODEMAP_HOME`) against a scratch
+clone of a repo. It measures throughput, per-tool latency, memory, baseline builds and correctness
+(PHASE-21-01, 21-06):
+
+```bash
+# One repo by name (committed samples, or any repo in ~/.codemap/harness-config.json)
+env -u CODEMAP_CACHE_DIR CODEMAP_HARNESS_DATA_DIR=/c/Users/Developer/AppData/Local/Temp/chs-1 \
+  dotnet run --project tests/CodeMap.Harness -- concurrency --repo-name eShopOnWeb \
+  --agents 1,4,8,16 --output json --out-file eshop.json
+# Reports → one Markdown table (sorted, deterministic)
+dotnet run --project tests/CodeMap.Harness -- concurrency-summary eshop.json nop.json --out table.md
+```
+
+- `--repo-name a,b` or `--repo <tier>`, not both. An unknown name lists every known name.
+- **Memory guard:** agent counts run in ascending order. A count whose projected peak (the worst
+  per-process peak seen for that repo × N) exceeds `--max-memory-gb` (default: 75% of RAM) is
+  not started. It's recorded under `skipped` in the report, with every larger count. A skip is not a failure.
+- **Worktrees are restored** (`dotnet restore`, up to 4 in parallel) before the daemons start, outside
+  every measured phase (`setup.restore_ms`). `obj/` is gitignored and MSBuildWorkspace doesn't
+  restore, so an unrestored clone indexes with unresolved packages (F12). `--no-restore` skips it,
+  which is only for reproducing F12. Never restore or build in the real checkout to "try something".
+- Scratch clones use `core.longpaths=true` (git refuses >260-char paths on Windows otherwise, even with
+  `LongPathsEnabled=1`), and restores run with `-p:NuGetAudit=false` (live vulnerability advisories
+  plus a repo's warnings-as-errors otherwise break restore: Bitwarden, NU1902). For the large repos, still
+  use a short data root (e.g. `C:\chs\<tag>`), so MSBuild's own paths stay short.
+- **A run that throws** (clone, restore, daemon start) is recorded under `failed` with its error, and the
+  remaining runs continue. Exit code 5 (`IndexBuildFailure`), unless a correctness failure (1) outranks it.
+- Use a fresh, **short** `CODEMAP_HARNESS_DATA_DIR` per measurement (fresh = cold baselines;
+  short = git clones of deep repos stay under Windows' path limit: a long data dir made
+  `git clone` fail with `Filename too long`). Unset `CODEMAP_CACHE_DIR`; never set it to empty.
 
 ---
 
@@ -787,9 +852,22 @@ startup; changes require a daemon restart.
 | `budget_overrides.max_lines` | `null`        | Override the hard cap on excerpt line count.                        |
 | `budget_overrides.max_chars` | `null`        | Override the hard cap on response character count.                  |
 
-**Environment variable override:** `CODEMAP_CACHE_DIR` overrides
-`shared_cache_dir` from config.json. Useful for CI without modifying
-the config file:
+**Data root override:** `CODEMAP_HOME` moves everything the daemon keeps
+under `~/.codemap` (`config.json`, `logs/`, `store/`, `_savings.json`) to
+another directory. It must be absolute or start with `~/`; a relative value
+makes the daemon exit with code 2 and a stderr message. It does not affect
+`bin/` / `swap.bat` or `CODEMAP_CACHE_DIR` (ADR-039). Use it for isolated test
+runs and benchmarks so they never touch your live store:
+
+```bash
+CODEMAP_HOME=/tmp/codemap-scratch dotnet run --project src/CodeMap.Daemon
+```
+
+**Shared cache:** `CODEMAP_CACHE_DIR` enables the shared baseline cache. It's the only way to
+set it: `CodeMapConfig.SharedCacheDir` exists but `config.json`'s `shared_cache_dir` is **not read**
+by the daemon (known gap). Rules (ADR-047, same as `CODEMAP_HOME`): unset or blank → disabled;
+`~/…` expanded; absolute → used; relative → startup error, exit code 2. Before v2.8.2 a blank or
+relative value was resolved against the working directory, writing baselines into the repo (F11).
 
 ```bash
 export CODEMAP_CACHE_DIR=/mnt/team-cache/codemap
@@ -811,7 +889,8 @@ export CODEMAP_ENGINE=custom
 dotnet run --project src/CodeMap.Daemon
 ```
 
-The v2 engine uses WAL-backed overlays at `~/.codemap/store/overlays/<workspaceId>/`.
+The v2 engine uses WAL-backed overlays at `~/.codemap/store/<repoId>/overlays/<workspaceId>/`,
+scoped per repo so the same workspace id in two repos never shares state (ADR-043).
 Overlay-local symbols use negative IntIds. See ADR-031 for design details.
 
 **Log files** are written to `~/.codemap/logs/codemap-{yyyy-MM-dd}.log`

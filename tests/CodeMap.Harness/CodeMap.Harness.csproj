@@ -12,6 +12,9 @@
     <ProjectReference Include="..\..\src\CodeMap.Roslyn\CodeMap.Roslyn.csproj" />
     <ProjectReference Include="..\..\src\CodeMap.Storage.Engine\CodeMap.Storage.Engine.csproj" />
     <ProjectReference Include="..\..\src\CodeMap.Query\CodeMap.Query.csproj" />
+    <!-- Concurrency mode: copies CodeMap.Daemon.dll (+ runtimeconfig/deps) next to the harness
+         so the driver launches the build under test; also provides CodeMapHome. -->
+    <ProjectReference Include="..\..\src\CodeMap.Daemon\CodeMap.Daemon.csproj" />
   </ItemGroup>
 
   <ItemGroup>

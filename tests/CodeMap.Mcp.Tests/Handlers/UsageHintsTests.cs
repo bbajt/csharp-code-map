@@ -120,6 +120,31 @@ public sealed class UsageHintsTests
         hint.Should().NotContain("name_filter");
     }
 
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("Foo", false)]
+    [InlineData("Restore Output", false)]
+    [InlineData("Foo", true)]
+    public void EmptySearchHint_DescribesTheRealSyntax(string? query, bool hasFilters)
+    {
+        // PHASE-21-08: the engine isn't FTS5 (removed in v2.1.0); the hint suggested FTS5 forms such
+        // as `"Restore Output"*` that the v2 engine can't match.
+        var hint = (string)typeof(HandlerHelpers).GetMethod("EmptySearchHint",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, [query, hasFilters])!;
+        hint.Should().NotContain("FTS5");
+        hint.Should().NotContain("\"*");
+    }
+
+    [Fact]
+    public void EmptySearchHint_MultiWordQuery_SuggestsOr()
+    {
+        var hint = (string)typeof(HandlerHelpers).GetMethod("EmptySearchHint",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, ["Restore Output", false])!;
+        hint.Should().Contain("Restore OR Output");
+    }
+
     // ── End-to-end: handlers actually wire the hints ───────────────────────────
 
     [Fact]

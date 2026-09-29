@@ -166,7 +166,7 @@ dotnet test --filter "Category=Benchmark" -v normal
 ### Discover
 | Tool | What it does |
 |------|-------------|
-| `symbols.search` | FTS search by name, kind, namespace, or file path |
+| `symbols.search` | Search by name (prefix match, `OR`), kind, namespace, or file path |
 | `code.search_text` | Regex/substring search across source files — returns file:line:excerpt |
 | `symbols.get_card` | Full symbol metadata + architectural facts + source code |
 | `symbols.get_context` | Card + source + all callees with source — deep understanding in one call |
@@ -238,12 +238,24 @@ Three consistency modes:
 
 ## Multi-Agent Supervisor Support
 
-Running multiple agents in parallel? CodeMap has you covered:
+Running multiple agents in parallel? What works today:
 
-- Each agent gets its own isolated workspace — no cross-contamination
+- Each workspace is isolated: agents that use different `workspace_id`s never see each other's edits
 - `workspace.list` shows every workspace: `IsStale`, `SemanticLevel`, fact count
 - Stale detection fires when a workspace's base commit diverges from HEAD
 - Supervisor can inspect, clean up, or re-provision any agent's workspace
+
+What to know (measured in the multi-agent benchmark, `docs/CODEMAP-MULTI-AGENT-SCALING-FINDINGS.md`):
+
+- **One CodeMap process per agent.** Each MCP client or sub-agent starts its own server, so memory
+  grows with the number of agents: roughly 0.3–0.5 GB per process on small and medium solutions,
+  2.5–4 GB on large ones. Every process builds the same baseline itself the first time, and concurrent
+  builds slow each other down. A shared host is the planned fix (ADR-048).
+- **A workspace can't be shared across processes.** If another CodeMap process holds that
+  `workspace_id`, the call returns `WORKSPACE_IN_USE` (retryable): retry, or give each agent its own ID.
+- **Agents in fresh worktrees must restore first.** A new clone or `git worktree add` has no restore
+  output; run `dotnet restore` before `index.ensure_baseline`, or the index is incomplete (reported as
+  `semantic_level: partial`, L-12).
 
 ---
 
@@ -289,9 +301,12 @@ export CODEMAP_CACHE_DIR=/shared/codemap-cache
 ```
 
 - `index.ensure_baseline` pulls from cache first (~2ms vs ~30s Roslyn build)
-- Auto-push after every new baseline build
+- Auto-push after every new baseline build, except baselines this machine degraded (an unrestored
+  checkout or a source generator that failed to load), since another machine would get an incomplete index
 - Self-healing: corrupt cache entries are detected and overwritten
-- Zero config when `CODEMAP_CACHE_DIR` is unset — all cache ops are no-ops
+- Zero config when `CODEMAP_CACHE_DIR` is unset or blank — all cache ops are no-ops
+- Must be an absolute path or start with `~/`; a relative value stops the server at startup
+  (exit code 2), since it would resolve against the client's working directory
 
 ---
 
@@ -456,17 +471,34 @@ CodeMap.Daemon    ← ALL (DI composition root, the executable)
 Every response includes:
 - **Per-phase timing** — `cache_lookup_ms`, `db_query_ms`, `ranking_ms` (sub-millisecond on v2)
 - **Token savings** — tokens saved and cost avoided vs raw file reading
-- **Semantic level** — `Full` / `Partial` / `SyntaxOnly` (index quality signal)
+- **Semantic level** — `Full` / `Partial` / `SyntaxOnly` (index quality signal, see below)
 - **Overlay revision** — which workspace revision answered the query
 - **Workspace ID** — which workspace context answered (null for committed mode)
 
+**When the level isn't `Full`**, `index.ensure_baseline`'s `project_diagnostics` says why, per project:
+- `compiled: false`: the project couldn't be compiled, so it was indexed syntactically.
+- `missing_restore_output`: the checkout was never restored (fresh clone or git worktree) and packages,
+  sometimes the framework too, are unresolved. Run `dotnet restore`, then rebuild the baseline (L-12).
+- `generator_load_failures`: a source generator from a newer .NET SDK couldn't load, so its code
+  (e.g. Razor components) is missing (L-11).
+
+The same level is reported on every later query against that baseline (for baselines built by
+v2.8.2 or later; older ones don't record these fields).
+
 Structured logs to `~/.codemap/logs/codemap-{date}.log` (daily rotation, JSON lines).
 Cumulative savings to `~/.codemap/_savings.json` (persists across restarts).
-Config at `~/.codemap/config.json` (log level, cache dir, budget overrides).
+Config at `~/.codemap/config.json` (log level, budget overrides). The shared cache is configured
+only through `CODEMAP_CACHE_DIR`; `config.json`'s `shared_cache_dir` is not read.
 
-### v2 Data Directory
+### Data Directory (`CODEMAP_HOME`)
 
-Baselines are stored in `~/.codemap/store/<repoId>/baselines/<commitSha>/` as binary segment files. Overlays in `~/.codemap/store/overlays/<workspaceId>/`. Use `index.list_baselines` to inspect and `index.cleanup` to reclaim space.
+Everything above lives under one data root, `~/.codemap` by default. Set `CODEMAP_HOME` to move it
+(config, logs, store, `_savings.json`), for example per test run, CI job or sandbox. It must be an
+absolute path or start with `~/`; a relative value stops the server at startup (exit code 2).
+
+Baselines are stored in `<data root>/store/<repoId>/baselines/<commitSha>/` as binary segment files.
+Overlays are in `<data root>/store/<repoId>/overlays/<workspaceId>/`. Use `index.list_baselines` to inspect
+and `index.cleanup` to reclaim space.
 
 ---
 
@@ -484,6 +516,14 @@ Top items to be aware of:
 - **F# fact extractors not yet wired** — F# gets symbols/refs/hierarchy
   only; endpoints / DI / config / DB tables don't extract from `.fsproj`
   yet (L-05).
+- **Unrestored checkout** — a fresh clone or git worktree has no
+  `obj/project.assets.json`, and CodeMap doesn't restore, so package references
+  (sometimes the framework itself) are unresolved. It's reported
+  (`missing_restore_output`, `semantic_level: partial`); run `dotnet restore`
+  before `index.ensure_baseline` (L-12).
+- **.NET SDK newer than CodeMap's Roslyn** — that SDK's source generators
+  (e.g. Razor) may not load, and their output is missing. Reported as
+  `generator_load_failures`; update CodeMap (L-11).
 - **Fresh clone with no build** — Razor source-generator output may be
   invisible until you `dotnet build` once (L-08).
 
@@ -512,11 +552,15 @@ editor, scan KNOWN-LIMITATIONS first before falling back to grep.
 # Build (zero warnings enforced)
 dotnet build -warnaserror
 
-# Fast unit tests
-dotnet test --filter "Category!=Integration&Category!=Benchmark"
+# Test per project: `dotnet test` at the solution root starts every test runner at once and can run out of memory
+dotnet run --project tests/CodeMap.Core.Tests          # likewise Roslyn, Query, Mcp, Storage.Engine, Daemon, Git
 
-# Integration tests (requires MSBuild)
-dotnet test --filter "Category=Integration"
+# Integration tests: restore the test fixtures once per checkout first (MSBuildWorkspace doesn't restore)
+dotnet restore testdata/SampleSolution/SampleSolution.sln   # likewise SampleVbSolution, SampleBlazorSolution, SampleFSharpSolution
+dotnet run --project tests/CodeMap.Integration.Tests   # includes Category=Concurrency (spawns real servers, ~1 min)
+
+# Linux test rig (Docker; see docs/DEVELOPER-GUIDE.MD)
+.\tests\docker\run-linux-tests.ps1 integration
 
 # Token savings benchmark
 dotnet test --filter "Category=Benchmark" -v normal

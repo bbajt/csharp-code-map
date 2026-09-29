@@ -20,6 +20,32 @@ public class FtsQuerySanitizerTests
     public void Sanitize_CaretPrefix_Stripped(string input, string expected) =>
         FtsQuerySanitizer.Sanitize(input).Should().Be(expected);
 
+    // ── PHASE-21-08 T01 ──────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("Foo NOT Bar", "NOT")]
+    [InlineData("Foo NEAR Bar", "NEAR")]
+    [InlineData("NOT Foo", "NOT")]
+    public void UnsupportedOperator_NotOrNear_Detected(string query, string expected) =>
+        FtsQuerySanitizer.UnsupportedOperator(query).Should().Be(expected);
+
+    [Theory]
+    [InlineData("Foo OR Bar")]
+    [InlineData("Foo AND Bar")]
+    [InlineData("not Foo")]          // lowercase: a term, as in FTS5
+    [InlineData("NotificationService")]
+    [InlineData("\"Order Service\"")]
+    public void UnsupportedOperator_SupportedSyntax_Null(string query) =>
+        FtsQuerySanitizer.UnsupportedOperator(query).Should().BeNull();
+
+    [Theory]
+    [InlineData("OR")]
+    [InlineData("AND OR")]
+    [InlineData("( )")]
+    [InlineData("\"\"")]
+    public void Sanitize_OnlyOperatorsOrPunctuation_ReturnsNull(string query) =>
+        FtsQuerySanitizer.Sanitize(query).Should().BeNull();
+
     [Fact]
     public void Sanitize_CaretOnly_ReturnsNull() =>
         FtsQuerySanitizer.Sanitize("^").Should().BeNull();

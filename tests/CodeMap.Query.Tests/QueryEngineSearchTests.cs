@@ -225,6 +225,33 @@ public class QueryEngineSearchTests
         result.Error.Code.Should().Be(ErrorCodes.InvalidArgument);
     }
 
+    [Theory]
+    [InlineData("Foo NOT Bar", "NOT")]
+    [InlineData("Foo NEAR Bar", "NEAR")]
+    public async Task Search_UnsupportedOperator_ReturnsInvalidArgumentNamingIt(string query, string op)
+    {
+        // PHASE-21-08: FTS5 operators the v2 engine can't evaluate fail loudly instead of 0 hits.
+        var result = await _engine.SearchSymbolsAsync(Routing, query, null, null);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(ErrorCodes.InvalidArgument);
+        result.Error.Message.Should().Contain($"'{op}'");
+        await _store.DidNotReceive().SearchSymbolsAsync(
+            Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<string>(), Arg.Any<SymbolSearchFilters?>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("OR")]
+    [InlineData("AND OR")]
+    public async Task Search_OnlyOperators_ReturnsInvalidArgument(string query)
+    {
+        var result = await _engine.SearchSymbolsAsync(Routing, query, null, null);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(ErrorCodes.InvalidArgument);
+    }
+
     [Fact]
     public async Task Search_NullQuery_ReturnsInvalidArgument()
     {

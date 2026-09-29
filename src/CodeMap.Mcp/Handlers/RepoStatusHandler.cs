@@ -95,15 +95,12 @@ public sealed class RepoStatusHandler
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "repo.status failed for {RepoPath}", repoPath);
-            return Error($"Failed to get repo status: {ex.Message}");
+            return Err(HandlerHelpers.ClassifyException(ex, "repo.status", workspaceId: null));
         }
     }
 
-    private static ToolCallResult Error(string message) =>
-        new(JsonSerializer.Serialize(
-            new { code = "INVALID_ARGUMENT", message },
-            CodeMapJsonOptions.Default),
-            IsError: true);
+    private static ToolCallResult Err(CodeMap.Core.Errors.CodeMapError error) =>
+        new(JsonSerializer.Serialize(error, CodeMapJsonOptions.Default), IsError: true);
 
     // ── Response type ──────────────────────────────────────────────────────────
 
