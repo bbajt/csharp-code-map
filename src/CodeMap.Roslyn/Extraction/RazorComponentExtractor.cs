@@ -14,7 +14,7 @@ using Microsoft.CodeAnalysis;
 /// Walks the assembly's symbol table for types deriving from
 /// <c>Microsoft.AspNetCore.Components.ComponentBase</c>, then inspects each property's
 /// attributes. Symbols are emitted with the component class as the carrier symbol
-/// so <c>surfaces.list_di_registrations</c> and <c>surfaces.list_endpoints</c>
+/// so the DI section of <c>codemap_summarize</c> and <c>surfaces_list_endpoints</c>
 /// can join them back to the page.
 /// </summary>
 internal static class RazorComponentExtractor

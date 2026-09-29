@@ -205,7 +205,7 @@ public sealed class ContextHandlerTests
     {
         var registry = new ToolRegistry();
         _handler.Register(registry);
-        registry.Find("symbols.get_context").Should().NotBeNull();
+        registry.Find("symbols_get_context").Should().NotBeNull();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -248,7 +248,7 @@ public sealed class ContextHandlerTests
             CancellationToken.None);
 
         result.IsError.Should().BeTrue();
-        result.Content.Should().Contain("symbols.search");
+        result.Content.Should().Contain("symbols_search");
         result.Content.Should().Contain("DoAsync");
     }
 

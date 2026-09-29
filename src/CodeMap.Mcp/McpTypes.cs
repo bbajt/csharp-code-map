@@ -44,7 +44,7 @@ public record ToolAnnotations(
 );
 
 /// <summary>A registered MCP tool with its schema and handler.</summary>
-/// <param name="Name">MCP tool name, e.g. "symbols.search".</param>
+/// <param name="Name">MCP tool name, e.g. "symbols_search".</param>
 /// <param name="Description">Human-readable description shown to agents.</param>
 /// <param name="InputSchema">JSON Schema object describing accepted parameters.</param>
 /// <param name="Handler">The async handler invoked when the tool is called.</param>

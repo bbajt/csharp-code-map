@@ -48,7 +48,7 @@ public sealed class CleanupHandlerTests
     {
         var registry = new ToolRegistry();
         _handler.Register(registry);
-        registry.Find("index.cleanup").Should().NotBeNull();
+        registry.Find("index_cleanup").Should().NotBeNull();
     }
 
     [Fact]

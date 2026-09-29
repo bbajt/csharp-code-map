@@ -13,10 +13,10 @@ using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>symbols.get_context</c> MCP tool (#25).
+/// Handles the <c>symbols_get_context</c> MCP tool (#25).
 /// </summary>
 /// <remarks>
-/// <b>symbols.get_context</b> params: repo_path, symbol_id (required);
+/// <b>symbols_get_context</b> params: repo_path, symbol_id (required);
 /// workspace_id, callee_depth, max_callees, include_code (optional).
 ///
 /// Returns the primary symbol's card with source code, plus cards of its immediate callees
@@ -58,13 +58,13 @@ public sealed class ContextHandler
         _logger = logger;
     }
 
-    /// <summary>Registers symbols.get_context into the ToolRegistry.</summary>
+    /// <summary>Registers symbols_get_context into the ToolRegistry.</summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "symbols.get_context",
+            ToolNames.SymbolsGetContext,
             "Get a symbol's full context in one call: card + source code + callee cards with code. " +
-            "Replaces the typical search → get_card → get_definition_span → graph.callees chain.",
+            "Replaces the typical search → get_card → get_definition_span → graph_callees chain.",
             BuildSchema(
                 required: [],
                 properties: new JsonObject

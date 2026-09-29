@@ -6,7 +6,7 @@ using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 
 /// <summary>
-/// Shared algorithm for symbols.get_context: collect primary card + code + callee cards + code.
+/// Shared algorithm for symbols_get_context: collect primary card + code + callee cards + code.
 /// Called by both QueryEngine (committed mode) and MergedQueryEngine (workspace mode).
 /// </summary>
 internal static class ContextBuilder

@@ -15,7 +15,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 /// <summary>
-/// Tests for the include_code=true/false behavior added to symbols.get_card in PHASE-07-05 T01.
+/// Tests for the include_code=true/false behavior added to symbols_get_card in PHASE-07-05 T01.
 /// </summary>
 public sealed class CardHandlerIncludeCodeTests
 {

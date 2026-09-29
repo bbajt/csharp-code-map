@@ -14,8 +14,8 @@ public sealed class ConcurrencyRunnerTests : IDisposable
 {
     private static readonly string[] LoopTools =
     [
-        "symbols.search", "symbols.get_card", "refs.find", "graph.callers", "types.hierarchy",
-        "graph.trace_feature", "symbols.get_context", "codemap.summarize", "index.refresh_overlay",
+        "symbols_search", "symbols_get_card", "refs_find", "graph_callers", "types_hierarchy",
+        "graph_trace_feature", "symbols_get_context", "codemap_summarize", "index_refresh_overlay",
     ];
 
     private static readonly string Profile = OperatingSystem.IsWindows() ? @"C:\Users\bench" : "/home/bench";
@@ -96,7 +96,7 @@ public sealed class ConcurrencyRunnerTests : IDisposable
         result.Memory.PerProcessPeakWorkingSetBytes.Should().HaveCount(2).And.OnlyContain(b => b > 0);
         result.Memory.SampleCount.Should().BePositive();
         result.Setup.InitializeMs.Should().HaveCount(2);
-        result.Tools.Select(t => t.Tool).Should().Contain("index.ensure_baseline");
+        result.Tools.Select(t => t.Tool).Should().Contain("index_ensure_baseline");
         if (result.Setup.AgentsFailedSetup == 0)
         {
             result.Tools.Select(t => t.Tool).Should().Contain(LoopTools);

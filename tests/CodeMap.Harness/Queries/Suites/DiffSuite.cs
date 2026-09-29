@@ -8,13 +8,13 @@ using CodeMap.Harness.Repos;
 using CodeMap.Harness.Telemetry;
 
 /// <summary>
-/// index.diff between two baselines.
+/// index_diff between two baselines.
 /// Skipped if only one baseline exists for the repo.
 /// Parity rule: same added/removed/changed stable_id sets; same fact diff key sets.
 /// </summary>
 public sealed class DiffSuite(RepoId repoId, CommitSha fromCommit, CommitSha toCommit) : IHarnessQuery
 {
-    public string Name => $"index.diff:{fromCommit.Value[..8]}..{toCommit.Value[..8]}";
+    public string Name => $"index_diff:{fromCommit.Value[..8]}..{toCommit.Value[..8]}";
     public QuerySuiteCategory Category => QuerySuiteCategory.Diff;
     public bool IncludeInSmoke => false;
 
@@ -38,7 +38,7 @@ public sealed class DiffSuite(RepoId repoId, CommitSha fromCommit, CommitSha toC
 /// </summary>
 public sealed class DiffSkippedSuite : IHarnessQuery
 {
-    public string Name => "index.diff.skipped";
+    public string Name => "index_diff.skipped";
     public QuerySuiteCategory Category => QuerySuiteCategory.Diff;
     public bool IncludeInSmoke => false;
 

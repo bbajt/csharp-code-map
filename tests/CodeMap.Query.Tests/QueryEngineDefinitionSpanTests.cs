@@ -131,7 +131,7 @@ public class QueryEngineDefinitionSpanTests
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be(ErrorCodes.NotFound);
         result.Error.Message.Should().Contain("no source location");
-        result.Error.Message.Should().Contain("symbols.get_card");
+        result.Error.Message.Should().Contain("symbols_get_card");
     }
 
     // ─── Factory ─────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ namespace CodeMap.Core.Models;
 using CodeMap.Core.Types;
 
 /// <summary>
-/// Response for the <c>index.cleanup</c> MCP tool.
+/// Response for the <c>index_cleanup</c> MCP tool.
 /// </summary>
 /// <param name="BaselinesRemoved">
 /// Number of baselines deleted (or would-delete when <paramref name="DryRun"/> is true).

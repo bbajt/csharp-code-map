@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 /// <summary>
-/// End-to-end integration tests for types.hierarchy (PHASE-02-06 T02/T04).
+/// End-to-end integration tests for types_hierarchy (PHASE-02-06 T02/T04).
 /// Uses manually seeded BaselineStore + OverlayStore — no Roslyn compilation.
 ///
 /// Seeded type hierarchy:

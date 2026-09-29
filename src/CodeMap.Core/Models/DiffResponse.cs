@@ -3,7 +3,7 @@ namespace CodeMap.Core.Models;
 using CodeMap.Core.Enums;
 using CodeMap.Core.Types;
 
-/// <summary>Response payload for the <c>index.diff</c> MCP tool.</summary>
+/// <summary>Response payload for the <c>index_diff</c> MCP tool.</summary>
 public record DiffResponse(
     /// <summary>The "before" commit SHA.</summary>
     CommitSha FromCommit,

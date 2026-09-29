@@ -3,7 +3,7 @@ namespace CodeMap.Core.Models;
 using CodeMap.Core.Enums;
 using CodeMap.Core.Types;
 
-/// <summary>Response payload for graph.trace_feature.</summary>
+/// <summary>Response payload for graph_trace_feature.</summary>
 public record FeatureTraceResponse(
     SymbolId EntryPoint,
     string EntryPointName,

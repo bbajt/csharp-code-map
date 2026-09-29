@@ -3,6 +3,7 @@ namespace CodeMap.Mcp.Handlers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CodeMap.Core.Interfaces;
+using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
@@ -10,7 +11,7 @@ using CodeMap.Query;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>index.refresh_overlay</c> MCP tool.
+/// Handles the <c>index_refresh_overlay</c> MCP tool.
 /// Triggers incremental reindexing for changed files in a workspace.
 /// </summary>
 /// <remarks>
@@ -42,11 +43,11 @@ public sealed class OverlayRefreshHandler
         _logger = logger;
     }
 
-    /// <summary>Registers the <c>index.refresh_overlay</c> tool.</summary>
+    /// <summary>Registers the <c>index_refresh_overlay</c> tool.</summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "index.refresh_overlay",
+            ToolNames.IndexRefreshOverlay,
             "Incrementally reindex changed files for a workspace overlay.",
             new JsonObject
             {
@@ -100,8 +101,8 @@ public sealed class OverlayRefreshHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "index.refresh_overlay failed for {RepoPath}", repoPath);
-            return Err(HandlerHelpers.ClassifyException(ex, "index.refresh_overlay", workspaceStr));
+            _logger.LogError(ex, "index_refresh_overlay failed for {RepoPath}", repoPath);
+            return Err(HandlerHelpers.ClassifyException(ex, ToolNames.IndexRefreshOverlay, workspaceStr));
         }
     }
 

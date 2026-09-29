@@ -42,7 +42,7 @@ public sealed class RepoRegistry : IRepoRegistry
         {
             1 => new ResolveRepoResult(known[0], null),
             0 => new ResolveRepoResult(null, CodeMapError.InvalidArgument(
-                "repo_path is required — no repo has been indexed yet. Run index.ensure_baseline first.")),
+                "repo_path is required — no repo has been indexed yet. Run index_ensure_baseline first.")),
             _ => new ResolveRepoResult(null, CodeMapError.InvalidArgument(
                 $"repo_path is required — {known.Count} repos are indexed: {string.Join(", ", known)}. " +
                 "Pass one explicitly.")),

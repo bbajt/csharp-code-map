@@ -188,7 +188,7 @@ public class MergedQueryEngine : IQueryEngine
         var answer = AnswerGenerator.ForSearch(merged.Hits, query, merged.Truncated);
         var nextActions = merged.Hits.Take(3)
             .Select(h => new NextAction(
-                "symbols.get_card",
+                ToolNames.SymbolsGetCard,
                 $"Get full details for {h.FullyQualifiedName}",
                 new Dictionary<string, object> { ["symbol_id"] = h.SymbolId.Value }))
             .ToList();
@@ -289,7 +289,7 @@ public class MergedQueryEngine : IQueryEngine
         var answer = AnswerGenerator.ForCard(card);
         var nextActions = new List<NextAction>
         {
-            new("symbols.get_definition_span",
+            new(ToolNames.SymbolsGetDefinitionSpan,
                 $"View source code for {card.FullyQualifiedName}",
                 new Dictionary<string, object> { ["symbol_id"] = card.SymbolId.Value })
         };
@@ -662,7 +662,7 @@ public class MergedQueryEngine : IQueryEngine
         var answer = AnswerGenerator.ForFindRefs(symbolId, refsWithExcerpts.Count, kind, truncated);
         var nextActions = new List<NextAction>
         {
-            new("symbols.get_card",
+            new(ToolNames.SymbolsGetCard,
                 $"Get symbol details",
                 new Dictionary<string, object> { ["symbol_id"] = symbolId.Value })
         };
@@ -920,7 +920,7 @@ public class MergedQueryEngine : IQueryEngine
         var answer = AnswerGenerator.ForCallGraph(symbolId, direction, graphNodes.Count, clampedDepth, traversal.Truncated);
         var nextActions = new List<NextAction>
         {
-            new("symbols.get_card",
+            new(ToolNames.SymbolsGetCard,
                 $"Get symbol details",
                 new Dictionary<string, object> { ["symbol_id"] = symbolId.Value })
         };
@@ -1051,7 +1051,7 @@ public class MergedQueryEngine : IQueryEngine
         var answer = AnswerGenerator.ForTypeHierarchy(symbolId, baseRef, interfaceRefs.Count, derivedRefs.Count);
         var nextActions = new List<NextAction>
         {
-            new("symbols.get_card",
+            new(ToolNames.SymbolsGetCard,
                 $"Get full details for {cardFqn}",
                 new Dictionary<string, object> { ["symbol_id"] = symbolId.Value })
         };

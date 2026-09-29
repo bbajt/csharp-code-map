@@ -1,7 +1,7 @@
 namespace CodeMap.Core.Models;
 
 /// <summary>
-/// Summary of an active workspace overlay, returned by repo.status.
+/// Summary of an active workspace overlay, returned by repo_status.
 /// </summary>
 public record WorkspaceSummary(
     Types.WorkspaceId WorkspaceId,

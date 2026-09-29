@@ -66,10 +66,10 @@ public class ToolAnnotationsCoverageTests : IDisposable
 
         destructive.Should().BeEquivalentTo(new[]
         {
-            "index.cleanup",       // purges old baselines
-            "index.remove_repo",   // purges all repo data
-            "workspace.delete",    // purges workspace overlay
-            "workspace.reset",     // discards overlay revisions — irreversible
+            "index_cleanup",       // purges old baselines
+            "index_remove_repo",   // purges all repo data
+            "workspace_delete",    // purges workspace overlay
+            "workspace_reset",     // discards overlay revisions — irreversible
         }, "these four are the only tools that may cause data loss; flag any change here");
     }
 }

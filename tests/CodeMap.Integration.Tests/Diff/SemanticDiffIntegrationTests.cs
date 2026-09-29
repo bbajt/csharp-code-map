@@ -11,7 +11,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
-/// Integration tests for index.diff / IQueryEngine.DiffAsync.
+/// Integration tests for index_diff / IQueryEngine.DiffAsync.
 /// Uses two manually-seeded BaselineStore instances with different symbol sets —
 /// no real git commits required. This approach tests the full SQLite → SemanticDiffer
 /// pipeline while avoiding git complexity.

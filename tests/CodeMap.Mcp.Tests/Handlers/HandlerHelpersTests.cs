@@ -24,7 +24,7 @@ public sealed class HandlerHelpersTests
     [Fact]
     public void ClassifyException_SharingViolation_WorkspaceScoped_WorkspaceInUseRetryable()
     {
-        var err = HandlerHelpers.ClassifyException(SharingViolation(), "workspace.create", "agent-1");
+        var err = HandlerHelpers.ClassifyException(SharingViolation(), "workspace_create", "agent-1");
 
         err.Code.Should().Be(ErrorCodes.WorkspaceInUse);
         err.Retryable.Should().BeTrue();
@@ -34,7 +34,7 @@ public sealed class HandlerHelpersTests
     [Fact]
     public void ClassifyException_SharingViolation_NotWorkspaceScoped_StorageError()
     {
-        var err = HandlerHelpers.ClassifyException(SharingViolation(), "index.ensure_baseline", null);
+        var err = HandlerHelpers.ClassifyException(SharingViolation(), "index_ensure_baseline", null);
 
         err.Code.Should().Be(ErrorCodes.StorageError);
         err.Retryable.Should().BeTrue();
@@ -43,7 +43,7 @@ public sealed class HandlerHelpersTests
     [Fact]
     public void ClassifyException_PlainIo_StorageErrorRetryable()
     {
-        var err = HandlerHelpers.ClassifyException(new IOException("disk full"), "index.refresh_overlay", "ws");
+        var err = HandlerHelpers.ClassifyException(new IOException("disk full"), "index_refresh_overlay", "ws");
 
         err.Code.Should().Be(ErrorCodes.StorageError);
         err.Retryable.Should().BeTrue();
@@ -51,7 +51,7 @@ public sealed class HandlerHelpersTests
 
     [Fact]
     public void ClassifyException_UnauthorizedAccess_StorageError() =>
-        HandlerHelpers.ClassifyException(new UnauthorizedAccessException("denied"), "index.cleanup", null)
+        HandlerHelpers.ClassifyException(new UnauthorizedAccessException("denied"), "index_cleanup", null)
             .Code.Should().Be(ErrorCodes.StorageError);
 
     [Theory]
@@ -59,7 +59,7 @@ public sealed class HandlerHelpersTests
     [InlineData(false)]
     public void ClassifyException_StorageFailure_StorageErrorRetryable(bool transient)
     {
-        var err = HandlerHelpers.ClassifyException(new FakeStorageFailure("segment gone", transient), "index.ensure_baseline", null);
+        var err = HandlerHelpers.ClassifyException(new FakeStorageFailure("segment gone", transient), "index_ensure_baseline", null);
 
         err.Code.Should().Be(ErrorCodes.StorageError);
         err.Retryable.Should().BeTrue();
@@ -67,13 +67,13 @@ public sealed class HandlerHelpersTests
 
     [Fact]
     public void ClassifyException_TransientStorageFailure_MessageSuggestsRetry() =>
-        HandlerHelpers.ClassifyException(new FakeStorageFailure("busy", transient: true), "index.ensure_baseline", null)
+        HandlerHelpers.ClassifyException(new FakeStorageFailure("busy", transient: true), "index_ensure_baseline", null)
             .Message.Should().ContainEquivalentOf("retry");
 
     [Fact]
     public void ClassifyException_Unexpected_InternalErrorNotRetryable()
     {
-        var err = HandlerHelpers.ClassifyException(new InvalidOperationException("null ref somewhere"), "workspace.list", null);
+        var err = HandlerHelpers.ClassifyException(new InvalidOperationException("null ref somewhere"), "workspace_list", null);
 
         err.Code.Should().Be(ErrorCodes.InternalError);
         err.Retryable.Should().BeFalse();
@@ -83,15 +83,15 @@ public sealed class HandlerHelpersTests
     public void ClassifyException_ArgumentExceptionFromValueGuard_InvalidArgument()
     {
         // e.g. WorkspaceId.From("../x") throws inside the handler's try — still a caller error.
-        var err = HandlerHelpers.ClassifyException(new ArgumentException("WorkspaceId must not contain '..'"), "workspace.create", "../x");
+        var err = HandlerHelpers.ClassifyException(new ArgumentException("WorkspaceId must not contain '..'"), "workspace_create", "../x");
 
         err.Code.Should().Be(ErrorCodes.InvalidArgument);
         err.Retryable.Should().BeFalse();
     }
 
     [Theory]
-    [InlineData("workspace.create", "ws")]
-    [InlineData("index.ensure_baseline", null)]
+    [InlineData("workspace_create", "ws")]
+    [InlineData("index_ensure_baseline", null)]
     public void ClassifyException_KeepsOperationAndOriginalMessage(string operation, string? workspaceId)
     {
         var err = HandlerHelpers.ClassifyException(new InvalidOperationException("the original detail"), operation, workspaceId);
@@ -136,9 +136,9 @@ public sealed class HandlerHelpersTests
     {
         var ex = new ArgumentException("Value cannot be empty.");
 
-        HandlerHelpers.ClassifyException(ex, "symbols.search", null).Code.Should().Be(ErrorCodes.InvalidArgument,
+        HandlerHelpers.ClassifyException(ex, "symbols_search", null).Code.Should().Be(ErrorCodes.InvalidArgument,
             "inside a handler's try, value-type guards on caller input are caller errors");
-        var boundary = HandlerHelpers.ClassifyUnhandled(ex, "symbols.search", null);
+        var boundary = HandlerHelpers.ClassifyUnhandled(ex, "symbols_search", null);
         boundary.Code.Should().Be(ErrorCodes.InternalError,
             "an argument exception that escaped the handler is a defect, not bad input");
         boundary.Details!["exception_type"].Should().Be("System.ArgumentException");
@@ -147,7 +147,7 @@ public sealed class HandlerHelpersTests
     [Fact]
     public void ClassifyUnhandled_SharingViolation_WithWorkspace_IsWorkspaceInUse()
     {
-        var error = HandlerHelpers.ClassifyUnhandled(SharingViolation(), "refs.find", "session");
+        var error = HandlerHelpers.ClassifyUnhandled(SharingViolation(), "refs_find", "session");
 
         error.Code.Should().Be(ErrorCodes.WorkspaceInUse);
         error.Retryable.Should().BeTrue();
@@ -157,7 +157,7 @@ public sealed class HandlerHelpersTests
     [Fact]
     public void ClassifyUnhandled_StorageFailure_IsStorageError_WithoutExceptionType()
     {
-        var error = HandlerHelpers.ClassifyUnhandled(new FakeStorageFailure("incomplete baseline", transient: false), "graph.callers", null);
+        var error = HandlerHelpers.ClassifyUnhandled(new FakeStorageFailure("incomplete baseline", transient: false), "graph_callers", null);
 
         error.Code.Should().Be(ErrorCodes.StorageError);
         error.Message.Should().Contain("incomplete baseline");
@@ -167,7 +167,7 @@ public sealed class HandlerHelpersTests
     [Fact]
     public void ClassifyUnhandled_Unexpected_IsInternalError_WithExceptionType()
     {
-        var error = HandlerHelpers.ClassifyUnhandled(new NullReferenceException("x"), "types.hierarchy", null);
+        var error = HandlerHelpers.ClassifyUnhandled(new NullReferenceException("x"), "types_hierarchy", null);
 
         error.Code.Should().Be(ErrorCodes.InternalError);
         error.Retryable.Should().BeFalse();

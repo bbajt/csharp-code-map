@@ -336,7 +336,7 @@ isn't pushed to a shared cache, and a warning names the fix (`dotnet restore`, t
 baseline). Without errors (e.g. no packages, framework shipped with the SDK) it's informational only.
 See KNOWN-LIMITATIONS L-12.
 
-The run's `semantic_level` (in `index.ensure_baseline` and in every query's `meta`) is computed by one
+The run's `semantic_level` (in `index_ensure_baseline` and in every query's `meta`) is computed by one
 rule for the build and the stored baseline (`SemanticLevels`, ADR-054): `full` when every project
 compiled without an environment degradation (`generator_load_failures`, or `missing_restore_output`
 with errors), `syntax_only` when none compiled, otherwise `partial`.
@@ -371,15 +371,15 @@ public record CodeMapError(
 | `NOT_FOUND` | Symbol or resource not in the index | no |
 | `AMBIGUOUS` | Name matched several symbols; `details.candidates` lists them | no |
 | `BUDGET_EXCEEDED` | A result/line/char hard cap was exceeded | no |
-| `INDEX_NOT_AVAILABLE` | No baseline for repo + commit — run `index.ensure_baseline` | yes |
+| `INDEX_NOT_AVAILABLE` | No baseline for repo + commit — run `index_ensure_baseline` | yes |
 | `WORKSPACE_REQUIRED` | Workspace-scoped call without a workspace id | no |
 | `COMPILATION_FAILED` | Roslyn compilation produced no symbols (real build failure only) | yes, after fixing the build |
 | `WORKSPACE_IN_USE` *(v2.8.2)* | Another CodeMap process holds this workspace's overlay (WAL locked); `details.workspace_id` | yes — retry later or use another `workspace_id` |
 | `STORAGE_ERROR` *(v2.8.2)* | I/O or storage-engine failure: busy/incomplete baseline, disk, access denied | yes |
 | `INTERNAL_ERROR` *(v2.8.2)* | Unexpected exception inside a tool handler (a bug); `details.exception_type` when it escaped the handler | no |
 
-Before v2.8.2, storage/I-O failures in `index.ensure_baseline` were reported as
-`COMPILATION_FAILED`, and in `workspace.*` / `index.refresh_overlay` / `repo.status` as
+Before v2.8.2, storage/I-O failures in `index_ensure_baseline` were reported as
+`COMPILATION_FAILED`, and in `workspace.*` / `index_refresh_overlay` / `repo_status` as
 `INVALID_ARGUMENT` (ADR-041).
 
 **Every tool failure uses this envelope** (`result.isError: true`), on every tool, including
@@ -419,10 +419,10 @@ See ADR-002.
 
 | Parameter       | Default | Hard Cap | Applied To                            |
 | --------------- | ------- | -------- | ------------------------------------- |
-| max_results     | 20      | 100      | symbols.search, refs.find, surfaces   |
-| max_references  | 50      | 500      | refs.find, graph.callers/callees      |
-| max_depth       | 3       | 6        | graph.callers, graph.callees          |
-| max_lines       | 120     | 400      | code.get_span, evidence excerpts      |
+| max_results     | 20      | 100      | symbols_search, refs_find, surfaces   |
+| max_references  | 50      | 500      | refs_find, graph_callers/callees      |
+| max_depth       | 3       | 6        | graph_callers, graph_callees          |
+| max_lines       | 120     | 400      | code_get_span, evidence excerpts      |
 | max_chars       | 12,000  | 40,000   | Total response character budget       |
 
 ```csharp
@@ -478,7 +478,7 @@ public record VirtualFile(
 
 **Rules:**
 - Only valid when `Consistency = Ephemeral`
-- VirtualFiles affect span reads (`code.get_span`, `symbols.get_definition_span`) only
+- VirtualFiles affect span reads (`code_get_span`, `symbols_get_definition_span`) only
 - Semantic queries (search, card, refs, graph, hierarchy) use Workspace semantics
 - No persistent state change — ephemeral per request
 
@@ -488,11 +488,31 @@ public record VirtualFile(
 
 # 6. Tools
 
-All 19 tools are listed below. Tools are organized by milestone.
+The server registers 28 tools. The sections below document the core set, organized by milestone;
+`codemap_guide` returns the full list with one-line descriptions (`verbose: true`).
+
+### Tool names and aliases (v2.9.0, ADR-051 / ADR-056)
+
+- **Canonical names** use underscores (`symbols_search`) and match `^[a-zA-Z0-9_-]{1,64}$`, the rule
+  LLM APIs apply to tool names. `tools/list` returns only these. The constants are
+  `CodeMap.Core.Models.ToolNames`.
+- **Deprecated aliases:** the pre-v2.9.0 names put a dot instead of the first underscore
+  (`symbols` + `.` + `search`). A `tools/call` with such a name runs the canonical tool:
+  - `content[0]` is identical to the canonical call's envelope;
+  - `content[1]` is a text note naming the canonical tool and the removal version;
+  - `isError` is unchanged;
+  - the server logs one `DeprecatedToolAlias` warning per alias per process.
+- **Removal:** v2.11.0 at the earliest (`ToolNames.AliasRemovalVersion`). `codemap_guide` reports it
+  in `deprecated_aliases: { note, removal_version }`.
+- **Who can reach an alias:** clients that validate names against `tools/list` before calling (for
+  example MCP Inspector) never send it. Aliases serve clients with a cached pre-v2.9.0 tool list,
+  scripts and direct JSON-RPC callers.
+- **Unknown names** return JSON-RPC `-32602` with a "Did you mean: <canonical>?" suggestion, taken from
+  the closest canonical name or alias.
 
 ---
 
-## 6.1 repo.status
+## 6.1 repo_status
 
 **Milestone:** 01
 
@@ -510,7 +530,7 @@ record RepoStatusResponse(
     IReadOnlyList<WorkspaceSummary> Workspaces   // Core.Models.WorkspaceSummary
 );
 
-// WorkspaceSummary from CodeMap.Core.Models (used by repo.status):
+// WorkspaceSummary from CodeMap.Core.Models (used by repo_status):
 public record WorkspaceSummary(
     WorkspaceId WorkspaceId,
     RepoId RepoId,
@@ -524,13 +544,13 @@ public record WorkspaceSummary(
 
 <!-- Updated PHASE-05-05: WorkspaceSummary in spec was simplified — actual has RepoId,
      ChangedFileCount, OverlaySymbolCount, CreatedAt, LastAccessedAt.
-     Note: workspace.list uses a different richer WorkspaceSummary from WorkspaceManager — see 6.17. -->
+     Note: workspace_list uses a different richer WorkspaceSummary from WorkspaceManager — see 6.17. -->
 
 **Errors:** `INVALID_ARGUMENT`, `NOT_FOUND`, `STORAGE_ERROR` (retryable), `INTERNAL_ERROR`
 
 ---
 
-## 6.2 index.ensure_baseline
+## 6.2 index_ensure_baseline
 
 **Milestone:** 01
 
@@ -567,7 +587,7 @@ public record IndexStats(
 
 ---
 
-## 6.3 symbols.search
+## 6.3 symbols_search
 
 **Milestone:** 01
 
@@ -623,7 +643,7 @@ public record SymbolSearchHit(
 
 ---
 
-## 6.4 symbols.get_card
+## 6.4 symbols_get_card
 
 **Milestone:** 01
 
@@ -634,13 +654,13 @@ or stable_id (prefix `sym_`).
 
 **Response Data:** `SymbolCard` (see Section 2.4)
 
-Facts are hydrated from the `facts` table — only `symbols.get_card` hydrates facts, not search.
+Facts are hydrated from the `facts` table — only `symbols_get_card` hydrates facts, not search.
 
 **Errors:** `INVALID_ARGUMENT`, `NOT_FOUND`, `INDEX_NOT_AVAILABLE`
 
 ---
 
-## 6.5 code.get_span
+## 6.5 code_get_span
 
 **Milestone:** 01
 
@@ -664,7 +684,7 @@ public record SpanResponse(
 
 ---
 
-## 6.6 symbols.get_definition_span
+## 6.6 symbols_get_definition_span
 
 **Milestone:** 01
 
@@ -673,13 +693,13 @@ reads the source from disk.
 
 **Parameters (JSON):** `repo_path` (required), `symbol_id` (required), `max_lines` (default 120), `context_lines` (default 2), `workspace_id` (optional)
 
-**Response Data:** `SpanResponse` (same as `code.get_span`)
+**Response Data:** `SpanResponse` (same as `code_get_span`)
 
 **Errors:** `INVALID_ARGUMENT`, `NOT_FOUND`, `INDEX_NOT_AVAILABLE`
 
 ---
 
-## 6.7 refs.find
+## 6.7 refs_find
 
 **Milestone:** 02 — PHASE-02-04
 
@@ -721,7 +741,7 @@ public record ClassifiedReference(
 
 ---
 
-## 6.8 graph.callers
+## 6.8 graph_callers
 
 **Milestone:** 02 — PHASE-02-05
 
@@ -753,18 +773,18 @@ public record CallGraphNode(
 
 ---
 
-## 6.9 graph.callees
+## 6.9 graph_callees
 
 **Milestone:** 02 — PHASE-02-05
 
 Depth-limited downward call graph traversal. Same request/response shape
-as `graph.callers` but traverses in the opposite direction.
+as `graph_callers` but traverses in the opposite direction.
 
 **Response Data:** `CallGraphResponse` — same structure
 
 ---
 
-## 6.10 types.hierarchy
+## 6.10 types_hierarchy
 
 **Milestone:** 02 — PHASE-02-06
 
@@ -796,7 +816,7 @@ public record TypeRef(
 
 ---
 
-## 6.11 workspace.create
+## 6.11 workspace_create
 
 **Milestone:** 02 — PHASE-02-02
 
@@ -819,7 +839,7 @@ public record CreateWorkspaceResponse(
 
 ---
 
-## 6.12 workspace.reset
+## 6.12 workspace_reset
 
 **Milestone:** 02 — PHASE-02-02
 
@@ -840,7 +860,7 @@ public record ResetWorkspaceResponse(
 
 ---
 
-## 6.13 index.refresh_overlay
+## 6.13 index_refresh_overlay
 
 **Milestone:** 02 — PHASE-02-01
 
@@ -861,7 +881,7 @@ public record RefreshOverlayResponse(
 
 ---
 
-## 6.14 surfaces.list_endpoints
+## 6.14 surfaces_list_endpoints
 
 **Milestone:** 03 — PHASE-03-02
 
@@ -894,7 +914,7 @@ public record EndpointInfo(
 
 ---
 
-## 6.15 surfaces.list_config_keys
+## 6.15 surfaces_list_config_keys
 
 **Milestone:** 03 — PHASE-03-03
 
@@ -924,7 +944,7 @@ public record ConfigKeyInfo(
 
 ---
 
-## 6.16 surfaces.list_db_tables
+## 6.16 surfaces_list_db_tables
 
 **Milestone:** 03 — PHASE-03-04
 
@@ -955,7 +975,7 @@ public record DbTableInfo(
 
 ---
 
-## 6.17 workspace.list
+## 6.17 workspace_list
 
 **Milestone:** 03 — PHASE-03-07
 
@@ -967,7 +987,7 @@ Lists all active workspaces for the repo with staleness and quality metadata.
 
 **Response Data:**
 ```csharp
-// WorkspaceSummary from WorkspaceManager (richer than repo.status version)
+// WorkspaceSummary from WorkspaceManager (richer than repo_status version)
 public record WorkspaceSummary(
     WorkspaceId WorkspaceId,
     CommitSha BaseCommitSha,
@@ -989,7 +1009,7 @@ public record WorkspaceListResponse(
 
 ---
 
-## 6.18 workspace.delete
+## 6.18 workspace_delete
 
 **Milestone:** 03 — PHASE-03-07
 
@@ -1011,7 +1031,7 @@ public record WorkspaceDeleteResponse(
 
 ---
 
-## 6.19 graph.trace_feature
+## 6.19 graph_trace_feature
 
 **Milestone:** 04 — PHASE-04-06
 
@@ -1108,27 +1128,27 @@ persisted to `~/.codemap/_savings.json`.
 
 | Tool                           | Milestone | Phase       |
 | ------------------------------ | --------- | ----------- |
-| `repo.status`                  | 01        | PHASE-01-06 |
-| `index.ensure_baseline`        | 01        | PHASE-01-06 |
-| `symbols.search`               | 01        | PHASE-01-06 |
-| `symbols.get_card`             | 01        | PHASE-01-06 |
-| `code.get_span`                | 01        | PHASE-01-06 |
-| `symbols.get_definition_span`  | 01        | PHASE-01-06 |
-| `refs.find`                    | 02        | PHASE-02-04 |
-| `graph.callers`                | 02        | PHASE-02-05 |
-| `graph.callees`                | 02        | PHASE-02-05 |
-| `types.hierarchy`              | 02        | PHASE-02-06 |
-| `workspace.create`             | 02        | PHASE-02-02 |
-| `workspace.reset`              | 02        | PHASE-02-02 |
-| `index.refresh_overlay`        | 02        | PHASE-02-01 |
-| `surfaces.list_endpoints`      | 03        | PHASE-03-02 |
-| `surfaces.list_config_keys`    | 03        | PHASE-03-03 |
-| `surfaces.list_db_tables`      | 03        | PHASE-03-04 |
-| `workspace.list`               | 03        | PHASE-03-07 |
-| `workspace.delete`             | 03        | PHASE-03-07 |
-| `graph.trace_feature`          | 04        | PHASE-04-06 |
+| `repo_status`                  | 01        | PHASE-01-06 |
+| `index_ensure_baseline`        | 01        | PHASE-01-06 |
+| `symbols_search`               | 01        | PHASE-01-06 |
+| `symbols_get_card`             | 01        | PHASE-01-06 |
+| `code_get_span`                | 01        | PHASE-01-06 |
+| `symbols_get_definition_span`  | 01        | PHASE-01-06 |
+| `refs_find`                    | 02        | PHASE-02-04 |
+| `graph_callers`                | 02        | PHASE-02-05 |
+| `graph_callees`                | 02        | PHASE-02-05 |
+| `types_hierarchy`              | 02        | PHASE-02-06 |
+| `workspace_create`             | 02        | PHASE-02-02 |
+| `workspace_reset`              | 02        | PHASE-02-02 |
+| `index_refresh_overlay`        | 02        | PHASE-02-01 |
+| `surfaces_list_endpoints`      | 03        | PHASE-03-02 |
+| `surfaces_list_config_keys`    | 03        | PHASE-03-03 |
+| `surfaces_list_db_tables`      | 03        | PHASE-03-04 |
+| `workspace_list`               | 03        | PHASE-03-07 |
+| `workspace_delete`             | 03        | PHASE-03-07 |
+| `graph_trace_feature`          | 04        | PHASE-04-06 |
 
-<!-- Updated PHASE-05-05: added workspace.list, workspace.delete, graph.trace_feature (tools 17-19) -->
+<!-- Updated PHASE-05-05: added workspace_list, workspace_delete, graph_trace_feature (tools 17-19) -->
 
 ---
 

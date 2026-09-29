@@ -13,14 +13,14 @@ using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>graph.callers</c>, <c>graph.callees</c>, and <c>graph.trace_feature</c> MCP tools.
+/// Handles the <c>graph_callers</c>, <c>graph_callees</c>, and <c>graph_trace_feature</c> MCP tools.
 /// </summary>
 /// <remarks>
-/// <b>graph.callers / graph.callees</b> params: repo_path, symbol_id (required);
+/// <b>graph_callers / graph_callees</b> params: repo_path, symbol_id (required);
 /// workspace_id, depth, limit_per_level (optional).
 /// depth: clamped to [1, 6]; default 1. limit_per_level: clamped to [1, 500]; default 20.
 ///
-/// <b>graph.trace_feature</b> params: repo_path, entry_point (required);
+/// <b>graph_trace_feature</b> params: repo_path, entry_point (required);
 /// workspace_id, depth, limit (optional).
 /// entry_point accepts FQN or stable_id (sym_ prefix — stable_id is resolved to SymbolId first).
 /// depth: clamped to [1, 6]; default 3. limit: clamped to [1, 500]; default 100.
@@ -63,11 +63,11 @@ public sealed class GraphHandler
     private const int MaxTraceDepthCap = 6;
     private const int MaxTraceLimitCap = 500;
 
-    /// <summary>Registers graph.callers, graph.callees, and graph.trace_feature into the ToolRegistry.</summary>
+    /// <summary>Registers graph_callers, graph_callees, and graph_trace_feature into the ToolRegistry.</summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "graph.trace_feature",
+            ToolNames.GraphTraceFeature,
             "Traces a feature end-to-end starting from an entry point method or endpoint handler. Returns a hierarchical call tree annotated with architectural facts (endpoints, config, DB tables, DI registrations) at each node. Accepts either entry_point (exact symbol ID) or name (resolved via search).",
             BuildSchema(
                 required: [],
@@ -85,7 +85,7 @@ public sealed class GraphHandler
             HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
-            "graph.callers",
+            ToolNames.GraphCallers,
             "Find all callers of a C# symbol, traversing the call graph up to the specified depth. Accepts either symbol_id (exact) or name (resolved via search). In DI codebases, when the target method implements an interface, the response carries an interface_implementation_hint listing the interface members and an estimated count of callers that route through them. Pass follow_interface=true to union those into the result set.",
             BuildSchema(
                 required: [],
@@ -104,7 +104,7 @@ public sealed class GraphHandler
             HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
-            "graph.callees",
+            ToolNames.GraphCallees,
             "Find all symbols called by a C# symbol, traversing the call graph down to the specified depth. Accepts either symbol_id (exact) or name (resolved via search).",
             BuildSchema(
                 required: [],
@@ -194,10 +194,10 @@ public sealed class GraphHandler
             && card.Kind is SymbolKind.Class or SymbolKind.Interface
                 or SymbolKind.Struct or SymbolKind.Record)
         {
-            var toolName = callers ? "graph.callers" : "graph.callees";
+            var toolName = callers ? ToolNames.GraphCallers : ToolNames.GraphCallees;
             return InvalidArg(
                 $"{toolName} works on methods and properties, not types. " +
-                $"Try: refs.find to see references to {card.FullyQualifiedName}, " +
+                $"Try: refs_find to see references to {card.FullyQualifiedName}, " +
                 $"or search for a specific method on {card.FullyQualifiedName}.");
         }
 

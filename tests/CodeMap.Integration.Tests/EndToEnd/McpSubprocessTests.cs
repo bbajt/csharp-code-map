@@ -2,6 +2,7 @@ namespace CodeMap.Integration.Tests.EndToEnd;
 
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using CodeMap.Harness.Concurrency;
 using FluentAssertions;
 
@@ -188,10 +189,52 @@ public sealed class McpSubprocessTests : IDisposable
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         lines.Should().HaveCount(2, "one response for initialize and one for tools/list");
 
-        // tools/list response contains at least the 6 baseline tools
-        output.Should().Contain("symbols.search");
-        output.Should().Contain("symbols.get_card");
-        output.Should().Contain("index.ensure_baseline");
+        // tools/list response contains the canonical names only (PHASE-21-09, ADR-051)
+        output.Should().Contain("\"symbols_search\"");
+        output.Should().Contain("\"symbols_get_card\"");
+        output.Should().Contain("\"index_ensure_baseline\"");
+        output.Should().NotContain("\"symbols.search\"");
+    }
+
+    [Fact]
+    public async Task Subprocess_DottedAlias_StillWorks()
+    {
+        // PHASE-21-09 T01: a pre-v2.9.0 dotted name is still answered, with a deprecation note.
+        File.Exists(DaemonDll).Should().BeTrue("the daemon must be built first");
+
+        const string init = """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}""";
+        const string alias = """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codemap.guide","arguments":{}}}""";
+        const string canonical = """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codemap_guide","arguments":{}}}""";
+
+        using var proc = Process.Start(DaemonStartInfo())!;
+        await proc.StandardInput.BaseStream.WriteAsync(Encoding.UTF8.GetBytes(Ndjson(init) + Ndjson(alias) + Ndjson(canonical)));
+        await proc.StandardInput.BaseStream.FlushAsync();
+        proc.StandardInput.Close();
+
+        using var cts = new CancellationTokenSource(StartupTimeoutMs);
+        string output;
+        try
+        {
+            output = await proc.StandardOutput.ReadToEndAsync(cts.Token);
+            await proc.WaitForExitAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            proc.Kill(entireProcessTree: true);
+            output = string.Empty;
+        }
+
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        lines.Should().HaveCount(3);
+        using var aliasDoc = JsonDocument.Parse(lines[1]);
+        using var canonicalDoc = JsonDocument.Parse(lines[2]);
+        var aliasContent = aliasDoc.RootElement.GetProperty("result").GetProperty("content");
+        var canonicalContent = canonicalDoc.RootElement.GetProperty("result").GetProperty("content");
+
+        aliasContent.GetArrayLength().Should().Be(2);
+        aliasContent[0].GetProperty("text").GetString().Should().Be(canonicalContent[0].GetProperty("text").GetString());
+        aliasContent[1].GetProperty("text").GetString().Should().Contain("'codemap_guide'").And.Contain("2.11.0");
+        canonicalContent.GetArrayLength().Should().Be(1);
     }
 
     [Fact]

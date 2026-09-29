@@ -6,7 +6,7 @@ using CodeMap.Integration.Tests.Workflows;
 using FluentAssertions;
 
 /// <summary>
-/// PHASE-21-08 T01, end to end on the Roslyn-indexed SampleSolution: the <c>symbols.search</c> syntax
+/// PHASE-21-08 T01, end to end on the Roslyn-indexed SampleSolution: the <c>symbols_search</c> syntax
 /// the tool description promises (<c>OR</c>, quoted words) works through the real query stack. Before
 /// the fix, every <c>OR</c> query and every quoted query returned 0 hits on the v2 engine.
 /// </summary>

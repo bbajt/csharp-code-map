@@ -40,7 +40,7 @@ public sealed class StdioMcpClientTests : IAsyncLifetime
     [Fact]
     public async Task CallToolAsync_Guide_Roundtrips()
     {
-        var result = await _client.CallToolAsync("codemap.guide", new JsonObject(), TestContext.Current.CancellationToken);
+        var result = await _client.CallToolAsync("codemap_guide", new JsonObject(), TestContext.Current.CancellationToken);
 
         result.Ok.Should().BeTrue(result.ErrorMessage);
         result.Payload.Should().NotBeNullOrWhiteSpace();
@@ -66,8 +66,8 @@ public sealed class StdioMcpClientTests : IAsyncLifetime
             await p.WaitForExitAsync(TestContext.Current.CancellationToken);
         }
 
-        var first = await _client.CallToolAsync("codemap.guide", new JsonObject(), TestContext.Current.CancellationToken);
-        var second = await _client.CallToolAsync("codemap.guide", new JsonObject(), TestContext.Current.CancellationToken);
+        var first = await _client.CallToolAsync("codemap_guide", new JsonObject(), TestContext.Current.CancellationToken);
+        var second = await _client.CallToolAsync("codemap_guide", new JsonObject(), TestContext.Current.CancellationToken);
 
         first.ErrorCode.Should().Be("TRANSPORT_EXIT");
         second.ErrorCode.Should().Be("TRANSPORT_EXIT");

@@ -559,7 +559,7 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
             // partial results at high confidence (F6). ensure_baseline rebuilds it (ADR-040).
             if (!BaselinePublisher.IsComplete(baselineDir))
                 throw new StorageCorruptionException(
-                    $"Baseline for repo {repoId} commit {commitSha} is incomplete (missing segments); run index.ensure_baseline to rebuild it.");
+                    $"Baseline for repo {repoId} commit {commitSha} is incomplete (missing segments); run index_ensure_baseline to rebuild it.");
 
             var reader = new EngineBaselineReader(baselineDir);
 

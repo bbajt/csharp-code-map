@@ -160,12 +160,12 @@ public sealed class BranchChangeTests : IClassFixture<IndexedSampleSolutionFixtu
         _git.GetCurrentCommitAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ShaB);
 
-        // repo.status calls ListWorkspacesAsync which returns enriched summaries
+        // repo_status calls ListWorkspacesAsync which returns enriched summaries
         var workspaces = await _manager.ListWorkspacesAsync(_f.RepoId);
 
         workspaces.Should().HaveCount(1);
         workspaces[0].IsStale.Should().BeTrue(
-            because: "repo.status Workspaces are enriched by ListWorkspacesAsync");
+            because: "repo_status Workspaces are enriched by ListWorkspacesAsync");
     }
 
     // ── GetStaleWorkspacesAsync ───────────────────────────────────────────────

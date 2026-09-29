@@ -44,7 +44,7 @@ public sealed class ListBaselinesHandlerTests
     {
         var registry = new ToolRegistry();
         _handler.Register(registry);
-        registry.Find("index.list_baselines").Should().NotBeNull();
+        registry.Find("index_list_baselines").Should().NotBeNull();
     }
 
     [Fact]

@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 /// <summary>
-/// Integration tests for symbols.get_context (PHASE-07-05 T02).
+/// Integration tests for symbols_get_context (PHASE-07-05 T02).
 /// Uses manually seeded BaselineStore + real files on disk + real QueryEngine.
 ///
 /// Seeded call chain:

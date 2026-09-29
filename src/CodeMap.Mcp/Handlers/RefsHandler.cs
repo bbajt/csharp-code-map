@@ -13,7 +13,7 @@ using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>refs.find</c> MCP tool.
+/// Handles the <c>refs_find</c> MCP tool.
 /// Finds all references to a symbol, with optional RefKind filter and workspace support.
 /// </summary>
 /// <remarks>
@@ -48,11 +48,11 @@ public sealed class RefsHandler
         _logger = logger;
     }
 
-    /// <summary>Registers the refs.find tool into the ToolRegistry.</summary>
+    /// <summary>Registers the refs_find tool into the ToolRegistry.</summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "refs.find",
+            ToolNames.RefsFind,
             "Find all references to a C# symbol, optionally filtered by reference kind. Accepts either symbol_id (exact) or name (resolved via search).",
             BuildSchema(
                 required: [],

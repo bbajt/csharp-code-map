@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Text.Json.Nodes;
 
 /// <summary>
-/// One simulated agent: setup (<c>ensure_baseline</c> → <c>workspace.create</c> → symbol pool),
+/// One simulated agent: setup (<c>ensure_baseline</c> → <c>workspace_create</c> → symbol pool),
 /// a seeded read/heavy-read/mutation loop, and teardown. Mutations append a uniquely named
 /// class to the agent's edit file, refresh the overlay, and verify the agent sees its own
 /// edit; in isolated mode one peer is probed to verify it does <b>not</b> (no cross-talk).
@@ -87,7 +87,7 @@ public sealed class AgentWorkload
         for (var attempt = 0; attempt < BaselineAttempts; attempt++)
         {
             Stats.BaselineRequests++;
-            baseline = await CallAsync("index.ensure_baseline", new JsonObject
+            baseline = await CallAsync("index_ensure_baseline", new JsonObject
             {
                 ["repo_path"] = RepoPath,
                 ["solution_path"] = SolutionPath,
@@ -99,7 +99,7 @@ public sealed class AgentWorkload
         if (baseline.PayloadJson()?["already_existed"]?.GetValue<bool>() == false)
             Stats.BaselineBuilds++;
 
-        var ws = await CallAsync("workspace.create", new JsonObject
+        var ws = await CallAsync("workspace_create", new JsonObject
         {
             ["workspace_id"] = WorkspaceId,
             ["repo_path"] = RepoPath,
@@ -109,7 +109,7 @@ public sealed class AgentWorkload
 
         foreach (var input in _queryInputs)
         {
-            var search = await CallAsync("symbols.search", WsArgs(new JsonObject
+            var search = await CallAsync("symbols_search", WsArgs(new JsonObject
             {
                 ["query"] = input,
                 ["limit"] = 20,
@@ -132,7 +132,7 @@ public sealed class AgentWorkload
         {
             foreach (var input in _queryInputs)
             {
-                var search = await CallAsync("symbols.search", WsArgs(new JsonObject
+                var search = await CallAsync("symbols_search", WsArgs(new JsonObject
                 {
                     ["query"] = input,
                     ["kinds"] = new JsonArray("method"),
@@ -170,7 +170,7 @@ public sealed class AgentWorkload
 
     /// <summary>Deletes the agent's workspace (best-effort; errors are recorded).</summary>
     public async Task TeardownAsync(CancellationToken ct) =>
-        await CallAsync("workspace.delete", new JsonObject
+        await CallAsync("workspace_delete", new JsonObject
         {
             ["workspace_id"] = WorkspaceId,
             ["repo_path"] = RepoPath,
@@ -180,18 +180,18 @@ public sealed class AgentWorkload
 
     private Task<McpCallResult> LightReadAsync(CancellationToken ct) => _rng.Next(5) switch
     {
-        0 => CallAsync("symbols.search", WsArgs(new JsonObject { ["query"] = Pick(_queryInputs), ["limit"] = 20 }), ct),
-        1 => CallAsync("symbols.get_card", WsArgs(new JsonObject { ["symbol_id"] = Pick(_anySymbols) }), ct),
-        2 => CallAsync("refs.find", WsArgs(new JsonObject { ["symbol_id"] = Pick(_anySymbols) }), ct),
-        3 => CallAsync("graph.callers", WsArgs(new JsonObject { ["symbol_id"] = PickMethod() }), ct),
-        _ => CallAsync("types.hierarchy", WsArgs(new JsonObject { ["symbol_id"] = PickType() }), ct),
+        0 => CallAsync("symbols_search", WsArgs(new JsonObject { ["query"] = Pick(_queryInputs), ["limit"] = 20 }), ct),
+        1 => CallAsync("symbols_get_card", WsArgs(new JsonObject { ["symbol_id"] = Pick(_anySymbols) }), ct),
+        2 => CallAsync("refs_find", WsArgs(new JsonObject { ["symbol_id"] = Pick(_anySymbols) }), ct),
+        3 => CallAsync("graph_callers", WsArgs(new JsonObject { ["symbol_id"] = PickMethod() }), ct),
+        _ => CallAsync("types_hierarchy", WsArgs(new JsonObject { ["symbol_id"] = PickType() }), ct),
     };
 
     private Task<McpCallResult> HeavyReadAsync(CancellationToken ct) => _rng.Next(3) switch
     {
-        0 => CallAsync("graph.trace_feature", WsArgs(new JsonObject { ["entry_point"] = PickMethod(), ["depth"] = 3 }), ct),
-        1 => CallAsync("symbols.get_context", WsArgs(new JsonObject { ["symbol_id"] = PickMethod() }), ct),
-        _ => CallAsync("codemap.summarize", WsArgs(new JsonObject()), ct),
+        0 => CallAsync("graph_trace_feature", WsArgs(new JsonObject { ["entry_point"] = PickMethod(), ["depth"] = 3 }), ct),
+        1 => CallAsync("symbols_get_context", WsArgs(new JsonObject { ["symbol_id"] = PickMethod() }), ct),
+        _ => CallAsync("codemap_summarize", WsArgs(new JsonObject()), ct),
     };
 
     private async Task MutateAsync(CancellationToken ct)
@@ -205,7 +205,7 @@ public sealed class AgentWorkload
         }
         Stats.Mutations++;
 
-        var refresh = await CallAsync("index.refresh_overlay", WsArgs(new JsonObject()), ct).ConfigureAwait(false);
+        var refresh = await CallAsync("index_refresh_overlay", WsArgs(new JsonObject()), ct).ConfigureAwait(false);
         if (!refresh.Ok)
         {
             Stats.OwnEditSkippedRefreshFailed++;
@@ -213,7 +213,7 @@ public sealed class AgentWorkload
         }
 
         Stats.OwnEditChecks++;
-        var own = await CallAsync("symbols.search", WsArgs(new JsonObject { ["query"] = name }), ct).ConfigureAwait(false);
+        var own = await CallAsync("symbols_search", WsArgs(new JsonObject { ["query"] = name }), ct).ConfigureAwait(false);
         if (own.Ok && !ContainsSymbol(own, name))
         {
             Stats.OwnEditMissing++;
@@ -225,7 +225,7 @@ public sealed class AgentWorkload
             .Select(offset => Peers[(Index + offset) % Peers.Count])
             .FirstOrDefault(p => p.IsReady);
         if (peer is null) return;
-        var probe = await peer.Client.CallToolAsync("symbols.search", new JsonObject
+        var probe = await peer.Client.CallToolAsync("symbols_search", new JsonObject
         {
             ["query"] = name,
             ["repo_path"] = peer.RepoPath,

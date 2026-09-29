@@ -230,14 +230,14 @@ public interface IQueryEngine
 
 // Response types used by IQueryEngine
 
-/// <summary>Response payload for symbols.search.</summary>
+/// <summary>Response payload for symbols_search.</summary>
 public record SymbolSearchResponse(
     IReadOnlyList<SymbolSearchHit> Hits,
     int TotalCount,
     bool Truncated
 );
 
-/// <summary>Response payload for code.get_span and symbols.get_definition_span.</summary>
+/// <summary>Response payload for code_get_span and symbols_get_definition_span.</summary>
 public record SpanResponse(
     FilePath FilePath,
     int StartLine,
@@ -247,7 +247,7 @@ public record SpanResponse(
     bool Truncated
 );
 
-/// <summary>Response payload for refs.find.</summary>
+/// <summary>Response payload for refs_find.</summary>
 public record FindRefsResponse(
     SymbolId TargetSymbol,
     IReadOnlyList<ClassifiedReference> References,
@@ -268,7 +268,7 @@ public record ClassifiedReference(
     string? ToContainerHint = null
 );
 
-/// <summary>Response payload for graph.callers and graph.callees.</summary>
+/// <summary>Response payload for graph_callers and graph_callees.</summary>
 public record CallGraphResponse(
     SymbolId Root,
     IReadOnlyList<CallGraphNode> Nodes,
@@ -278,7 +278,7 @@ public record CallGraphResponse(
 );
 
 /// <summary>
-/// Surfaced on <c>graph.callers</c> responses when the target method (or property/event/indexer)
+/// Surfaced on <c>graph_callers</c> responses when the target method (or property/event/indexer)
 /// implements one or more interface members. In DI-dispatched codebases most real call sites
 /// resolve through the interface symbol, so the concrete caller count is often misleadingly low.
 /// </summary>
@@ -311,7 +311,7 @@ public record TypeRef(
     string DisplayName
 );
 
-/// <summary>Response payload for types.hierarchy.</summary>
+/// <summary>Response payload for types_hierarchy.</summary>
 public record TypeHierarchyResponse(
     SymbolId TargetType,
     TypeRef? BaseType,
@@ -319,7 +319,7 @@ public record TypeHierarchyResponse(
     IReadOnlyList<TypeRef> DerivedTypes
 );
 
-/// <summary>Response payload for surfaces.list_endpoints.</summary>
+/// <summary>Response payload for surfaces_list_endpoints.</summary>
 public record ListEndpointsResponse(
     IReadOnlyList<EndpointInfo> Endpoints,
     int TotalCount,
@@ -336,7 +336,7 @@ public record EndpointInfo(
     Enums.Confidence Confidence
 );
 
-/// <summary>Response payload for surfaces.list_config_keys.</summary>
+/// <summary>Response payload for surfaces_list_config_keys.</summary>
 public record ListConfigKeysResponse(
     IReadOnlyList<ConfigKeyInfo> Keys,
     int TotalCount,
@@ -353,7 +353,7 @@ public record ConfigKeyInfo(
     Enums.Confidence Confidence
 );
 
-/// <summary>Response payload for surfaces.list_db_tables.</summary>
+/// <summary>Response payload for surfaces_list_db_tables.</summary>
 public record ListDbTablesResponse(
     IReadOnlyList<DbTableInfo> Tables,
     int TotalCount,

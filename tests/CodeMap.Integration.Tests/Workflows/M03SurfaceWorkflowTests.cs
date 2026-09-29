@@ -24,7 +24,7 @@ public sealed class M03SurfaceWorkflowTests : IClassFixture<IndexedSampleSolutio
     [Fact]
     public async Task E2E_Workflow_MapApiSurface()
     {
-        // 1. surfaces.list_endpoints → get all endpoints
+        // 1. surfaces_list_endpoints → get all endpoints
         var endpointsResult = await _f.QueryEngine.ListEndpointsAsync(
             Routing, pathFilter: null, httpMethod: null, limit: 50);
         endpointsResult.IsSuccess.Should().BeTrue();
@@ -34,14 +34,14 @@ public sealed class M03SurfaceWorkflowTests : IClassFixture<IndexedSampleSolutio
         // 2. Pick an endpoint's HandlerSymbol
         var handlerSymbol = endpoints[0].HandlerSymbol;
 
-        // 3. symbols.get_card → verify card has Route fact
+        // 3. symbols_get_card → verify card has Route fact
         var cardResult = await _f.QueryEngine.GetSymbolCardAsync(Routing, handlerSymbol);
         cardResult.IsSuccess.Should().BeTrue();
         var card = cardResult.Value.Data;
         card.Facts.Should().Contain(f => f.Kind == FactKind.Route,
             "handler method should have a Route fact");
 
-        // 4. refs.find → see who references this endpoint handler
+        // 4. refs_find → see who references this endpoint handler
         var refsResult = await _f.QueryEngine.FindReferencesAsync(
             Routing, handlerSymbol, null, new BudgetLimits(maxResults: 20));
         refsResult.IsSuccess.Should().BeTrue();
@@ -56,7 +56,7 @@ public sealed class M03SurfaceWorkflowTests : IClassFixture<IndexedSampleSolutio
     [Fact]
     public async Task E2E_Workflow_AuditConfigUsage()
     {
-        // 1. surfaces.list_config_keys → get all config keys
+        // 1. surfaces_list_config_keys → get all config keys
         var keysResult = await _f.QueryEngine.ListConfigKeysAsync(
             Routing, keyFilter: null, limit: 50);
         keysResult.IsSuccess.Should().BeTrue();
@@ -66,14 +66,14 @@ public sealed class M03SurfaceWorkflowTests : IClassFixture<IndexedSampleSolutio
         // 2. Pick the UsedBySymbol from the first key
         var usedBySymbol = keys[0].UsedBySymbol;
 
-        // 3. symbols.get_card → verify card has Config fact
+        // 3. symbols_get_card → verify card has Config fact
         var cardResult = await _f.QueryEngine.GetSymbolCardAsync(Routing, usedBySymbol);
         cardResult.IsSuccess.Should().BeTrue();
         var card = cardResult.Value.Data;
         card.Facts.Should().Contain(f => f.Kind == FactKind.Config,
             "method that accesses config should have a Config fact on its card");
 
-        // 4. symbols.get_definition_span → read the source code
+        // 4. symbols_get_definition_span → read the source code
         var spanResult = await _f.QueryEngine.GetDefinitionSpanAsync(
             Routing, usedBySymbol, 120, 2);
         spanResult.IsSuccess.Should().BeTrue();
@@ -89,7 +89,7 @@ public sealed class M03SurfaceWorkflowTests : IClassFixture<IndexedSampleSolutio
     [Fact]
     public async Task E2E_Workflow_UnderstandDataLayer()
     {
-        // 1. surfaces.list_db_tables → get all tables
+        // 1. surfaces_list_db_tables → get all tables
         var tablesResult = await _f.QueryEngine.ListDbTablesAsync(
             Routing, tableFilter: null, limit: 50);
         tablesResult.IsSuccess.Should().BeTrue();
@@ -102,14 +102,14 @@ public sealed class M03SurfaceWorkflowTests : IClassFixture<IndexedSampleSolutio
             t.TableName.Contains("Order", StringComparison.OrdinalIgnoreCase));
         orderTableEntry.Should().NotBeNull("AppDbContext.Orders DbSet must produce a DB table entry");
 
-        // 3. types.hierarchy(entityClass) → check Order inherits from AuditableEntity
+        // 3. types_hierarchy(entityClass) → check Order inherits from AuditableEntity
         var hierarchyResult = await _f.QueryEngine.GetTypeHierarchyAsync(
             Routing, _f.OrderId);
         hierarchyResult.IsSuccess.Should().BeTrue();
         hierarchyResult.Value.Data.BaseType.Should().NotBeNull(
             "Order extends AuditableEntity");
 
-        // 4. refs.find(entityClass) → where is the Order entity used?
+        // 4. refs_find(entityClass) → where is the Order entity used?
         var refsResult = await _f.QueryEngine.FindReferencesAsync(
             Routing, _f.OrderId, null,
             new BudgetLimits(maxResults: 20));
@@ -125,7 +125,7 @@ public sealed class M03SurfaceWorkflowTests : IClassFixture<IndexedSampleSolutio
     [Fact]
     public async Task E2E_Workflow_DiAudit()
     {
-        // 1. symbols.search("ConfigureServices") — DI setup method
+        // 1. symbols_search("ConfigureServices") — DI setup method
         var searchResult = await _f.QueryEngine.SearchSymbolsAsync(
             Routing, "ConfigureServices",
             new SymbolSearchFilters(Kinds: [SymbolKind.Method]),
@@ -136,14 +136,14 @@ public sealed class M03SurfaceWorkflowTests : IClassFixture<IndexedSampleSolutio
 
         var diMethodId = searchResult.Value.Data.Hits[0].SymbolId;
 
-        // 2. symbols.get_card → verify DI registration facts
+        // 2. symbols_get_card → verify DI registration facts
         var cardResult = await _f.QueryEngine.GetSymbolCardAsync(Routing, diMethodId);
         cardResult.IsSuccess.Should().BeTrue();
         var card = cardResult.Value.Data;
         card.Facts.Should().Contain(f => f.Kind == FactKind.DiRegistration,
             "ConfigureServices should have DI registration facts");
 
-        // 3. For a registered service: refs.find → see usage across codebase
+        // 3. For a registered service: refs_find → see usage across codebase
         var refsResult = await _f.QueryEngine.FindReferencesAsync(
             Routing, _f.IOrderServiceId, null, new BudgetLimits(maxResults: 20));
         refsResult.IsSuccess.Should().BeTrue();
@@ -157,7 +157,7 @@ public sealed class M03SurfaceWorkflowTests : IClassFixture<IndexedSampleSolutio
     [Fact]
     public async Task E2E_Workflow_FullStackTrace()
     {
-        // 1. surfaces.list_endpoints → pick first endpoint
+        // 1. surfaces_list_endpoints → pick first endpoint
         var endpointsResult = await _f.QueryEngine.ListEndpointsAsync(
             Routing, pathFilter: null, httpMethod: null, limit: 10);
         endpointsResult.IsSuccess.Should().BeTrue();
@@ -165,12 +165,12 @@ public sealed class M03SurfaceWorkflowTests : IClassFixture<IndexedSampleSolutio
 
         var handlerSymbol = endpointsResult.Value.Data.Endpoints[0].HandlerSymbol;
 
-        // 2. graph.callees(handlerMethod, depth: 2) → call tree
+        // 2. graph_callees(handlerMethod, depth: 2) → call tree
         var calleesResult = await _f.QueryEngine.GetCalleesAsync(
             Routing, handlerSymbol, depth: 2, limitPerLevel: 20, budgets: null);
         calleesResult.IsSuccess.Should().BeTrue();
 
-        // 3. surfaces.list_db_tables → check both surface tools work in the same agent session
+        // 3. surfaces_list_db_tables → check both surface tools work in the same agent session
         var tablesResult = await _f.QueryEngine.ListDbTablesAsync(
             Routing, tableFilter: null, limit: 10);
         tablesResult.IsSuccess.Should().BeTrue();

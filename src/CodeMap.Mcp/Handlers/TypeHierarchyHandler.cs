@@ -13,7 +13,7 @@ using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>types.hierarchy</c> MCP tool.
+/// Handles the <c>types_hierarchy</c> MCP tool.
 /// Returns the base type, implemented interfaces, and derived types for a C# type symbol.
 /// </summary>
 /// <remarks>
@@ -47,11 +47,11 @@ public sealed class TypeHierarchyHandler
         _logger = logger;
     }
 
-    /// <summary>Registers types.hierarchy into the ToolRegistry.</summary>
+    /// <summary>Registers types_hierarchy into the ToolRegistry.</summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "types.hierarchy",
+            ToolNames.TypesHierarchy,
             "Get the type hierarchy for a C# type: base class, implemented interfaces, and derived types. Accepts either symbol_id (exact) or name (resolved via search).",
             BuildSchema(
                 required: [],

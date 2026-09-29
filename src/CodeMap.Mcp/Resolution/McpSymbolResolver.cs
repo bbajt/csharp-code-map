@@ -68,7 +68,7 @@ public sealed class McpSymbolResolver : IMcpSymbolResolver
         {
             return new ResolveResult(null, new CodeMapError(
                 ErrorCodes.NotFound,
-                $"No symbol matches name '{name}'. Tip: try a broader query with symbols.search, or drop name_filter."));
+                $"No symbol matches name '{name}'. Tip: try a broader query with symbols_search, or drop name_filter."));
         }
 
         if (hits.Count == 1)

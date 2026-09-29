@@ -12,7 +12,7 @@ using Xunit;
 
 /// <summary>
 /// F13 (PHASE-21-07 T01): a degradation the build detected must reach every query's
-/// <c>meta.semantic_level</c>, not only the <c>index.ensure_baseline</c> response. Before the fix the
+/// <c>meta.semantic_level</c>, not only the <c>index_ensure_baseline</c> response. Before the fix the
 /// manifest dropped <see cref="ProjectDiagnostic.GeneratorLoadFailures"/> and the store recomputed the
 /// level from <c>Compiled</c> alone, so queries against an F10-degraded baseline said Full.
 /// </summary>

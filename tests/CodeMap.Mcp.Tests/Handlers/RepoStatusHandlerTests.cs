@@ -123,7 +123,7 @@ public sealed class RepoStatusHandlerTests
     {
         var registry = new ToolRegistry();
         _handler.Register(registry);
-        registry.Find("repo.status").Should().NotBeNull();
+        registry.Find("repo_status").Should().NotBeNull();
     }
 
     [Fact]

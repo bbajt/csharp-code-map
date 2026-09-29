@@ -14,20 +14,20 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Handles the four query-based MCP tools:
-///   symbols.search, symbols.get_card, code.get_span, symbols.get_definition_span
+///   symbols_search, symbols_get_card, code_get_span, symbols_get_definition_span
 /// </summary>
 /// <remarks>
-/// <b>symbols.search</b> params: repo_path, query (required); workspace_id, virtual_files, kinds, namespace, file_path, limit (optional).
+/// <b>symbols_search</b> params: repo_path, query (required); workspace_id, virtual_files, kinds, namespace, file_path, limit (optional).
 /// limit is clamped to [1, 100]; default 20. kinds filters by <see cref="CodeMap.Core.Enums.SymbolKind"/>.
 ///
-/// <b>symbols.get_card</b> params: repo_path, symbol_id (required); workspace_id, virtual_files (optional).
+/// <b>symbols_get_card</b> params: repo_path, symbol_id (required); workspace_id, virtual_files (optional).
 /// symbol_id with "sym_" prefix dispatches to stable-ID lookup instead of FQN lookup.
 ///
-/// <b>code.get_span</b> params: repo_path, file_path, start_line, end_line (required);
+/// <b>code_get_span</b> params: repo_path, file_path, start_line, end_line (required);
 /// workspace_id, virtual_files, context_lines, max_lines (optional).
 /// max_lines clamped to [1, 400]; default 120.
 ///
-/// <b>symbols.get_definition_span</b> params: repo_path, symbol_id (required);
+/// <b>symbols_get_definition_span</b> params: repo_path, symbol_id (required);
 /// workspace_id, virtual_files, max_lines, context_lines (optional).
 ///
 /// All tools support Committed, Workspace, and Ephemeral consistency modes via
@@ -63,14 +63,14 @@ public sealed class McpToolHandlers
     public void RegisterQueryTools(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "symbols.search",
+            ToolNames.SymbolsSearch,
             "Search for C# symbols by name, namespace, kind, or file path using full-text search.",
             BuildSchema(
                 required: [],
                 properties: new JsonObject
                 {
                     ["repo_path"] = Prop("string", "Absolute path to the repository root. Optional when exactly one repo is indexed in this session."),
-                    ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay data. Falls back to the sticky workspace set by the most recent workspace.create."),
+                    ["workspace_id"] = Prop("string", "Optional: workspace ID for overlay data. Falls back to the sticky workspace set by the most recent workspace_create."),
                     ["virtual_files"] = VirtualFilesProp(),
                     ["query"] = Prop("string", "Search query (optional when kinds is set). Omit to browse all symbols of the specified kinds. Words are matched by prefix against symbol names, namespaces and doc words ('Order' finds OrderService); all words must match (space = AND). Use OR for alternatives: 'Foo OR Bar'. Quotes group words (\"Order Service\" = both words, not an exact phrase); a trailing * is accepted. NOT / NEAR are not supported."),
                     ["kinds"] = new JsonObject
@@ -88,7 +88,7 @@ public sealed class McpToolHandlers
             HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
-            "symbols.get_card",
+            ToolNames.SymbolsGetCard,
             "Get a full structured summary of a C# symbol including signature, docs, facts, and source code. Accepts either symbol_id (exact) or name (resolved via search).",
             BuildSchema(
                 required: [],
@@ -106,7 +106,7 @@ public sealed class McpToolHandlers
             HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
-            "code.get_span",
+            ToolNames.CodeGetSpan,
             "Read a bounded excerpt of source code with line numbers.",
             BuildSchema(
                 required: ["file_path", "start_line", "end_line"],
@@ -125,8 +125,8 @@ public sealed class McpToolHandlers
             HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
-            "symbols.get_definition_span",
-            "Source code only — no card metadata or fact hydration. Accepts either symbol_id (exact) or name (resolved via search). Use for batch reads or when you need precise line control. For most uses, prefer symbols.get_card which includes source automatically.",
+            ToolNames.SymbolsGetDefinitionSpan,
+            "Source code only — no card metadata or fact hydration. Accepts either symbol_id (exact) or name (resolved via search). Use for batch reads or when you need precise line control. For most uses, prefer symbols_get_card which includes source automatically.",
             BuildSchema(
                 required: [],
                 properties: new JsonObject
@@ -144,7 +144,7 @@ public sealed class McpToolHandlers
             HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
-            "code.search_text",
+            ToolNames.CodeSearchText,
             "Search indexed source file content by regex pattern. Returns file:line:excerpt for each match. Searches only indexed files (no bin/obj). Use file_path to restrict to a subtree.",
             BuildSchema(
                 required: ["pattern"],
@@ -354,7 +354,7 @@ public sealed class McpToolHandlers
                 if (spanData.Truncated)
                 {
                     var remaining = card.SpanEnd - card.SpanStart - MaxCodeLines;
-                    sourceCode += $"\n// ... ({remaining} more lines — use symbols.get_definition_span for full source)";
+                    sourceCode += $"\n// ... ({remaining} more lines — use symbols_get_definition_span for full source)";
                 }
                 dataObj["source_code"] = sourceCode;
                 if (spanData.Truncated)
@@ -373,7 +373,7 @@ public sealed class McpToolHandlers
         var filePathStr = args?["file_path"]?.GetValue<string>();
         if (string.IsNullOrEmpty(filePathStr)) return InvalidArg("file_path is required");
         if (filePathStr == "unknown")
-            return InvalidArg("File path is 'unknown' — this symbol has no source location (metadata or decompiled assembly). Use symbols.get_card with include_code=true instead.");
+            return InvalidArg("File path is 'unknown' — this symbol has no source location (metadata or decompiled assembly). Use symbols_get_card with include_code=true instead.");
 
         int startLine = args.GetInt("start_line", 0);
         int endLine = args.GetInt("end_line", 0);
@@ -558,7 +558,7 @@ public sealed class McpToolHandlers
         "On 2+ matches the error lists candidates — pass one as symbol_id or narrow with name_filter.");
 
     /// <summary>
-    /// Shared <c>name_filter</c> schema property — same shape as symbols.search filters.
+    /// Shared <c>name_filter</c> schema property — same shape as symbols_search filters.
     /// Lets callers disambiguate without resorting to a separate search call.
     /// </summary>
     internal static JsonObject NameFilterProp() => new()

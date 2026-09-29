@@ -57,7 +57,7 @@ public sealed class SpanHandlerTests
         _handler = new McpToolHandlers(_queryEngine, _git, new McpSymbolResolver(_queryEngine), new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<McpToolHandlers>.Instance);
     }
 
-    // ── code.get_span ─────────────────────────────────────────────────────────
+    // ── code_get_span ─────────────────────────────────────────────────────────
 
     [Fact]
     public async Task GetSpan_ValidRange_DelegatesToQueryEngine()
@@ -114,10 +114,10 @@ public sealed class SpanHandlerTests
     {
         var registry = new ToolRegistry();
         _handler.RegisterQueryTools(registry);
-        registry.Find("code.get_span").Should().NotBeNull();
+        registry.Find("code_get_span").Should().NotBeNull();
     }
 
-    // ── symbols.get_definition_span ───────────────────────────────────────────
+    // ── symbols_get_definition_span ───────────────────────────────────────────
 
     [Fact]
     public async Task GetDefinitionSpan_ValidSymbol_DelegatesToQueryEngine()
@@ -149,7 +149,7 @@ public sealed class SpanHandlerTests
     {
         var registry = new ToolRegistry();
         _handler.RegisterQueryTools(registry);
-        registry.Find("symbols.get_definition_span").Should().NotBeNull();
+        registry.Find("symbols_get_definition_span").Should().NotBeNull();
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public sealed class SpanHandlerTests
 
         result.IsError.Should().BeTrue();
         result.Content.Should().Contain("no source location");
-        result.Content.Should().Contain("symbols.get_card");
+        result.Content.Should().Contain("symbols_get_card");
     }
 
     private static JsonObject SpanArgs(string repo, string file, int start, int end) =>

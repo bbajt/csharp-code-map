@@ -11,7 +11,7 @@ public record SymbolCardWithCode(
 );
 
 /// <summary>
-/// Response payload for symbols.get_context.
+/// Response payload for symbols_get_context.
 /// Returns the primary symbol's card with source code, plus cards of its immediate callees.
 /// One call replaces the typical search → card → get_definition_span → callees chain.
 /// </summary>

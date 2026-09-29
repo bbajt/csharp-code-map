@@ -23,7 +23,7 @@ public sealed class WorkspaceStickyRegistryTests
     [Fact]
     public void Set_OverwritesPrevious()
     {
-        // Most-recent wins — matches the "latest workspace.create is sticky" rule.
+        // Most-recent wins — matches the "latest workspace_create is sticky" rule.
         var r = new WorkspaceStickyRegistry();
         r.Set("/repo", "ws-1");
         r.Set("/repo", "ws-2");

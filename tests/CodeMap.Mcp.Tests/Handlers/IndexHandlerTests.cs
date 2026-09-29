@@ -159,7 +159,7 @@ public sealed class IndexHandlerTests : IDisposable
     {
         var registry = new ToolRegistry();
         _handler.Register(registry);
-        registry.Find("index.ensure_baseline").Should().NotBeNull();
+        registry.Find("index_ensure_baseline").Should().NotBeNull();
     }
 
     // ── Cache hit tests (PHASE-03-08) ─────────────────────────────────────────

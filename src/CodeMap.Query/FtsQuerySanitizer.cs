@@ -1,7 +1,7 @@
 namespace CodeMap.Query;
 
 /// <summary>
-/// Sanitizes user-supplied <c>symbols.search</c> query strings before passing them to the search engine.
+/// Sanitizes user-supplied <c>symbols_search</c> query strings before passing them to the search engine.
 /// The engine's syntax (PHASE-21-08, ADR-055): terms (implicit AND), <c>OR</c>, optional <c>AND</c>,
 /// double quotes (all quoted words), trailing <c>*</c>. It is not SQLite FTS5 (removed in v2.1.0):
 /// <c>NOT</c> and <c>NEAR</c> are not supported.
@@ -49,7 +49,7 @@ internal static class FtsQuerySanitizer
 
     /// <summary>The INVALID_ARGUMENT message for an unsupported operator.</summary>
     internal static string UnsupportedOperatorMessage(string op) =>
-        $"'{op}' isn't supported by symbols.search. Supported: terms (all must match), OR between " +
+        $"'{op}' isn't supported by symbols_search. Supported: terms (all must match), OR between " +
         "alternatives, \"quoted words\", trailing *. To narrow results use kinds / namespace / file_path / project_name.";
 
     /// <summary>The INVALID_ARGUMENT message for a query with nothing searchable.</summary>

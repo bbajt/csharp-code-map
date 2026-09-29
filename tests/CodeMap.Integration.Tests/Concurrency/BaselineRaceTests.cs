@@ -41,7 +41,7 @@ public sealed class BaselineRaceTests : IDisposable
 
             var because = $"attempt {attempt}: {string.Join(" | ", result.SampleErrors)}";
             result.Setup.AgentsFailedSetup.Should().Be(0, because);
-            result.Tools.Single(t => t.Tool == "index.ensure_baseline").Errors.Should().Be(0, because);
+            result.Tools.Single(t => t.Tool == "index_ensure_baseline").Errors.Should().Be(0, because);
             result.Setup.BaselineRequests.Should().Be(4, because + " (no retries needed)");
             result.Passed.Should().BeTrue(because);
         }

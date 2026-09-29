@@ -2,7 +2,7 @@ namespace CodeMap.Core.Models;
 
 using CodeMap.Core.Enums;
 
-/// <summary>Response payload for the <c>codemap.summarize</c> MCP tool.</summary>
+/// <summary>Response payload for the <c>codemap_summarize</c> MCP tool.</summary>
 public record SummarizeResponse(
     /// <summary>Inferred solution or repository name.</summary>
     string SolutionName,

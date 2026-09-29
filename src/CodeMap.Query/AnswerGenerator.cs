@@ -16,7 +16,7 @@ public static class AnswerGenerator
         if (hits.Count == 0)
             return $"No symbols found matching '{query}'.";
         var suffix = truncated ? " (truncated)" : "";
-        return $"Found {hits.Count} symbols matching '{query}'{suffix}. Use symbols.get_card for details.";
+        return $"Found {hits.Count} symbols matching '{query}'{suffix}. Use symbols_get_card for details.";
     }
 
     /// <summary>Generates the answer text for a symbol card lookup.</summary>

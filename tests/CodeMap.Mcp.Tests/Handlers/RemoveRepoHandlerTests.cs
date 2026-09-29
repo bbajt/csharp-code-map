@@ -42,7 +42,7 @@ public sealed class RemoveRepoHandlerTests
     {
         var registry = new ToolRegistry();
         _handler.Register(registry);
-        registry.Find("index.remove_repo").Should().NotBeNull();
+        registry.Find("index_remove_repo").Should().NotBeNull();
     }
 
     [Fact]

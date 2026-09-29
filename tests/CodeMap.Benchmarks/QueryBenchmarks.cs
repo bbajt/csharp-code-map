@@ -19,14 +19,14 @@ using Microsoft.Extensions.Logging.Abstractions;
 /// Run: dotnet run --project tests/CodeMap.Benchmarks -c Release -- --filter "QueryBenchmarks*"
 ///
 /// Performance targets from SYSTEM-ARCHITECTURE.MD Section 12:
-///   symbols.search        p95 &lt; 30 ms
-///   symbols.get_card      p95 &lt; 10 ms
+///   symbols_search        p95 &lt; 30 ms
+///   symbols_get_card      p95 &lt; 10 ms
 ///   get_card + facts      p95 &lt; 20 ms
-///   refs.find             p95 &lt; 80 ms
-///   graph.callers/callees p95 &lt; 150 ms
-///   types.hierarchy       p95 &lt; 30 ms
+///   refs_find             p95 &lt; 80 ms
+///   graph_callers/callees p95 &lt; 150 ms
+///   types_hierarchy       p95 &lt; 30 ms
 ///   surfaces.*            p95 &lt; 50 ms
-///   workspace.list        p95 &lt; 20 ms
+///   workspace_list        p95 &lt; 20 ms
 /// </summary>
 [Config(typeof(CodeMapBenchmarkConfig))]
 [MemoryDiagnoser]
@@ -197,7 +197,7 @@ public class QueryBenchmarks
     // ── Benchmark methods ────────────────────────────────────────────────────
     // Return object to prevent dead code elimination.
 
-    /// <summary>symbols.search — FTS query, limit=20. Target: p95 &lt; 30ms</summary>
+    /// <summary>symbols_search — FTS query, limit=20. Target: p95 &lt; 30ms</summary>
     [Benchmark]
     public async Task<object> SearchSymbols()
         => await _engine.SearchSymbolsAsync(
@@ -205,63 +205,63 @@ public class QueryBenchmarks
             new SymbolSearchFilters(Kinds: [SymbolKind.Class]),
             new BudgetLimits(maxResults: 20));
 
-    /// <summary>symbols.get_card (no facts). Target: p95 &lt; 10ms</summary>
+    /// <summary>symbols_get_card (no facts). Target: p95 &lt; 10ms</summary>
     [Benchmark]
     public async Task<object> GetSymbolCard()
         => await _engine.GetSymbolCardAsync(_routing, _knownSymbolId);
 
-    /// <summary>symbols.get_card on a method with facts. Target: p95 &lt; 20ms</summary>
+    /// <summary>symbols_get_card on a method with facts. Target: p95 &lt; 20ms</summary>
     [Benchmark]
     public async Task<object> GetSymbolCardWithFacts()
         => await _engine.GetSymbolCardAsync(_routing, _diMethodId);
 
-    /// <summary>refs.find — all refs to a method, limit=50. Target: p95 &lt; 80ms</summary>
+    /// <summary>refs_find — all refs to a method, limit=50. Target: p95 &lt; 80ms</summary>
     [Benchmark]
     public async Task<object> FindReferences()
         => await _engine.FindReferencesAsync(
             _routing, _knownMethodId,
             null, new BudgetLimits(maxResults: 50));
 
-    /// <summary>graph.callers depth=2. Target: p95 &lt; 150ms</summary>
+    /// <summary>graph_callers depth=2. Target: p95 &lt; 150ms</summary>
     [Benchmark]
     public async Task<object> GetCallers()
         => await _engine.GetCallersAsync(
             _routing, _knownMethodId,
             depth: 2, limitPerLevel: 20, budgets: null);
 
-    /// <summary>graph.callees depth=2. Target: p95 &lt; 150ms</summary>
+    /// <summary>graph_callees depth=2. Target: p95 &lt; 150ms</summary>
     [Benchmark]
     public async Task<object> GetCallees()
         => await _engine.GetCalleesAsync(
             _routing, _knownMethodId,
             depth: 2, limitPerLevel: 20, budgets: null);
 
-    /// <summary>types.hierarchy. Target: p95 &lt; 30ms</summary>
+    /// <summary>types_hierarchy. Target: p95 &lt; 30ms</summary>
     [Benchmark]
     public async Task<object> GetTypeHierarchy()
         => await _engine.GetTypeHierarchyAsync(_routing, _knownTypeId);
 
-    /// <summary>surfaces.list_endpoints. Target: p95 &lt; 50ms</summary>
+    /// <summary>surfaces_list_endpoints. Target: p95 &lt; 50ms</summary>
     [Benchmark]
     public async Task<object> ListEndpoints()
         => await _engine.ListEndpointsAsync(_routing, null, null, 50);
 
-    /// <summary>surfaces.list_config_keys. Target: p95 &lt; 50ms</summary>
+    /// <summary>surfaces_list_config_keys. Target: p95 &lt; 50ms</summary>
     [Benchmark]
     public async Task<object> ListConfigKeys()
         => await _engine.ListConfigKeysAsync(_routing, null, 50);
 
-    /// <summary>surfaces.list_db_tables. Target: p95 &lt; 50ms</summary>
+    /// <summary>surfaces_list_db_tables. Target: p95 &lt; 50ms</summary>
     [Benchmark]
     public async Task<object> ListDbTables()
         => await _engine.ListDbTablesAsync(_routing, null, 50);
 
-    /// <summary>workspace.list — returns all workspaces with IsStale. Target: p95 &lt; 20ms</summary>
+    /// <summary>workspace_list — returns all workspaces with IsStale. Target: p95 &lt; 20ms</summary>
     [Benchmark]
     public async Task<object> ListWorkspaces()
         => await _wsMgr.ListWorkspacesAsync(_repoId);
 
-    /// <summary>symbols.get_card via stable ID (sym_ prefix lookup). Target: p95 &lt; 10ms</summary>
+    /// <summary>symbols_get_card via stable ID (sym_ prefix lookup). Target: p95 &lt; 10ms</summary>
     [Benchmark]
     public async Task<object> GetSymbolByStableId()
     {

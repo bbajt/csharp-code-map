@@ -138,6 +138,6 @@ public sealed class CardHandlerAutoCorrectTests
             CancellationToken.None);
 
         result.IsError.Should().BeTrue();
-        result.Content.Should().Contain("symbols.search");
+        result.Content.Should().Contain("symbols_search");
     }
 }

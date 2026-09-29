@@ -64,7 +64,19 @@ public class QueryEngineSearchTests
         var result = await _engine.SearchSymbolsAsync(Routing, "Foo", null, null);
 
         result.Value.NextActions.Should().HaveCount(3); // top 3
-        result.Value.NextActions.Should().AllSatisfy(a => a.Tool.Should().Be("symbols.get_card"));
+        result.Value.NextActions.Should().AllSatisfy(a => a.Tool.Should().Be("symbols_get_card"));
+    }
+
+    [Fact]
+    public async Task Search_Answer_NamesCanonicalTool()
+    {
+        // PHASE-21-09 T01: an agent following our own answer text must call the canonical name.
+        _store.SearchSymbolsAsync(Repo, Sha, "Foo", null, Arg.Any<int>())
+              .Returns(MakeHits(2));
+
+        var result = await _engine.SearchSymbolsAsync(Routing, "Foo", null, null);
+
+        result.Value.Answer.Should().Contain("symbols_get_card").And.NotContain("symbols.get_card");
     }
 
     [Fact]
@@ -387,7 +399,7 @@ public class QueryEngineSearchTests
         capturedFilters!.ProjectName.Should().Be("MyLib");
     }
 
-    // ─── BUG-3 regression — refs.find cache key includes resolution_state ─────
+    // ─── BUG-3 regression — refs_find cache key includes resolution_state ─────
 
     [Fact]
     public async Task FindRefs_DifferentResolutionState_DoesNotShareCache()

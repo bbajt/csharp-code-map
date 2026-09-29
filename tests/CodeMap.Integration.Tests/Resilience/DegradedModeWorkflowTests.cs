@@ -106,7 +106,7 @@ public sealed class DegradedModeWorkflowTests : IAsyncLifetime
         result.Value.Meta.SemanticLevel.Should().Be(SemanticLevel.SyntaxOnly);
     }
 
-    // ── Test 3: Broken build — refs.find works, meta shows SyntaxOnly ─────────
+    // ── Test 3: Broken build — refs_find works, meta shows SyntaxOnly ─────────
 
     [Fact]
     public async Task E2E_BrokenBuild_RefsFindReturnsUnresolved_MetaShowsSyntaxOnly()
@@ -115,7 +115,7 @@ public sealed class DegradedModeWorkflowTests : IAsyncLifetime
         var compiled = BuildSyntaxOnlyResultWithRefs();
         await _store.CreateBaselineAsync(_repoId, _sha, compiled, _tempDir);
 
-        // refs.find on a known symbol (BrokenClass exists in symbols table)
+        // refs_find on a known symbol (BrokenClass exists in symbols table)
         var symbolId = SymbolId.From(BrokenSymbolId);
 
         // Act: find refs TO BrokenClass (semantic API: who references this symbol)

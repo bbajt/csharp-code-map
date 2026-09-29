@@ -1819,3 +1819,50 @@ in `SearchIndexReader.PassesFilter` next to `Kind`, before scoring and the limit
 post-filters. Before, 2+ kinds were filtered after the engine had cut the result to `limit` across all
 kinds, so results were lost and `truncated` was wrong (the GH #6 family: filter before limit). The overlay
 path already filtered kinds before its limit; browse-by-kinds was already correct.
+
+## ADR-056: MCP-Safe Tool Names — Implementation (PHASE-21-09)
+
+**Date:** 2026-09-29
+**Status:** Accepted (spec approved by the user, PHASE-21-09; implements ADR-051)
+
+**Context:**
+ADR-051 decided on underscore names (`symbols_search`), with dotted aliases for at least two minor
+releases and no prefix. Tool names were not only registrations. They were also emitted at runtime in
+`next_actions[].tool` (Query layer), `answer` texts, hints, error messages and error classification,
+`codemap_guide`, and in XML docs that CodeMap indexes and shows to agents. That was about 250 string
+occurrences across Core, Query, Mcp, Roslyn and Storage.Engine.
+
+**Decision:**
+- **`CodeMap.Core.Models.ToolNames`** holds one constant per tool, `All` (28), `LegacyAliases`
+  (dotted → canonical, derived from `All`; 28 entries, pinned by tests) and `AliasRemovalVersion`
+  (`2.11.0`).
+  - It lives in Core because the Query layer emits `next_actions`, and Query cannot reference Mcp.
+  - Identifiers use the constants: registrations, `NextAction.Tool`, error-classification arguments
+    and guide tables. Prose uses the canonical text: descriptions, messages, log templates, XML docs.
+- **Aliases are hidden.** `ToolRegistry.RegisterAlias` resolves an alias through `Find`, but `GetAll`,
+  `Count` and `tools/list` show only canonical tools. Listing the aliases would reintroduce the dots
+  (the problem being fixed) and double the list to 56.
+- **The deprecation note is a second content item** (`content[1]`, type `text`). It is not a new
+  envelope field: `content[0]` stays byte-for-byte what the canonical call returns, so parsers that read
+  `content[0]` and the envelope schema are unaffected. `isError` is unchanged. The server logs
+  `DeprecatedToolAlias` once per alias per process.
+- **Did-you-mean** searches canonical names and aliases but always suggests the canonical name.
+  Error classification (ADR-045) and logging use the canonical name.
+- **Guard:** `ToolNameUsageGuardTests` fails on any dotted tool name in `src/**/*.cs` (strings and `///`
+  docs). Plain `//` comments and `ToolNames.cs` are exempt.
+- `codemap_guide` returns `deprecated_aliases: { note, removal_version }`.
+
+**Consequences:**
+- **Who reaches an alias [verified: MCP Inspector CLI]:** clients that validate a tool name against
+  `tools/list` before calling never send an alias. Inspector reported `tool_not_found` locally. Aliases
+  therefore serve:
+  - clients with a cached pre-v2.9.0 tool list;
+  - scripts, harnesses and direct JSON-RPC callers.
+  For validating clients the change is simply "new names after reconnect". Claude Code already exposed
+  `mcp__codemap__symbols_search`, so its users see no change.
+- Users' CLAUDE.md files pasted from the old `CLAUDE-INSERT.MD` name dotted tools; agents map them to
+  the listed names. README and GETTING-STARTED say to refresh the block.
+- Harness reports now record canonical names. `concurrency-summary` still reads the committed Phase 0
+  reports, which record dotted names.
+- Removing the aliases (v2.11.0 or later) means deleting `LegacyAliases`, the `RegisterAlias` loop and
+  the note, plus flipping the alias tests.

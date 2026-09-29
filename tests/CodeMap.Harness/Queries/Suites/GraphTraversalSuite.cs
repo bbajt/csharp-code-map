@@ -9,7 +9,7 @@ using CodeMap.Harness.Comparison;
 using CodeMap.Harness.Repos;
 
 /// <summary>
-/// graph.callers, graph.callees, graph.trace_feature.
+/// graph_callers, graph_callees, graph_trace_feature.
 /// Parity rule: same stable_id set, order-insensitive, same IsTruncated flag.
 /// </summary>
 public sealed class GraphCallersSuite(RepoDescriptor repo, RepoId repoId) : IHarnessQuery
@@ -21,7 +21,7 @@ public sealed class GraphCallersSuite(RepoDescriptor repo, RepoId repoId) : IHar
     // Use anchor kind to filter search — eliminates BM25 vs custom ranking divergence
     private readonly SymbolKind? _anchorKind = repo.Anchors.Count > 1 ? repo.Anchors[1].Kind : null;
 
-    public string Name => $"graph.callers:{_term}";
+    public string Name => $"graph_callers:{_term}";
     public QuerySuiteCategory Category => QuerySuiteCategory.GraphTraversal;
     public bool IncludeInSmoke => true;
 
@@ -56,7 +56,7 @@ public sealed class GraphCalleesSuite(RepoDescriptor repo, RepoId repoId) : IHar
         ? repo.KnownQueryInputs[0]
         : "Service";
 
-    public string Name => $"graph.callees:{_term}";
+    public string Name => $"graph_callees:{_term}";
     public QuerySuiteCategory Category => QuerySuiteCategory.GraphTraversal;
     public bool IncludeInSmoke => false;
 
@@ -90,7 +90,7 @@ public sealed class GraphTraceFeatureSuite(RepoDescriptor repo, RepoId repoId) :
         ? repo.KnownQueryInputs[0]
         : "Service";
 
-    public string Name => $"graph.trace_feature:{_term}";
+    public string Name => $"graph_trace_feature:{_term}";
     public QuerySuiteCategory Category => QuerySuiteCategory.GraphTraversal;
     public bool IncludeInSmoke => false;
 

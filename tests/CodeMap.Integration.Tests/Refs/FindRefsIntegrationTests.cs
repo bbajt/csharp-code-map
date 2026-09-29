@@ -12,7 +12,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
-/// E2E integration tests for refs.find (baseline mode).
+/// E2E integration tests for refs_find (baseline mode).
 /// Uses manually seeded BaselineStore + real QueryEngine — no Roslyn.
 /// </summary>
 [Trait("Category", "Integration")]

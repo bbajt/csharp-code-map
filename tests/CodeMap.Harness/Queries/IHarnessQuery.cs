@@ -25,7 +25,7 @@ public enum QuerySuiteCategory
 public interface IHarnessQuery
 {
     /// <summary>
-    /// Unique name, e.g. "symbols.search:OrderService" or "graph.callers:IOrderService.SubmitAsync".
+    /// Unique name, e.g. "symbols_search:OrderService" or "graph_callers:IOrderService.SubmitAsync".
     /// Used as the golden file key.
     /// </summary>
     string Name { get; }

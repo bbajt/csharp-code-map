@@ -96,7 +96,7 @@ public sealed class CodeMapHomeSubprocessTests : IDisposable
             ["method"] = "tools/call",
             ["params"] = new JsonObject
             {
-                ["name"] = "index.ensure_baseline",
+                ["name"] = "index_ensure_baseline",
                 ["arguments"] = new JsonObject { ["repo_path"] = repoRoot, ["solution_path"] = solution },
             },
         }.ToJsonString();

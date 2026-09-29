@@ -1,7 +1,7 @@
 namespace CodeMap.Storage.Engine;
 
 /// <summary>
-/// A parsed <c>symbols.search</c> query: an OR of AND-groups (PHASE-21-08, ADR-055). Shared by the
+/// A parsed <c>symbols_search</c> query: an OR of AND-groups (PHASE-21-08, ADR-055). Shared by the
 /// baseline (<see cref="SearchIndexReader"/>) and the overlay (<see cref="CustomEngineOverlayStore"/>)
 /// so both paths match the same symbols.
 /// </summary>

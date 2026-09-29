@@ -25,8 +25,8 @@ public sealed class AgentWorkloadTests : IDisposable
     public async Task Setup_InputsMatchOnlyTypes_MethodToolsStillTargetMethods()
     {
         // PHASE-21-06 T01 smoke finding: eShopOnWeb's query inputs ("Order", "Basket", …) only
-        // match types, the method pool stayed empty, and graph.callers / get_context /
-        // trace_feature fell back to types → INVALID_ARGUMENT on ~57% of graph.callers calls.
+        // match types, the method pool stayed empty, and graph_callers / get_context /
+        // trace_feature fell back to types → INVALID_ARGUMENT on ~57% of graph_callers calls.
         var client = new TypesUnlessKindsFilterClient();
         var workload = new AgentWorkload(0, client, "repo", "repo/x.sln", "agent-0", _editFile,
             seed: 42, WorkspaceMode.Isolated, new Lock(), ["Order"]);
@@ -36,9 +36,9 @@ public sealed class AgentWorkloadTests : IDisposable
         await workload.RunLoopAsync(TimeSpan.FromMilliseconds(300), TestContext.Current.CancellationToken);
 
         var methodTargets = client.Calls
-            .Where(c => c.Tool is "graph.callers" or "symbols.get_context")
+            .Where(c => c.Tool is "graph_callers" or "symbols_get_context")
             .Select(c => c.Args["symbol_id"]!.GetValue<string>())
-            .Concat(client.Calls.Where(c => c.Tool == "graph.trace_feature")
+            .Concat(client.Calls.Where(c => c.Tool == "graph_trace_feature")
                 .Select(c => c.Args["entry_point"]!.GetValue<string>()))
             .ToList();
         methodTargets.Should().NotBeEmpty();
@@ -46,7 +46,7 @@ public sealed class AgentWorkloadTests : IDisposable
     }
 
     /// <summary>
-    /// Answers every call successfully. <c>symbols.search</c> returns a type hit, unless the call
+    /// Answers every call successfully. <c>symbols_search</c> returns a type hit, unless the call
     /// filters on <c>kinds: ["method"]</c>, which returns a method hit.
     /// </summary>
     private sealed class TypesUnlessKindsFilterClient : IMcpClient
@@ -62,8 +62,8 @@ public sealed class AgentWorkloadTests : IDisposable
             Calls.Enqueue((tool, (JsonObject)arguments.DeepClone()));
             var payload = tool switch
             {
-                "index.ensure_baseline" => "{\"already_existed\":true}",
-                "symbols.search" => IsMethodFilter(arguments)
+                "index_ensure_baseline" => "{\"already_existed\":true}",
+                "symbols_search" => IsMethodFilter(arguments)
                     ? Hits(MethodId, "method")
                     : Hits(TypeId, "class"),
                 _ => "{}",

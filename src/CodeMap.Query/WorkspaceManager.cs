@@ -69,7 +69,7 @@ public class WorkspaceManager
             return Result<CreateWorkspaceResponse, CodeMapError>.Failure(
                 new CodeMapError(
                     ErrorCodes.IndexNotAvailable,
-                    $"Baseline index for {baselineCommitSha.Value} must exist before creating workspace. Call index.ensure_baseline first."));
+                    $"Baseline index for {baselineCommitSha.Value} must exist before creating workspace. Call index_ensure_baseline first."));
 
         // 2. Idempotent — return current state if already registered
         var key = (repoId, workspaceId);
@@ -389,7 +389,7 @@ public record ResetWorkspaceResponse(
     int NewRevision);
 
 /// <summary>
-/// Summary of an active workspace returned by <c>workspace.list</c>.
+/// Summary of an active workspace returned by <c>workspace_list</c>.
 /// <see cref="IsStale"/> is computed at query time by comparing <see cref="BaseCommitSha"/>
 /// against the current repo HEAD. <see cref="CreatedAt"/> is in-memory only.
 /// </summary>
@@ -403,12 +403,12 @@ public record WorkspaceSummary(
     int FactCount = 0,
     DateTimeOffset? CreatedAt = null);
 
-/// <summary>Response from <c>workspace.list</c> — includes current HEAD commit for staleness comparison.</summary>
+/// <summary>Response from <c>workspace_list</c> — includes current HEAD commit for staleness comparison.</summary>
 public record WorkspaceListResponse(
     IReadOnlyList<WorkspaceSummary> Workspaces,
     CommitSha CurrentCommitSha);
 
-/// <summary>Response from <c>workspace.delete</c>.</summary>
+/// <summary>Response from <c>workspace_delete</c>.</summary>
 public record WorkspaceDeleteResponse(
     WorkspaceId WorkspaceId,
     bool Deleted);

@@ -12,10 +12,10 @@ using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>codemap.export</c> MCP tool.
+/// Handles the <c>codemap_export</c> MCP tool.
 /// </summary>
 /// <remarks>
-/// <b>codemap.export</b> params: repo_path (required), detail (summary/standard/full), format (markdown/json),
+/// <b>codemap_export</b> params: repo_path (required), detail (summary/standard/full), format (markdown/json),
 /// max_tokens, section_filter, workspace_id (all optional).
 /// Exports the indexed codebase as a self-contained markdown or JSON document suitable for pasting into any LLM.
 /// Returns INVALID_ARGUMENT if repo_path is missing.
@@ -42,11 +42,11 @@ public sealed class ExportHandler
         _logger = logger;
     }
 
-    /// <summary>Registers codemap.export into the ToolRegistry.</summary>
+    /// <summary>Registers codemap_export into the ToolRegistry.</summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "codemap.export",
+            ToolNames.CodemapExport,
             "Export the indexed codebase as a self-contained markdown or JSON document for pasting into any LLM chat interface. Supports summary/standard/full detail levels and a token budget.",
             new JsonObject
             {

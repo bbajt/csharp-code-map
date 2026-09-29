@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 /// <summary>
-/// End-to-end integration tests for graph.callers + graph.callees (PHASE-02-05).
+/// End-to-end integration tests for graph_callers + graph_callees (PHASE-02-05).
 /// Uses manually seeded BaselineStore + real QueryEngine — no Roslyn.
 ///
 /// Seeded call chain: Controller.Act → Service.DoWork → Repository.Save

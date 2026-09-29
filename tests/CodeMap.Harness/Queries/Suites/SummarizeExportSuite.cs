@@ -6,13 +6,13 @@ using CodeMap.Harness.Comparison;
 using CodeMap.Harness.Repos;
 
 /// <summary>
-/// codemap.summarize and codemap.export.
+/// codemap_summarize and codemap_export.
 /// Parity rule: counts match; section presence matches.
 /// Text content is NOT compared (prose generation may differ).
 /// </summary>
 public sealed class SummarizeSuite(RepoId repoId) : IHarnessQuery
 {
-    public string Name => "codemap.summarize";
+    public string Name => "codemap_summarize";
     public QuerySuiteCategory Category => QuerySuiteCategory.SummarizeExport;
     public bool IncludeInSmoke => false;
 
@@ -28,7 +28,7 @@ public sealed class SummarizeSuite(RepoId repoId) : IHarnessQuery
 
 public sealed class ExportStandardSuite(RepoId repoId) : IHarnessQuery
 {
-    public string Name => "codemap.export.standard";
+    public string Name => "codemap_export.standard";
     public QuerySuiteCategory Category => QuerySuiteCategory.SummarizeExport;
     public bool IncludeInSmoke => false;
 

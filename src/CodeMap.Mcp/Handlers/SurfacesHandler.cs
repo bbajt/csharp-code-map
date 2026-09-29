@@ -12,18 +12,18 @@ using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>surfaces.list_endpoints</c>, <c>surfaces.list_config_keys</c>,
-/// and <c>surfaces.list_db_tables</c> MCP tools.
+/// Handles the <c>surfaces_list_endpoints</c>, <c>surfaces_list_config_keys</c>,
+/// and <c>surfaces_list_db_tables</c> MCP tools.
 /// </summary>
 /// <remarks>
-/// <b>surfaces.list_endpoints</b> params: repo_path (required), workspace_id, path_filter, http_method, limit (all optional).
+/// <b>surfaces_list_endpoints</b> params: repo_path (required), workspace_id, path_filter, http_method, limit (all optional).
 /// Detects controller-based ([HttpGet], [Route]), minimal API (MapGet, MapPost, etc.) endpoints,
 /// and Blazor <c>@page</c> routes (emitted with method <c>PAGE</c>).
 ///
-/// <b>surfaces.list_config_keys</b> params: repo_path (required), workspace_id, key_filter, limit (all optional).
+/// <b>surfaces_list_config_keys</b> params: repo_path (required), workspace_id, key_filter, limit (all optional).
 /// Detects IConfiguration indexer, GetValue, GetSection, and Configure&lt;T&gt; patterns.
 ///
-/// <b>surfaces.list_db_tables</b> params: repo_path (required), workspace_id, table_filter, limit (all optional).
+/// <b>surfaces_list_db_tables</b> params: repo_path (required), workspace_id, table_filter, limit (all optional).
 /// Detects DbSet&lt;T&gt; properties, [Table] attributes, and raw SQL table names.
 ///
 /// Workspace merge: endpoints and config keys use overlay-wins-by-file;
@@ -52,11 +52,11 @@ public sealed class SurfacesHandler
         _logger = logger;
     }
 
-    /// <summary>Registers surfaces.list_endpoints, surfaces.list_config_keys, and surfaces.list_db_tables into the ToolRegistry.</summary>
+    /// <summary>Registers surfaces_list_endpoints, surfaces_list_config_keys, and surfaces_list_db_tables into the ToolRegistry.</summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "surfaces.list_endpoints",
+            ToolNames.SurfacesListEndpoints,
             "List HTTP endpoints and Blazor pages (controller, minimal API, and @page routes). Blazor pages use the synthetic method token PAGE.",
             BuildSchema(
                 required: [],
@@ -73,7 +73,7 @@ public sealed class SurfacesHandler
             HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
-            "surfaces.list_config_keys",
+            ToolNames.SurfacesListConfigKeys,
             "List configuration keys used by the ASP.NET solution (IConfiguration indexer, GetValue, GetSection, Options pattern).",
             BuildSchema(
                 required: [],
@@ -88,7 +88,7 @@ public sealed class SurfacesHandler
             HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
-            "surfaces.list_db_tables",
+            ToolNames.SurfacesListDbTables,
             "List database tables referenced by the solution (EF Core DbSet<T>, [Table] attributes, raw SQL strings).",
             BuildSchema(
                 required: [],

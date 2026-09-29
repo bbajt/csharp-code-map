@@ -234,6 +234,25 @@ public sealed class MergedQueryEngineTests
     }
 
     [Fact]
+    public async Task Search_WorkspaceMode_NextActionsUseCanonicalToolNames()
+    {
+        // PHASE-21-09 T01: workspace-mode next_actions are built here, not in QueryEngine.
+        _inner.SearchSymbolsAsync(Arg.Any<RoutingContext>(), Arg.Any<string>(),
+                   Arg.Any<SymbolSearchFilters?>(), Arg.Any<BudgetLimits?>(), Arg.Any<CancellationToken>())
+              .Returns(Task.FromResult(Result<ResponseEnvelope<SymbolSearchResponse>, CodeMapError>
+                  .Success(MakeSearchEnvelope(MakeHit("T:Baseline", "src/B.cs")))));
+        _overlay.SearchOverlaySymbolsAsync(Arg.Any<RepoId>(), Arg.Any<WorkspaceId>(),
+                    Arg.Any<string>(), Arg.Any<SymbolSearchFilters?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult<IReadOnlyList<SymbolSearchHit>>([MakeHit("T:Overlay", "src/O.cs")]));
+
+        var result = await _engine.SearchSymbolsAsync(WorkspaceRouting(), "order", null, null);
+
+        result.Value.NextActions.Should().NotBeEmpty();
+        result.Value.NextActions.Should().AllSatisfy(a => a.Tool.Should().Be("symbols_get_card"));
+        result.Value.Answer.Should().Contain("symbols_get_card");
+    }
+
+    [Fact]
     public async Task Search_WorkspaceMode_ExcludesDeletedSymbols()
     {
         var deletedId = SymbolId.From("T:Deleted");

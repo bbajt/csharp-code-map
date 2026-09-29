@@ -7,7 +7,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>codemap-mcp</ToolCommandName>
     <PackageId>codemap-mcp</PackageId>
-    <Version>2.8.2</Version>
+    <Version>2.9.0</Version>
     <PackageOutputPath>..\..\dist\nupkg</PackageOutputPath>
 
     <!-- NuGet package description (overrides Directory.Build.props for the tool package) -->
@@ -18,10 +18,10 @@ Instead of reading source files, agents call 26 focused MCP tools to query symbo
 Average token savings: 90%+ vs raw file reading. On production codebases: 95–99%+.
 
 Key capabilities:
-- symbols.search / symbols.get_card / symbols.get_context — find and understand any symbol
-- graph.trace_feature — full annotated feature flow in one call
-- refs.find / graph.callers / graph.callees — precise reference and call chain navigation
-- codemap.summarize / codemap.export / index.diff — codebase overview and semantic PR diffs
+- symbols_search / symbols_get_card / symbols_get_context — find and understand any symbol
+- graph_trace_feature — full annotated feature flow in one call
+- refs_find / graph_callers / graph_callees — precise reference and call chain navigation
+- codemap_summarize / codemap_export / index_diff — codebase overview and semantic PR diffs
 - Workspace mode — see uncommitted edits via incremental overlay (~63ms refresh)
 - Shared baseline cache — index once, reuse across machines (CODEMAP_CACHE_DIR)
 

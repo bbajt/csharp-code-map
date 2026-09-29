@@ -33,7 +33,7 @@ public record CodeMapError(
     /// <summary>No baseline index exists for the given repo + commit. Retryable after indexing.</summary>
     public static CodeMapError IndexNotAvailable(string repoId, string commitSha) =>
         new(ErrorCodes.IndexNotAvailable,
-            $"No baseline index for repo '{repoId}' at commit '{commitSha}'. Call index.ensure_baseline first.",
+            $"No baseline index for repo '{repoId}' at commit '{commitSha}'. Call index_ensure_baseline first.",
             Retryable: true);
 
     /// <summary>Compilation failed during indexing. Retryable after fixing build errors.</summary>

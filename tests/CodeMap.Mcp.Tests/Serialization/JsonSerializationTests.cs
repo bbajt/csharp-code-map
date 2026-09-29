@@ -99,7 +99,7 @@ public sealed class JsonSerializationTests
     [Fact]
     public void Serialize_NextAction_NullParameters_Omitted()
     {
-        var action = new NextAction("symbols.search", "Look for more symbols");
+        var action = new NextAction("symbols_search", "Look for more symbols");
         var json = JsonSerializer.Serialize(action, _opts);
 
         json.Should().Contain("\"tool\"");

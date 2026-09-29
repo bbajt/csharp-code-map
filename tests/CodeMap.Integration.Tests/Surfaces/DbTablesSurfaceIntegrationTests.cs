@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 /// <summary>
-/// Integration tests for surfaces.list_db_tables.
+/// Integration tests for surfaces_list_db_tables.
 /// Uses manually seeded BaselineStore + OverlayStore — no Roslyn compilation.
 /// Validates filtering, aggregation (ReferencedBy), workspace overlay merge, and response structure.
 /// </summary>

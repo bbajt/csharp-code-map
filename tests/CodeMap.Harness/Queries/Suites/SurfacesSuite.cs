@@ -6,12 +6,12 @@ using CodeMap.Harness.Comparison;
 using CodeMap.Harness.Repos;
 
 /// <summary>
-/// surfaces.list_endpoints, surfaces.list_config_keys, surfaces.list_db_tables.
+/// surfaces_list_endpoints, surfaces_list_config_keys, surfaces_list_db_tables.
 /// Parity rule: same primary key set (route+method, config key, table name), order-insensitive.
 /// </summary>
 public sealed class SurfacesEndpointsSuite(RepoId repoId) : IHarnessQuery
 {
-    public string Name => "surfaces.list_endpoints";
+    public string Name => "surfaces_list_endpoints";
     public QuerySuiteCategory Category => QuerySuiteCategory.Surfaces;
     public bool IncludeInSmoke => true;
 
@@ -27,7 +27,7 @@ public sealed class SurfacesEndpointsSuite(RepoId repoId) : IHarnessQuery
 
 public sealed class SurfacesConfigKeysSuite(RepoId repoId) : IHarnessQuery
 {
-    public string Name => "surfaces.list_config_keys";
+    public string Name => "surfaces_list_config_keys";
     public QuerySuiteCategory Category => QuerySuiteCategory.Surfaces;
     public bool IncludeInSmoke => false;
 
@@ -43,7 +43,7 @@ public sealed class SurfacesConfigKeysSuite(RepoId repoId) : IHarnessQuery
 
 public sealed class SurfacesDbTablesSuite(RepoId repoId) : IHarnessQuery
 {
-    public string Name => "surfaces.list_db_tables";
+    public string Name => "surfaces_list_db_tables";
     public QuerySuiteCategory Category => QuerySuiteCategory.Surfaces;
     public bool IncludeInSmoke => false;
 

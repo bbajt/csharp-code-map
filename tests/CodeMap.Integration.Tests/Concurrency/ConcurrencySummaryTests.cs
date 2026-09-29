@@ -14,7 +14,7 @@ public class ConcurrencySummaryTests
     private static readonly string Sha = "0123456789abcdef" + new string('0', 24);
 
     private const string ExpectedTable =
-        "| Repo | Commit | OS | N | Mode | Calls/s | Calls/s/agent | search p50/p95 | get_card p50/p95 | refs.find p50/p95 | refresh p50/p95 | Peak WS total MB | ×N=1 | Peak WS/proc MB | Builds/req | Setup fail | Errors | Passed |\n" +
+        "| Repo | Commit | OS | N | Mode | Calls/s | Calls/s/agent | search p50/p95 | get_card p50/p95 | refs_find p50/p95 | refresh p50/p95 | Peak WS total MB | ×N=1 | Peak WS/proc MB | Builds/req | Setup fail | Errors | Passed |\n" +
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n" +
         "| SampleSolution | 01234567 | Windows 11 | 1 | isolated | 50.0 | 50.0 | 2.0/4.0 | — | — | — | 500 | 1.00 | 500 | 1/1 | 0 | 0 | yes |\n" +
         "| SampleSolution | 01234567 | Windows 11 | 2 | isolated | 90.0 | 45.0 | 3.0/5.0 | — | — | 70.0/80.0 | 900 | 1.80 | 450 | 2/2 | 0 | TIMEOUT:1 | yes |\n" +
@@ -27,6 +27,23 @@ public class ConcurrencySummaryTests
         var report = new ConcurrencyReport(ConcurrencyReport.SchemaV1, [RunN2(), RunN1()], [Skip()]);
 
         ConcurrencySummary.ToMarkdown([report]).Should().Be(ExpectedTable);
+    }
+
+    [Fact]
+    public void ToMarkdown_ReportWithPreV290DottedToolNames_FillsTheSameColumns()
+    {
+        // PHASE-21-09 T01: the committed Phase 0 reports (docs/benchmarks/phase-21-06) record the
+        // dotted names; the summary must still read them.
+        static ConcurrencyRunResult Legacy(ConcurrencyRunResult r) => r with
+        {
+            Tools = r.Tools.Select(t => t with
+            {
+                Tool = CodeMap.Core.Models.ToolNames.LegacyAliases.Single(a => a.Value == t.Tool).Key,
+            }).ToList(),
+        };
+        var legacy = new ConcurrencyReport(ConcurrencyReport.SchemaV1, [Legacy(RunN2()), Legacy(RunN1())], [Skip()]);
+
+        ConcurrencySummary.ToMarkdown([legacy]).Should().Be(ExpectedTable);
     }
 
     [Fact]
@@ -97,12 +114,12 @@ public class ConcurrencySummaryTests
     private static ConcurrencyRunResult RunN1() => Run(
         agents: 1, callsPerSecond: 50.0, peakTotalMb: 500, perProcessMb: [500], builds: 1,
         errors: new Dictionary<string, int>(),
-        tools: [ToolStats.From("symbols.search", [2.0, 4.0], 0)]);
+        tools: [ToolStats.From("symbols_search", [2.0, 4.0], 0)]);
 
     private static ConcurrencyRunResult RunN2() => Run(
         agents: 2, callsPerSecond: 90.0, peakTotalMb: 900, perProcessMb: [450, 450], builds: 2,
         errors: new Dictionary<string, int> { ["TIMEOUT"] = 1 },
-        tools: [ToolStats.From("symbols.search", [3.0, 5.0], 0), ToolStats.From("index.refresh_overlay", [70.0, 80.0], 0)]);
+        tools: [ToolStats.From("symbols_search", [3.0, 5.0], 0), ToolStats.From("index_refresh_overlay", [70.0, 80.0], 0)]);
 
     private static ConcurrencyRunResult Run(
         int agents, double callsPerSecond, long peakTotalMb, long[] perProcessMb, int builds,

@@ -3,7 +3,7 @@ namespace CodeMap.Core.Models;
 using CodeMap.Core.Types;
 
 /// <summary>
-/// Response for the <c>index.remove_repo</c> MCP tool.
+/// Response for the <c>index_remove_repo</c> MCP tool.
 /// </summary>
 /// <param name="RepoId">The repository whose baselines were removed.</param>
 /// <param name="BaselinesRemoved">Number of baselines deleted (or would-delete in dry-run).</param>

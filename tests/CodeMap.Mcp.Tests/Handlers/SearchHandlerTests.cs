@@ -212,6 +212,6 @@ public sealed class SearchHandlerTests
     {
         var registry = new ToolRegistry();
         _handler.RegisterQueryTools(registry);
-        registry.Find("symbols.search").Should().NotBeNull();
+        registry.Find("symbols_search").Should().NotBeNull();
     }
 }

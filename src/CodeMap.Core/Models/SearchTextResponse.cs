@@ -9,7 +9,7 @@ public record TextMatch(
     string Excerpt
 );
 
-/// <summary>Response payload for code.search_text.</summary>
+/// <summary>Response payload for code_search_text.</summary>
 public record SearchTextResponse(
     string Pattern,
     IReadOnlyList<TextMatch> Matches,

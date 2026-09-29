@@ -1,6 +1,6 @@
 namespace CodeMap.Core.Models;
 
-/// <summary>Response payload for the <c>codemap.export</c> MCP tool.</summary>
+/// <summary>Response payload for the <c>codemap_export</c> MCP tool.</summary>
 public record ExportResponse(
     /// <summary>Exported content — markdown string or JSON string depending on <see cref="Format"/>.</summary>
     string Content,
@@ -12,6 +12,6 @@ public record ExportResponse(
     int EstimatedTokens,
     /// <summary>True when <see cref="Content"/> was cut short by the token budget.</summary>
     bool Truncated,
-    /// <summary>Aggregate index metrics — same as <see cref="SummaryStats"/> from <c>codemap.summarize</c>.</summary>
+    /// <summary>Aggregate index metrics — same as <see cref="SummaryStats"/> from <c>codemap_summarize</c>.</summary>
     SummaryStats Stats
 );

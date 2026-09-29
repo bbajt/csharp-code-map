@@ -56,11 +56,11 @@ public sealed class WorkspaceRepoScopingTests : IDisposable
     {
         var solution = Path.Combine(worktree, solutionRel);
 
-        var baseline = await daemon.CallToolAsync("index.ensure_baseline",
+        var baseline = await daemon.CallToolAsync("index_ensure_baseline",
             new JsonObject { ["repo_path"] = worktree, ["solution_path"] = solution }, ct);
         baseline.Ok.Should().BeTrue($"{baseline.ErrorCode}: {baseline.ErrorMessage}");
 
-        var create = await daemon.CallToolAsync("workspace.create",
+        var create = await daemon.CallToolAsync("workspace_create",
             new JsonObject { ["repo_path"] = worktree, ["solution_path"] = solution, ["workspace_id"] = "session" }, ct);
         create.Ok.Should().BeTrue($"{create.ErrorCode}: {create.ErrorMessage}");
     }

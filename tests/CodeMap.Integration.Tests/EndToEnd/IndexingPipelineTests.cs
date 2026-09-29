@@ -128,7 +128,7 @@ public sealed class IndexingPipelineTests
         var result = await compiler.CompileAndExtractAsync(SampleSolutionPath);
 
         // Every ref's file path must be present in the extracted files list.
-        // This verifies that refs.find queries can join refs → files table.
+        // This verifies that refs_find queries can join refs → files table.
         var filePathSet = result.Files.Select(f => f.Path.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var orphanedRefs = result.References
             .Where(r => !filePathSet.Contains(r.FilePath.Value))

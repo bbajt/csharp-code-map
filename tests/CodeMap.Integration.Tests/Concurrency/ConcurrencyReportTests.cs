@@ -101,9 +101,9 @@ public class ConcurrencyReportTests
         LoopCalls: 100,
         CallsPerSecond: 9.99,
         ErrorsByCode: new Dictionary<string, int> { ["TIMEOUT"] = 1 },
-        Tools: [ToolStats.From("symbols.search", [1.0, 2.0, 3.0], 0)],
+        Tools: [ToolStats.From("symbols_search", [1.0, 2.0, 3.0], 0)],
         Memory: new MemoryStats(900, 800, 850, 1000, [450, 450], 40),
         Setup: new SetupStats([100.0, 110.0], [3000.0, 3100.0], 2, 2, 0),
         Correctness: new CorrectnessStats(10, 10, 0, 0, 10, 0, 0, 0),
-        SampleErrors: ["graph.callers: TIMEOUT: no response within 120s"]);
+        SampleErrors: ["graph_callers: TIMEOUT: no response within 120s"]);
 }

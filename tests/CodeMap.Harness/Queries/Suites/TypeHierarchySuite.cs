@@ -7,7 +7,7 @@ using CodeMap.Harness.Comparison;
 using CodeMap.Harness.Repos;
 
 /// <summary>
-/// types.hierarchy for known type symbols.
+/// types_hierarchy for known type symbols.
 /// Parity rule: same base stable_id set + same derived stable_id set.
 /// </summary>
 public sealed class TypeHierarchySuite(RepoDescriptor repo, RepoId repoId) : IHarnessQuery
@@ -16,7 +16,7 @@ public sealed class TypeHierarchySuite(RepoDescriptor repo, RepoId repoId) : IHa
         ? repo.KnownQueryInputs[0]
         : "Service";
 
-    public string Name => $"types.hierarchy:{_term}";
+    public string Name => $"types_hierarchy:{_term}";
     public QuerySuiteCategory Category => QuerySuiteCategory.TypeHierarchy;
     public bool IncludeInSmoke => true;
 

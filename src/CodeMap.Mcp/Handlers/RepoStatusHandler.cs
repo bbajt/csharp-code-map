@@ -8,9 +8,10 @@ using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
 using CodeMap.Query;
 using Microsoft.Extensions.Logging;
+using ToolNames = CodeMap.Core.Models.ToolNames;
 
 /// <summary>
-/// Handles the <c>repo.status</c> MCP tool.
+/// Handles the <c>repo_status</c> MCP tool.
 /// Reports current Git state and whether a baseline index exists.
 /// </summary>
 /// <remarks>
@@ -41,11 +42,11 @@ public sealed class RepoStatusHandler
         _logger = logger;
     }
 
-    /// <summary>Registers the <c>repo.status</c> tool into the ToolRegistry.</summary>
+    /// <summary>Registers the <c>repo_status</c> tool into the ToolRegistry.</summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "repo.status",
+            ToolNames.RepoStatus,
             "Get the current Git state of a repository and whether a baseline index exists.",
             new System.Text.Json.Nodes.JsonObject
             {
@@ -87,15 +88,15 @@ public sealed class RepoStatusHandler
                 Workspaces: workspaces);
 
             _logger.LogInformation(
-                "repo.status {RepoId}: branch={Branch} sha={Sha} clean={Clean} indexed={Indexed}",
+                "repo_status {RepoId}: branch={Branch} sha={Sha} clean={Clean} indexed={Indexed}",
                 repoId.Value, branch, commitSha.Value[..8], isClean, hasIndex);
 
             return new ToolCallResult(JsonSerializer.Serialize(response, CodeMapJsonOptions.Default));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "repo.status failed for {RepoPath}", repoPath);
-            return Err(HandlerHelpers.ClassifyException(ex, "repo.status", workspaceId: null));
+            _logger.LogError(ex, "repo_status failed for {RepoPath}", repoPath);
+            return Err(HandlerHelpers.ClassifyException(ex, ToolNames.RepoStatus, workspaceId: null));
         }
     }
 

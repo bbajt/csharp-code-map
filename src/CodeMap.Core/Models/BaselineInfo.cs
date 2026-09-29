@@ -18,7 +18,7 @@ public record BaselineInfo(
     bool IsActiveWorkspaceBase);
 
 /// <summary>
-/// Response for the <c>index.list_baselines</c> MCP tool.
+/// Response for the <c>index_list_baselines</c> MCP tool.
 /// </summary>
 /// <param name="RepoId">The repository whose baselines are listed.</param>
 /// <param name="CurrentHead">Current HEAD commit SHA, or null if it could not be resolved.</param>

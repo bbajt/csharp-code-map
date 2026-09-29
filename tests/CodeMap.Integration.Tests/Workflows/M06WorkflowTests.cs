@@ -40,9 +40,9 @@ public sealed class M06WorkflowTests : IClassFixture<IndexedSampleSolutionFixtur
 
         // Step 2: output is self-contained — no MCP tool references
         data.Content.Should().NotBeNullOrEmpty();
-        data.Content.Should().NotContain("symbols.search",
+        data.Content.Should().NotContain("symbols_search",
             "exported output should not reference MCP tool names");
-        data.Content.Should().NotContain("index.ensure_baseline",
+        data.Content.Should().NotContain("index_ensure_baseline",
             "exported output should not reference MCP tool names");
 
         // Step 3: contains class signatures and markdown structure
@@ -60,7 +60,7 @@ public sealed class M06WorkflowTests : IClassFixture<IndexedSampleSolutionFixtur
     [Fact]
     public async Task E2E_Workflow_SummarizeThenDeepDive()
     {
-        // Step 1: codemap.summarize → get overview
+        // Step 1: codemap_summarize → get overview
         var summaryResult = await _f.QueryEngine.SummarizeAsync(
             Routing, repoPath: null, ct: CancellationToken.None);
 
@@ -77,7 +77,7 @@ public sealed class M06WorkflowTests : IClassFixture<IndexedSampleSolutionFixtur
         apiSection.Should().NotBeNull("summary should include an API/Endpoint section");
         apiSection!.ItemCount.Should().BeGreaterThan(0);
 
-        // Step 3: graph.trace_feature on a known endpoint handler → deep dive
+        // Step 3: graph_trace_feature on a known endpoint handler → deep dive
         var traceResult = await _f.QueryEngine.TraceFeatureAsync(
             Routing, _f.SubmitAsyncId, depth: 2,
             ct: CancellationToken.None);
@@ -133,7 +133,7 @@ public sealed class M06WorkflowTests : IClassFixture<IndexedSampleSolutionFixtur
                 MakeCard("Sample.NewService",    SymbolKind.Class, file1));
             await store.CreateBaselineAsync(repoId, shaB, dataB, repoDir);
 
-            // Step 3: index.diff(from: A, to: B)
+            // Step 3: index_diff(from: A, to: B)
             var routing = new RoutingContext(repoId: repoId, baselineCommitSha: shaA);
             var diff    = await engine.DiffAsync(routing, shaA, shaB, ct: CancellationToken.None);
 
@@ -164,7 +164,7 @@ public sealed class M06WorkflowTests : IClassFixture<IndexedSampleSolutionFixtur
     [Fact]
     public async Task E2E_Workflow_FullAuditCycle()
     {
-        // Step 1: codemap.summarize with targeted sections
+        // Step 1: codemap_summarize with targeted sections
         var summaryResult = await _f.QueryEngine.SummarizeAsync(
             Routing, repoPath: null,
             sectionFilter: ["api", "config"],
@@ -175,7 +175,7 @@ public sealed class M06WorkflowTests : IClassFixture<IndexedSampleSolutionFixtur
         summaryData.Sections.Should().NotBeEmpty(
             "filtered sections should still include api and config content");
 
-        // Step 2: codemap.export with section filter — public API + endpoints
+        // Step 2: codemap_export with section filter — public API + endpoints
         var exportResult = await _f.QueryEngine.ExportAsync(
             Routing, detail: "standard",
             sectionFilter: ["api", "public_api"],
@@ -200,7 +200,7 @@ public sealed class M06WorkflowTests : IClassFixture<IndexedSampleSolutionFixtur
             // The first endpoint's route should appear somewhere in the export
             var firstRoute = endpoints[0].RoutePath;
             exportData.Content.Should().Contain(firstRoute,
-                "export should surface the same endpoints as surfaces.list_endpoints");
+                "export should surface the same endpoints as surfaces_list_endpoints");
         }
     }
 
@@ -209,7 +209,7 @@ public sealed class M06WorkflowTests : IClassFixture<IndexedSampleSolutionFixtur
     [Fact]
     public async Task E2E_Workflow_BaselineManagement()
     {
-        // Step 1: index.list_baselines → should find the one indexed by the fixture
+        // Step 1: index_list_baselines → should find the one indexed by the fixture
         var scanner  = new BaselineDbFactory(
             _f.BaselineDir, NullLogger<BaselineDbFactory>.Instance);
         var baselines = await scanner.ListBaselinesAsync(_f.RepoId, CancellationToken.None);
@@ -217,7 +217,7 @@ public sealed class M06WorkflowTests : IClassFixture<IndexedSampleSolutionFixtur
         baselines.Should().HaveCountGreaterThanOrEqualTo(1,
             "the fixture indexes exactly one baseline");
 
-        // Step 2: index.cleanup(dry_run: true) → nothing removed
+        // Step 2: index_cleanup(dry_run: true) → nothing removed
         // The single baseline is currentHead so it is always protected.
         var cleanup = await scanner.CleanupBaselinesAsync(
             _f.RepoId,

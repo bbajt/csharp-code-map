@@ -17,7 +17,7 @@ public sealed class SymbolSearchSuite(RepoDescriptor repo, RepoId repoId) : IHar
         ? repo.KnownQueryInputs[0]
         : "Service";
 
-    public string Name => $"symbols.search:{_term}";
+    public string Name => $"symbols_search:{_term}";
     public QuerySuiteCategory Category => QuerySuiteCategory.SymbolSearch;
     public bool IncludeInSmoke => true;
 
@@ -38,7 +38,7 @@ public sealed class SymbolSearchPrefixSuite(RepoDescriptor repo, RepoId repoId) 
         ? repo.KnownQueryInputs[0][..Math.Min(3, repo.KnownQueryInputs[0].Length)]
         : "Ord";
 
-    public string Name => $"symbols.search.prefix:{_prefix}";
+    public string Name => $"symbols_search.prefix:{_prefix}";
     public QuerySuiteCategory Category => QuerySuiteCategory.SymbolSearch;
     public bool IncludeInSmoke => false;
 
@@ -59,7 +59,7 @@ public sealed class SymbolSearchByKindSuite(RepoDescriptor repo, RepoId repoId) 
         ? repo.KnownQueryInputs[1]
         : repo.KnownQueryInputs.Count > 0 ? repo.KnownQueryInputs[0] : "Service";
 
-    public string Name => $"symbols.search.kind:{_term}:Method";
+    public string Name => $"symbols_search.kind:{_term}:Method";
     public QuerySuiteCategory Category => QuerySuiteCategory.SymbolSearch;
     public bool IncludeInSmoke => false;
 
@@ -77,7 +77,7 @@ public sealed class SymbolSearchByKindSuite(RepoDescriptor repo, RepoId repoId) 
 /// <summary>No-match query — expect empty result, not error.</summary>
 public sealed class SymbolSearchNoMatchSuite(RepoId repoId) : IHarnessQuery
 {
-    public string Name => "symbols.search.no_match:__nonexistent_xyzzy__";
+    public string Name => "symbols_search.no_match:__nonexistent_xyzzy__";
     public QuerySuiteCategory Category => QuerySuiteCategory.SymbolSearch;
     public bool IncludeInSmoke => true;
 

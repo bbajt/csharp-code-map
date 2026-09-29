@@ -16,7 +16,7 @@ public interface IMcpSymbolResolver
     /// Resolves a handler argument bundle into a <see cref="SymbolId"/>.
     /// <list type="bullet">
     ///   <item>Explicit <c>symbol_id</c> → returned verbatim; no search, no ambiguity check.</item>
-    ///   <item>Non-empty <c>name</c> → resolved via <c>symbols.search</c>, optionally narrowed by <c>name_filter</c>.</item>
+    ///   <item>Non-empty <c>name</c> → resolved via <c>symbols_search</c>, optionally narrowed by <c>name_filter</c>.</item>
     ///   <item>Zero matches → <c>NOT_FOUND</c>.</item>
     ///   <item>Exactly one match → that symbol's ID.</item>
     ///   <item>Two or more matches → <c>AMBIGUOUS</c> with up to <c>MaxCandidates</c> candidate IDs in the message.</item>

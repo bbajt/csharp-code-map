@@ -1,6 +1,7 @@
 namespace CodeMap.Daemon;
 
 using CodeMap.Core.Interfaces;
+using CodeMap.Core.Models;
 using CodeMap.Git;
 using CodeMap.Mcp;
 using CodeMap.Mcp.Context;
@@ -149,7 +150,7 @@ public static class ServiceRegistration
     }
 
     /// <summary>
-    /// Registers all 28 MCP tools into the ToolRegistry.
+    /// Registers all 28 MCP tools into the ToolRegistry, plus their deprecated dotted aliases.
     /// Must be called after the DI container is built.
     /// </summary>
     public static void RegisterMcpTools(IServiceProvider sp)
@@ -169,5 +170,9 @@ public static class ServiceRegistration
         sp.GetRequiredService<DiffHandler>().Register(registry);
         sp.GetRequiredService<ContextHandler>().Register(registry);
         sp.GetRequiredService<GuideHandler>().Register(registry);
+
+        // Pre-v2.9.0 dotted names keep working as deprecated aliases (ADR-051); not in tools/list.
+        foreach (var (alias, canonical) in ToolNames.LegacyAliases)
+            registry.RegisterAlias(alias, canonical);
     }
 }

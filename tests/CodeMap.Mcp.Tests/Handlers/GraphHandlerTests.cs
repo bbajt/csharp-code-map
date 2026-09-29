@@ -246,7 +246,24 @@ public sealed class GraphHandlerTests
         var result = await _handler.HandleCallersAsync(args, CancellationToken.None);
 
         result.IsError.Should().BeTrue();
-        result.Content.Should().Contain("methods", "error must explain graph.callers works on methods not types");
+        result.Content.Should().Contain("methods", "error must explain graph_callers works on methods not types");
+    }
+
+    [Fact]
+    public async Task Callers_TypeSymbol_ErrorNamesCanonicalTools()
+    {
+        // PHASE-21-09 T01: the recovery text must point at names the agent can call.
+        _engine.GetSymbolCardAsync(
+                Arg.Any<RoutingContext>(), Arg.Any<SymbolId>(), Arg.Any<CancellationToken>())
+               .Returns(Task.FromResult(
+                   Result<ResponseEnvelope<SymbolCard>, CodeMapError>.Success(
+                       MakeCardEnvelope(SymbolKind.Class))));
+
+        var result = await _handler.HandleCallersAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["symbol_id"] = SymbolIdStr }, CancellationToken.None);
+
+        result.Content.Should().Contain("graph_callers works on methods").And.Contain("refs_find");
+        result.Content.Should().NotContain("graph.callers").And.NotContain("refs.find");
     }
 
     [Theory]
@@ -319,7 +336,7 @@ public sealed class GraphHandlerTests
         var result = await _handler.HandleCallersAsync(args, CancellationToken.None);
 
         result.IsError.Should().BeTrue();
-        result.Content.Should().Contain("symbols.search");
+        result.Content.Should().Contain("symbols_search");
         result.Content.Should().Contain("DoWork");
     }
 
@@ -342,7 +359,7 @@ public sealed class GraphHandlerTests
         var result = await _handler.HandleCalleesAsync(args, CancellationToken.None);
 
         result.IsError.Should().BeTrue();
-        result.Content.Should().Contain("symbols.search");
+        result.Content.Should().Contain("symbols_search");
         result.Content.Should().Contain("DoWork");
     }
 
@@ -398,7 +415,7 @@ public sealed class GraphHandlerTests
     {
         var registry = new ToolRegistry();
         _handler.Register(registry);
-        var tool = registry.Find("graph.callers")!;
+        var tool = registry.Find("graph_callers")!;
 
         var props = tool.InputSchema["properties"]!.AsObject();
         props.ContainsKey("follow_interface").Should().BeTrue(

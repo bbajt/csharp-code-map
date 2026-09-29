@@ -3,6 +3,7 @@ namespace CodeMap.Mcp.Handlers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CodeMap.Core.Interfaces;
+using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 using CodeMap.Mcp.Context;
 using CodeMap.Mcp.Serialization;
@@ -10,22 +11,22 @@ using CodeMap.Query;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>workspace.create</c>, <c>workspace.reset</c>,
-/// <c>workspace.list</c>, and <c>workspace.delete</c> MCP tools.
+/// Handles the <c>workspace_create</c>, <c>workspace_reset</c>,
+/// <c>workspace_list</c>, and <c>workspace_delete</c> MCP tools.
 /// </summary>
 /// <remarks>
-/// <b>workspace.create</b> params: repo_path, workspace_id, solution_path (all required), commit_sha (optional).
+/// <b>workspace_create</b> params: repo_path, workspace_id, solution_path (all required), commit_sha (optional).
 /// Idempotent — safe to call again if the workspace already exists.
 ///
-/// <b>workspace.reset</b> params: repo_path, workspace_id (both required).
+/// <b>workspace_reset</b> params: repo_path, workspace_id (both required).
 /// Clears all overlay data, resets revision to 0.
 ///
-/// <b>workspace.list</b> params: repo_path (required).
+/// <b>workspace_list</b> params: repo_path (required).
 /// Returns all active workspaces with staleness, semantic level, and fact counts.
 ///
-/// <b>workspace.delete</b> params: repo_path, workspace_id (both required).
+/// <b>workspace_delete</b> params: repo_path, workspace_id (both required).
 /// Permanently removes the workspace and its overlay DB.
-/// Use workspace.reset instead to keep the workspace but clear its data.
+/// Use workspace_reset instead to keep the workspace but clear its data.
 ///
 /// All operations return INVALID_ARGUMENT if required params are missing.
 /// </remarks>
@@ -55,7 +56,7 @@ public sealed class WorkspaceHandler
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "workspace.create",
+            ToolNames.WorkspaceCreate,
             "Create an isolated workspace session for incremental overlay indexing. The newly-created workspace becomes the sticky default for subsequent calls.",
             BuildSchema(
                 required: ["workspace_id"],
@@ -70,7 +71,7 @@ public sealed class WorkspaceHandler
             HandlerHelpers.AnnotWriteIdempotent));
 
         registry.Register(new ToolDefinition(
-            "workspace.reset",
+            ToolNames.WorkspaceReset,
             "Discard all overlay data for a workspace and reset to the baseline state.",
             BuildSchema(
                 required: ["workspace_id"],
@@ -83,7 +84,7 @@ public sealed class WorkspaceHandler
             HandlerHelpers.AnnotDestructIdempotent));
 
         registry.Register(new ToolDefinition(
-            "workspace.list",
+            ToolNames.WorkspaceList,
             "List all active workspaces for a repository, including staleness and quality metadata.",
             BuildSchema(
                 required: [],
@@ -95,8 +96,8 @@ public sealed class WorkspaceHandler
             HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
-            "workspace.delete",
-            "Permanently delete a workspace and its overlay data. Use workspace.reset to keep the workspace but clear its data.",
+            ToolNames.WorkspaceDelete,
+            "Permanently delete a workspace and its overlay data. Use workspace_reset to keep the workspace but clear its data.",
             BuildSchema(
                 required: ["workspace_id"],
                 properties: new JsonObject
@@ -166,8 +167,8 @@ public sealed class WorkspaceHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "workspace.create failed for {RepoPath}", repoPath);
-            return Err(HandlerHelpers.ClassifyException(ex, "workspace.create", workspaceStr));
+            _logger.LogError(ex, "workspace_create failed for {RepoPath}", repoPath);
+            return Err(HandlerHelpers.ClassifyException(ex, ToolNames.WorkspaceCreate, workspaceStr));
         }
     }
 
@@ -192,8 +193,8 @@ public sealed class WorkspaceHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "workspace.reset failed for {RepoPath}", repoPath);
-            return Err(HandlerHelpers.ClassifyException(ex, "workspace.reset", workspaceStr));
+            _logger.LogError(ex, "workspace_reset failed for {RepoPath}", repoPath);
+            return Err(HandlerHelpers.ClassifyException(ex, ToolNames.WorkspaceReset, workspaceStr));
         }
     }
 
@@ -214,8 +215,8 @@ public sealed class WorkspaceHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "workspace.list failed for {RepoPath}", repoPath);
-            return Err(HandlerHelpers.ClassifyException(ex, "workspace.list", workspaceId: null));
+            _logger.LogError(ex, "workspace_list failed for {RepoPath}", repoPath);
+            return Err(HandlerHelpers.ClassifyException(ex, ToolNames.WorkspaceList, workspaceId: null));
         }
     }
 
@@ -244,8 +245,8 @@ public sealed class WorkspaceHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "workspace.delete failed for {RepoPath}", repoPath);
-            return Err(HandlerHelpers.ClassifyException(ex, "workspace.delete", workspaceStr));
+            _logger.LogError(ex, "workspace_delete failed for {RepoPath}", repoPath);
+            return Err(HandlerHelpers.ClassifyException(ex, ToolNames.WorkspaceDelete, workspaceStr));
         }
     }
 

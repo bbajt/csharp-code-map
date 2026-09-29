@@ -11,7 +11,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
-/// Integration tests for codemap.export / IQueryEngine.ExportAsync.
+/// Integration tests for codemap_export / IQueryEngine.ExportAsync.
 /// Uses manually seeded BaselineStore — no Roslyn compilation.
 /// Validates that detail levels, formats, token budget, and section filtering work.
 /// </summary>

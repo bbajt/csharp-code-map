@@ -459,7 +459,7 @@ public sealed class QueryEngine : IQueryEngine
         if (card.FilePath.Value == "unknown")
             return Result<ResponseEnvelope<SpanResponse>, CodeMapError>.Failure(
                 CodeMapError.NotFound("Symbol source",
-                    $"Symbol '{symbolId.Value}' has no source location (metadata or decompiled assembly). Use symbols.get_card with include_code=true instead."));
+                    $"Symbol '{symbolId.Value}' has no source location (metadata or decompiled assembly). Use symbols_get_card with include_code=true instead."));
 
         // 4. Compute span boundaries (clamp to maxLines)
         var spanStart = card.SpanStart;
@@ -582,7 +582,7 @@ public sealed class QueryEngine : IQueryEngine
         var answer = AnswerGenerator.ForFindRefs(symbolId, classified.Count, kind, truncated);
         var nextActions = new List<NextAction>
         {
-            new("symbols.get_card",
+            new(ToolNames.SymbolsGetCard,
                 $"Get full details for {card.FullyQualifiedName}",
                 new Dictionary<string, object> { ["symbol_id"] = symbolId.Value })
         };
@@ -902,7 +902,7 @@ public sealed class QueryEngine : IQueryEngine
         var answer = AnswerGenerator.ForCallGraph(symbolId, direction, graphNodes.Count, clampedDepth, traversal.Truncated);
         var nextActions = new List<NextAction>
         {
-            new("symbols.get_card",
+            new(ToolNames.SymbolsGetCard,
                 $"Get full details for {rootCard.FullyQualifiedName}",
                 new Dictionary<string, object> { ["symbol_id"] = symbolId.Value })
         };
@@ -989,7 +989,7 @@ public sealed class QueryEngine : IQueryEngine
         var answer = AnswerGenerator.ForTypeHierarchy(symbolId, baseRef, interfaceRefs.Count, derivedRefs.Count);
         var nextActions = new List<NextAction>
         {
-            new("symbols.get_card",
+            new(ToolNames.SymbolsGetCard,
                 $"Get full details for {card.FullyQualifiedName}",
                 new Dictionary<string, object> { ["symbol_id"] = symbolId.Value })
         };
@@ -1056,7 +1056,7 @@ public sealed class QueryEngine : IQueryEngine
                 ErrorCodes.IndexNotAvailable,
                 "No commit SHA in routing context — the MCP handler must call " +
                 "IGitService.GetCurrentCommitAsync and pass it to RoutingContext. " +
-                "If you are an agent, run index.ensure_baseline to verify the index exists."));
+                "If you are an agent, run index_ensure_baseline to verify the index exists."));
     }
 
     private async Task<Result<bool, CodeMapError>> EnsureBaselineAsync(
@@ -1097,7 +1097,7 @@ public sealed class QueryEngine : IQueryEngine
         return hits
             .Take(3)
             .Select(h => new NextAction(
-                "symbols.get_card",
+                ToolNames.SymbolsGetCard,
                 $"Get full details for {h.FullyQualifiedName}",
                 new Dictionary<string, object> { ["symbol_id"] = h.SymbolId.Value }))
             .ToList();
@@ -1108,7 +1108,7 @@ public sealed class QueryEngine : IQueryEngine
         return
         [
             new NextAction(
-                "symbols.get_definition_span",
+                ToolNames.SymbolsGetDefinitionSpan,
                 $"View source code for {card.FullyQualifiedName}",
                 new Dictionary<string, object> { ["symbol_id"] = card.SymbolId.Value })
         ];

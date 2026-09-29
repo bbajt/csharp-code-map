@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 /// <summary>
-/// Integration tests for surfaces.list_endpoints.
+/// Integration tests for surfaces_list_endpoints.
 /// Uses manually seeded BaselineStore + OverlayStore — no Roslyn compilation.
 /// Validates filtering, workspace overlay merge, and response structure.
 /// </summary>

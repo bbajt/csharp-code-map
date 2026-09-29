@@ -44,7 +44,7 @@ public sealed class WorkspaceListDeleteHandlerTests
         _handler = new WorkspaceHandler(_manager, _git, new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<WorkspaceHandler>.Instance);
     }
 
-    // ── workspace.list ────────────────────────────────────────────────────────
+    // ── workspace_list ────────────────────────────────────────────────────────
 
     [Fact]
     public async Task ListWorkspaces_ReturnsAllForRepo()
@@ -129,7 +129,7 @@ public sealed class WorkspaceListDeleteHandlerTests
         result.IsError.Should().BeTrue();
     }
 
-    // ── workspace.delete ──────────────────────────────────────────────────────
+    // ── workspace_delete ──────────────────────────────────────────────────────
 
     [Fact]
     public async Task DeleteWorkspace_ExistingWorkspace_ReturnsDeletedTrue()

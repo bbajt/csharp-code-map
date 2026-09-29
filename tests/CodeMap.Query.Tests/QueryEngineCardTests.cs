@@ -57,7 +57,7 @@ public class QueryEngineCardTests
 
         var result = await _engine.GetSymbolCardAsync(Routing, SymId);
 
-        result.Value.NextActions.Should().Contain(a => a.Tool == "symbols.get_definition_span");
+        result.Value.NextActions.Should().Contain(a => a.Tool == "symbols_get_definition_span");
     }
 
     [Fact]

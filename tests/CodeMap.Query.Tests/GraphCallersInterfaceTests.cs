@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 /// <summary>
-/// M20-03 — graph.callers must surface an InterfaceImplementationHint when the
+/// M20-03 — graph_callers must surface an InterfaceImplementationHint when the
 /// target method implements an interface, and union interface-routed callers
 /// into the result when follow_interface=true.
 /// </summary>

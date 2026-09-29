@@ -6,7 +6,7 @@ using CodeMap.Integration.Tests.Workflows;
 using FluentAssertions;
 
 /// <summary>
-/// VB.NET regression: codemap.summarize, codemap.export, and surfaces tools.
+/// VB.NET regression: codemap_summarize, codemap_export, and surfaces tools.
 /// Verifies that the whole pipeline (extraction → storage → query) produces
 /// a meaningful summary for a pure VB.NET solution.
 /// </summary>

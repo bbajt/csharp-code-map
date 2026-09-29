@@ -1,7 +1,7 @@
 namespace CodeMap.Core.Models;
 
 /// <summary>
-/// Full structured representation of a C# symbol, returned by symbols.get_card.
+/// Full structured representation of a C# symbol, returned by symbols_get_card.
 /// All collection fields use IReadOnlyList to ensure immutability.
 /// </summary>
 /// <remarks>

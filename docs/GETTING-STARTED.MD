@@ -48,17 +48,17 @@ understands your code's structure, relationships, and architecture.
 
 | Capability | File Reading / Grep | CodeMap |
 |-----------|-------------------|---------|
-| Find a class by name | Grep for "class OrderService" — may miss partial classes, get false matches | `symbols.search("OrderService")` — exact match with metadata |
-| Understand a method | Read the file, hope you have enough context | `symbols.get_card` — signature, docs, thrown exceptions, DI facts, config keys used |
-| Who calls this method? | Grep for method name — gets string matches, not semantic calls | `refs.find` — classified references (Call, Read, Write, Override) with exact locations |
-| Trace a call chain | Read file A, find calls, read file B, find its calls... manually, recursively | `graph.callers`/`graph.callees` — depth-limited traversal with cycle detection |
-| What implements this interface? | Grep for `: IMyInterface` — misses multi-line declarations, generic constraints | `types.hierarchy` — complete inheritance tree across entire solution |
-| List all HTTP endpoints | Grep for `[HttpGet]` — misses `MapGet`, can't combine with class `[Route]` | `surfaces.list_endpoints` — full route paths, HTTP methods, handler symbols |
-| What config keys are used? | Grep for `Configuration[` — misses `GetValue<T>`, `GetSection`, `Configure<T>` | `surfaces.list_config_keys` — all 4 access patterns with usage context |
-| What DB tables are touched? | Grep for `DbSet` and hope you find raw SQL too | `surfaces.list_db_tables` — EF entities + `[Table]` attributes + SQL table names, grouped |
-| How is DI wired? | Read Startup.cs / Program.cs manually | `symbols.get_card` on setup method — sees `AddScoped<IService, Impl>` as structured facts |
-| Trace a full feature | Read 10+ files, manually piece together the flow | `graph.trace_feature` — annotated call tree with endpoints, config, DB tables inline |
-| Track changes in progress | Re-read all changed files | `workspace` + `index.refresh_overlay` — 63ms incremental re-index |
+| Find a class by name | Grep for "class OrderService" — may miss partial classes, get false matches | `symbols_search("OrderService")` — exact match with metadata |
+| Understand a method | Read the file, hope you have enough context | `symbols_get_card` — signature, docs, thrown exceptions, DI facts, config keys used |
+| Who calls this method? | Grep for method name — gets string matches, not semantic calls | `refs_find` — classified references (Call, Read, Write, Override) with exact locations |
+| Trace a call chain | Read file A, find calls, read file B, find its calls... manually, recursively | `graph_callers`/`graph_callees` — depth-limited traversal with cycle detection |
+| What implements this interface? | Grep for `: IMyInterface` — misses multi-line declarations, generic constraints | `types_hierarchy` — complete inheritance tree across entire solution |
+| List all HTTP endpoints | Grep for `[HttpGet]` — misses `MapGet`, can't combine with class `[Route]` | `surfaces_list_endpoints` — full route paths, HTTP methods, handler symbols |
+| What config keys are used? | Grep for `Configuration[` — misses `GetValue<T>`, `GetSection`, `Configure<T>` | `surfaces_list_config_keys` — all 4 access patterns with usage context |
+| What DB tables are touched? | Grep for `DbSet` and hope you find raw SQL too | `surfaces_list_db_tables` — EF entities + `[Table]` attributes + SQL table names, grouped |
+| How is DI wired? | Read Startup.cs / Program.cs manually | `symbols_get_card` on setup method — sees `AddScoped<IService, Impl>` as structured facts |
+| Trace a full feature | Read 10+ files, manually piece together the flow | `graph_trace_feature` — annotated call tree with endpoints, config, DB tables inline |
+| Track changes in progress | Re-read all changed files | `workspace` + `index_refresh_overlay` — 63ms incremental re-index |
 | Survive renames | Grep breaks completely when a method is renamed | `StableId` — structural fingerprint survives renames |
 | Handle broken builds | Can't understand code that doesn't compile | Degrades gracefully to syntax-only extraction, self-heals when build succeeds |
 
@@ -88,15 +88,16 @@ the CodeMap server.
 
 Before starting, make sure you have:
 
-### 1. .NET 9 SDK
+### 1. .NET 10 SDK
 
-CodeMap is a .NET application. You need the SDK (not just the runtime).
+CodeMap is a .NET application. You need the SDK (not just the runtime): CodeMap
+loads your solution through MSBuild, which comes with the SDK.
 
 **Check if installed:**
 ```bash
 dotnet --version
 ```
-Should show `9.0.x` or higher. If not installed:
+Should show `10.0.x` or higher. If not installed:
 - **Windows:** Download from https://dotnet.microsoft.com/download
 - **macOS:** `brew install dotnet-sdk`
 - **Linux:** Follow https://learn.microsoft.com/en-us/dotnet/core/install/linux
@@ -145,13 +146,13 @@ dotnet build
 dotnet run --project src/CodeMap.Daemon -- --version
 ```
 
-You should see something like `codemap-mcp 1.3.0`.
+You should see something like `codemap-mcp 2.9.0`.
 
 ### Option B: Install as .NET Global Tool
 
 ```bash
 # Install globally (once)
-dotnet tool install --global codemap-mcp --version 1.3.0
+dotnet tool install --global codemap-mcp
 
 # Verify
 codemap-mcp --version
@@ -266,8 +267,8 @@ Open Claude Code in your C# project directory and try this conversation:
 ```
 You: Use codemap to check the status of this repository.
 
-Claude: I'll use the repo.status tool to check...
-[calls repo.status with repo_path: "/path/to/your/project"]
+Claude: I'll use the repo_status tool to check...
+[calls repo_status with repo_path: "/path/to/your/project"]
 
 Result: Repository at /path/to/your/project
   Branch: main
@@ -288,7 +289,7 @@ Tell the agent to index your solution:
 You: Index this C# solution with codemap so you can understand the codebase.
 
 Claude: I'll build a semantic index of your solution...
-[calls index.ensure_baseline with repo_path and solution_path]
+[calls index_ensure_baseline with repo_path and solution_path]
 
 Result: Indexed 1,247 symbols, 3,891 references, 42 facts
   Semantic level: Full
@@ -299,7 +300,7 @@ Result: Indexed 1,247 symbols, 3,891 references, 42 facts
 1. CodeMap opened your `.sln` file with Roslyn (the C# compiler)
 2. It compiled every project in your solution
 3. It extracted every class, method, property, interface, and their relationships
-4. It stored everything in a local SQLite database
+4. It stored everything as memory-mapped binary files under `~/.codemap/store/`
 5. Now the agent can query this index instead of reading files
 
 **The index is cached.** Next time you (or the agent) ask to ensure the
@@ -319,8 +320,8 @@ You: I just joined this project. Can you give me an overview of the
      main services and what endpoints are exposed?
 
 Claude: Let me search the codebase using codemap...
-[calls symbols.search with query: "Service", kinds: ["Class"]]
-[calls surfaces.list_endpoints]
+[calls symbols_search with query: "Service", kinds: ["Class"]]
+[calls surfaces_list_endpoints]
 
 Here's what I found:
 - OrderService — handles order creation, validation, and fulfillment
@@ -346,7 +347,7 @@ You: Trace what happens when a user creates an order. I want to see
      the full flow from endpoint to database.
 
 Claude: I'll trace the feature using codemap...
-[calls graph.trace_feature with entry_point: "OrderController.Create", depth: 3]
+[calls graph_trace_feature with entry_point: "OrderController.Create", depth: 3]
 
 Feature trace: POST /api/orders
   → OrderController.Create [POST /api/orders]
@@ -374,8 +375,8 @@ You: I need to add a new "discount" field to the Order class.
      What files will I need to change?
 
 Claude: Let me check what references the Order class...
-[calls refs.find with symbol_id for Order class]
-[calls types.hierarchy for Order]
+[calls refs_find with symbol_id for Order class]
+[calls types_hierarchy for Order]
 
 The Order class is referenced in 14 places:
 - OrderService.CreateOrderAsync (line 45) — creates new Order
@@ -404,16 +405,16 @@ You: Create a workspace so you can track your changes, then add
      that discount field to Order.
 
 Claude: I'll create an isolated workspace for these changes...
-[calls workspace.create with workspace_id: "add-discount"]
+[calls workspace_create with workspace_id: "add-discount"]
 
 Now I'll make the changes...
 [edits Order.cs, CreateOrderRequest.cs, etc.]
 
 Let me refresh the index to see the updated codebase...
-[calls index.refresh_overlay with workspace_id: "add-discount"]
+[calls index_refresh_overlay with workspace_id: "add-discount"]
 
 The index now reflects your changes. Let me verify:
-[calls symbols.get_card for Order class with workspace_id]
+[calls symbols_get_card for Order class with workspace_id]
 
 Order now has 7 properties (was 6):
   Id, CustomerId, Items, Total, Status, CreatedAt, Discount ← new
@@ -428,7 +429,7 @@ You: What configuration keys does this application use?
      I want to make sure our appsettings.json has everything.
 
 Claude: Let me check...
-[calls surfaces.list_config_keys]
+[calls surfaces_list_config_keys]
 
 Configuration keys found:
 - ConnectionStrings:DefaultDB — used in DataContext (IConfiguration indexer)
@@ -448,7 +449,7 @@ You: Export the codebase architecture so I can paste it into ChatGPT
      for a second opinion on my refactoring plan.
 
 Claude: I'll export a standard-detail summary...
-[calls codemap.export(detail: "standard", format: "markdown", max_tokens: 6000)]
+[calls codemap_export(detail: "standard", format: "markdown", max_tokens: 6000)]
 
 Here's your codebase context (estimated 4,200 tokens). Copy everything
 between the markers and paste into ChatGPT or any other AI:
@@ -474,7 +475,7 @@ between the markers and paste into ChatGPT or any other AI:
 You: What changed semantically in the last commit? I want to review
      the PR before merging.
 
-Claude: [calls index.diff(from: "previous_sha", to: "HEAD")]
+Claude: [calls index_diff(from: "previous_sha", to: "HEAD")]
 
 Semantic Diff: abc1234 → def5678
 
@@ -497,7 +498,7 @@ endpoint, config, and DI wiring. All changes look consistent.
 You: I need to understand what SubmitAsync does and everything
      it calls. Give me the full picture in one shot.
 
-Claude: [calls symbols.get_context(OrderService.SubmitAsync, callee_depth: 1)]
+Claude: [calls symbols_get_context(OrderService.SubmitAsync, callee_depth: 1)]
 
 # OrderService.SubmitAsync
 File: src/SampleApp/Services/OrderService.cs (lines 23-45)
@@ -543,24 +544,24 @@ its logging, and what each callee does.
 You: I need to implement IReadOnlyDictionary<TKey, TValue> on our
      BPlusTree class. Verify what's already there before I start.
 
-Claude: [calls types.hierarchy(T:BPlusTree.Core.BPlusTree`2)]
+Claude: [calls types_hierarchy(T:BPlusTree.Core.BPlusTree`2)]
 
 BPlusTree currently implements: IEnumerable<T>, IDisposable
 Does NOT implement: IReadOnlyDictionary
 
-[calls symbols.search("BPlusTree TryGetValue")]
+[calls symbols_search("BPlusTree TryGetValue")]
 → Found: BPlusTree.TryGetValue(TKey, out TValue) ✅
 
-[calls symbols.search("BPlusTree ContainsKey")]
+[calls symbols_search("BPlusTree ContainsKey")]
 → No matches ❌
 
-[calls symbols.search("BPlusTree Keys")]
+[calls symbols_search("BPlusTree Keys")]
 → No matches ❌
 
-[calls symbols.search("BPlusTree Values")]
+[calls symbols_search("BPlusTree Values")]
 → No matches ❌
 
-[calls symbols.get_card(T:BPlusTree.Core.BPlusTree`2)]
+[calls symbols_get_card(T:BPlusTree.Core.BPlusTree`2)]
 → Members include: Add, Remove, TryGetValue, Count, Clear, GetEnumerator
 
 Verification summary (9 checks, 0 file reads):
@@ -579,18 +580,28 @@ IReadOnlyDictionary<TKey, TValue> to the class declaration.
 
 ## Tips for Getting the Best Results
 
-### Upgrading from v1.x to v2.0
+### Upgrading to v2.9.0: new tool names
 
-CodeMap v2.0 uses a new binary storage engine (memory-mapped segments instead of SQLite).
-Your existing `.db` baselines are **not auto-migrated** — they're simply ignored by the
-new engine. After upgrading:
+Tool names changed from `symbols.search` to `symbols_search` (a dot became an
+underscore; the full list is in the Quick Reference below). LLM APIs don't allow dots
+in tool names, so clients had to rewrite them. Claude Code already showed
+`mcp__codemap__symbols_search`, so nothing visible changes there.
 
-1. Run `index.ensure_baseline` once per repo — rebuilds the index in v2 format (~15s)
-2. Old `.db` files are harmless — clean them with `index.cleanup` when ready
-3. Need the old engine? Set `CODEMAP_ENGINE=sqlite` in your environment
+- The old dotted names still work until v2.11.0 at the earliest, for clients and
+  scripts that send them. Each such call adds a note naming the new tool.
+- If your project's CLAUDE.md contains the CodeMap block, update it from
+  `docs/CLAUDE-INSERT.MD` so agents read the current names.
 
-v2 baselines live in `~/.codemap/store/<repoId>/baselines/<sha>/` (directories with
-segment files), not `~/.codemap/baselines/<repo>/<sha>.db` (single SQLite files).
+### Upgrading from v1.x
+
+CodeMap v2 stores indexes as memory-mapped binary segments. The SQLite engine of v1.x
+was removed in v2.1.0. Old `.db` baselines are ignored:
+
+1. Run `index_ensure_baseline` once per repo to rebuild the index (~15s).
+2. The old `~/.codemap/baselines/` folder is unused; delete it when you like.
+
+Baselines live in `~/.codemap/store/<repoId>/baselines/<sha>/` (one directory of
+segment files per commit).
 
 ### 1. Always Index First
 
@@ -703,15 +714,15 @@ and identifying any config values that might control timeouts or
 retry counts.
 ```
 
-The agent will naturally chain `graph.trace_feature` → `surfaces.list_db_tables`
-→ `surfaces.list_config_keys` → `refs.find` to build a complete picture.
+The agent will naturally chain `graph_trace_feature` → `surfaces_list_db_tables`
+→ `surfaces_list_config_keys` → `refs_find` to build a complete picture.
 
 ### 9. Use get_context Instead of Manual Exploration
 
-Instead of chaining `get_card → get_definition_span → graph.callees → get_card`:
+Instead of chaining `get_card → get_definition_span → graph_callees → get_card`:
 
 ```
-Use codemap's symbols.get_context to give me the full picture of
+Use codemap's symbols_get_context to give me the full picture of
 SubmitAsync — the code, what it calls, and the code of each callee.
 ```
 
@@ -733,8 +744,8 @@ A manually-typed FQN that's even slightly off returns `NOT_FOUND`.
 **The reliable pattern:**
 
 ```
-1. symbols.search("MethodName")          → get the exact symbol_id from results
-2. symbols.get_context(symbol_id: ...)   → use that ID directly
+1. symbols_search("MethodName")          → get the exact symbol_id from results
+2. symbols_get_context(symbol_id: ...)   → use that ID directly
 ```
 
 The `next_actions` in every search response contain ready-to-use `symbol_id`
@@ -751,28 +762,28 @@ You: How does Polly's WaitAndRetryAsync work? Trace from our ResilienceSetup
      through the Polly implementation.
 
 Claude: Let me look up the Polly type...
-[calls symbols.search("WaitAndRetryAsync")]
+[calls symbols_search("WaitAndRetryAsync")]
 → Found: M:Polly.Policy.WaitAndRetryAsync(...) — source: "metadata_stub"
   (Level 1 auto-resolved: signature + XML doc, ~3ms)
 
-[calls symbols.get_card with include_code: true]
+[calls symbols_get_card with include_code: true]
 → source: "decompiled" — reconstructed C# source now visible
   (Level 2 decompiled: full source via ICSharpCode.Decompiler, ~45ms, cached forever)
 
-[calls graph.callees on WaitAndRetryAsync, depth: 2]
+[calls graph_callees on WaitAndRetryAsync, depth: 2]
 → Returns Polly-internal call chain — cross-DLL edges extracted during decompilation
 
-[calls graph.trace_feature from ResilienceSetup.ConfigureRetry]
+[calls graph_trace_feature from ResilienceSetup.ConfigureRetry]
 → Full annotated tree: source code → Polly DLL nodes (marked is_decompiled: true)
 ```
 
 **Key behaviours:**
 - Level 1 (metadata stub): always active, ~1–5ms. Gets signatures + XML docs.
 - Level 2 (decompiled source): triggered by `include_code: true`, ~10–200ms once,
-  then 0ms from cache. The `source` field in `symbols.get_card` tells you which
+  then 0ms from cache. The `source` field in `symbols_get_card` tells you which
   level applied: `"source_code"`, `"metadata_stub"`, or `"decompiled"`.
-- After Level 2, `graph.callees` and `graph.trace_feature` traverse INTO DLL code.
-- `graph.trace_feature` applies a `max_lazy_resolutions_per_query` budget (default 20)
+- After Level 2, `graph_callees` and `graph_trace_feature` traverse INTO DLL code.
+- `graph_trace_feature` applies a `max_lazy_resolutions_per_query` budget (default 20)
   to bound decompilation latency during a single traversal query.
 
 ### 12. Clean Up Old Baselines Periodically
@@ -785,7 +796,7 @@ monthly or whenever disk space is a concern:
 Use codemap to clean up old baselines, keeping the 3 most recent.
 ```
 
-The agent will call `index.cleanup(dry_run: true, keep_count: 3)` first to
+The agent will call `index_cleanup(dry_run: true, keep_count: 3)` first to
 show what would be removed, then confirm before deleting. The current HEAD
 baseline and any workspace-referenced baselines are always protected.
 
@@ -804,15 +815,15 @@ main         ── A ── B ── C        (HEAD = C)
 feature-x              D ── E      (HEAD = E)
 ```
 
-- Commit C gets baseline `~/.codemap/baselines/{repo}/C.db`
-- Commit E gets baseline `~/.codemap/baselines/{repo}/E.db`
+- Commit C gets baseline `~/.codemap/store/{repo}/baselines/C/`
+- Commit E gets baseline `~/.codemap/store/{repo}/baselines/E/`
 - Both exist simultaneously — switching branches doesn't rebuild anything
 
 **Switching branches is instant:**
 ```
 You: I'm switching to the feature-x branch. Re-index with codemap.
 
-Claude: [calls index.ensure_baseline]
+Claude: [calls index_ensure_baseline]
 Result: Baseline already exists for commit E (cached). Ready instantly.
 ```
 
@@ -825,7 +836,7 @@ If you switch to a commit that hasn't been indexed yet, CodeMap builds it
 1. You're on main (commit C) — baseline C indexed, workspace active
 2. You switch to feature-x (commit E)
 3. HEAD is now E, but your workspace was created against C
-4. workspace.list shows: IsStale = true (C ≠ E)
+4. workspace_list shows: IsStale = true (C ≠ E)
 5. You (or the agent) creates a new workspace against E
 6. The old baseline C is still there — switch back and it's instant
 ```
@@ -836,10 +847,10 @@ The agent handles this naturally:
 You: I just switched to the feature-x branch. Set up codemap.
 
 Claude: Let me check the status...
-[calls repo.status]
+[calls repo_status]
 Current branch: feature-x, commit: E
 Baseline exists: false — let me build it.
-[calls index.ensure_baseline]
+[calls index_ensure_baseline]
 Indexed 1,300 symbols in 2.1 seconds.
 
 I also see a stale workspace from your main branch work.
@@ -852,11 +863,11 @@ If you're working on multiple branches (or reviewing PRs), each branch
 has its own baseline. No interference:
 
 ```
-~/.codemap/baselines/{repo}/
-  abc123.db    ← main at last commit
-  def456.db    ← feature-auth branch
-  789fed.db    ← feature-payments branch
-  112233.db    ← PR #42 you reviewed yesterday
+~/.codemap/store/{repo}/baselines/
+  abc123.../   ← main at last commit
+  def456.../   ← feature-auth branch
+  789fed.../   ← feature-payments branch
+  112233.../   ← PR #42 you reviewed yesterday
 ```
 
 All cached. Switching between any of them is instant. With the shared
@@ -916,17 +927,17 @@ You: I need to refactor the order system. Set up a multi-agent workflow
 Claude (supervisor): I'll set up the workspace...
 
 # Step 1: Ensure the baseline is indexed
-[calls index.ensure_baseline]
+[calls index_ensure_baseline]
 Baseline ready: 1,247 symbols at commit abc123.
 
 # Step 2: Create isolated workspaces for each agent
-[calls workspace.create with workspace_id: "agent-data"]
-[calls workspace.create with workspace_id: "agent-api"]
+[calls workspace_create with workspace_id: "agent-data"]
+[calls workspace_create with workspace_id: "agent-api"]
 
 # Step 3: Review the current architecture before assigning work
-[calls surfaces.list_endpoints]
-[calls surfaces.list_db_tables]
-[calls types.hierarchy for IRepository]
+[calls surfaces_list_endpoints]
+[calls surfaces_list_db_tables]
+[calls types_hierarchy for IRepository]
 
 Here's the plan:
 - agent-data workspace: refactor Repository<T>, update Order entity,
@@ -936,28 +947,28 @@ Here's the plan:
 
 # Step 4: Each agent works in its isolated workspace
 # (agent-data edits files, refreshes overlay)
-[calls index.refresh_overlay with workspace_id: "agent-data"]
+[calls index_refresh_overlay with workspace_id: "agent-data"]
 # (agent-api edits files, refreshes overlay)
-[calls index.refresh_overlay with workspace_id: "agent-api"]
+[calls index_refresh_overlay with workspace_id: "agent-api"]
 
 # Step 5: Supervisor monitors progress
-[calls workspace.list]
+[calls workspace_list]
 Workspaces:
   agent-data: revision 3, 5 files modified, SemanticLevel: Full, FactCount: 12
   agent-api:  revision 2, 3 files modified, SemanticLevel: Full, FactCount: 8
   Both fresh (IsStale: false)
 
 # Step 6: Verify each workspace's changes are consistent
-[calls surfaces.list_endpoints with workspace_id: "agent-api"]
+[calls surfaces_list_endpoints with workspace_id: "agent-api"]
 → new endpoints visible, old ones unchanged
 
-[calls surfaces.list_db_tables with workspace_id: "agent-data"]
+[calls surfaces_list_db_tables with workspace_id: "agent-data"]
 → updated table schema visible
 
 # Step 7: After agents commit, clean up
-[calls workspace.delete with workspace_id: "agent-data"]
-[calls workspace.delete with workspace_id: "agent-api"]
-[calls index.ensure_baseline]  ← new baseline for merge commit
+[calls workspace_delete with workspace_id: "agent-data"]
+[calls workspace_delete with workspace_id: "agent-api"]
+[calls index_ensure_baseline]  ← new baseline for merge commit
 ```
 
 ### Stale Detection: When the Branch Moves
@@ -968,7 +979,7 @@ If someone pushes a new commit while agents are working:
 # Before: workspaces created against commit abc123
 # Someone pushes commit def456 to main
 
-[calls workspace.list]
+[calls workspace_list]
 Workspaces:
   agent-data: BaseCommit=abc123, IsStale=true  ← HEAD moved!
   agent-api:  BaseCommit=abc123, IsStale=true
@@ -976,9 +987,9 @@ Workspaces:
 # The supervisor can decide:
 # Option A: Continue working (stale is fine if changes don't conflict)
 # Option B: Rebuild workspaces against the new commit
-[calls workspace.delete with workspace_id: "agent-data"]
-[calls index.ensure_baseline]  ← builds baseline for def456
-[calls workspace.create with workspace_id: "agent-data"]
+[calls workspace_delete with workspace_id: "agent-data"]
+[calls index_ensure_baseline]  ← builds baseline for def456
+[calls workspace_create with workspace_id: "agent-data"]
 # Agent re-applies its changes to the new baseline
 ```
 
@@ -987,7 +998,7 @@ Workspaces:
 The supervisor can check each workspace's index quality:
 
 ```
-[calls workspace.list]
+[calls workspace_list]
 
 Workspaces:
   agent-1: SemanticLevel=Full, FactCount=15
@@ -1014,7 +1025,7 @@ no manual intervention.
 | Aspect | Without CodeMap | With CodeMap |
 |--------|----------------|-------------|
 | Isolation | Agents overwrite each other's files | Each agent has its own overlay |
-| Visibility | Supervisor can't see what agents changed | workspace.list shows file count, quality, staleness |
+| Visibility | Supervisor can't see what agents changed | workspace_list shows file count, quality, staleness |
 | Consistency | No way to check if changes are compatible | Query each workspace's endpoints, refs, DB tables independently |
 | Reindexing | Full rebuild after every change | 63ms incremental refresh per workspace |
 | Branch handling | Manual tracking of which commit each agent targets | Automatic stale detection |
@@ -1039,10 +1050,10 @@ Add this to your shell profile (`.bashrc`, `.zshrc`, etc.) so it persists.
 
 ### How It Works
 
-1. First person runs `index.ensure_baseline` → CodeMap builds the index
+1. First person runs `index_ensure_baseline` → CodeMap builds the index
    (~2-30 seconds depending on solution size) and automatically pushes
    it to the shared cache
-2. Second person runs `index.ensure_baseline` → CodeMap finds it in the
+2. Second person runs `index_ensure_baseline` → CodeMap finds it in the
    shared cache, pulls it in ~2 milliseconds. No compilation needed.
 3. When someone pushes a new commit, the next person to index automatically
    builds and shares the new version
@@ -1062,14 +1073,14 @@ indexes every commit, and developers instantly get the index.
    - If missing, re-run the `claude mcp add` command
 3. Restart Claude Code after adding the MCP server
 
-### "index.ensure_baseline fails"
+### "index_ensure_baseline fails"
 
 1. Make sure your `.sln` file is in the repository root (or provide the
    full path)
 2. Check that `dotnet build` succeeds on its own — if your solution
    doesn't compile, CodeMap can still index it (degraded mode) but you
    may see fewer results
-3. Check that .NET 9 SDK is installed: `dotnet --version`
+3. Check that the .NET 10 SDK is installed: `dotnet --version`
 
 ### "The agent isn't using CodeMap"
 
@@ -1098,217 +1109,161 @@ Rebuild the codemap baseline index — I've made new commits.
 
 ---
 
-## Quick Reference: All 26 CodeMap Tools
+## Quick Reference: All 28 CodeMap Tools
 
 ### Understanding Your Codebase
 
 | Tool | What It Does | Example Prompt |
 |------|-------------|----------------|
-| `symbols.search` | Find symbols by name, kind, namespace | "Find all classes named *Service" |
-| `symbols.get_card` | Structured metadata + facts + **source code** (auto-included). Default choice. | "Tell me everything about OrderService" |
-| `symbols.get_context` | Card + code + callee cards with code | "Explain this method fully" |
-| `code.get_span` | Read specific source lines | "Show me lines 10-30 of OrderService.cs" |
-| `code.search_text` | Regex grep across indexed source files | "Find all files containing 'OrderNotFoundException'" |
-| `symbols.get_definition_span` | Source code only, no card overhead. Use for batch reads. | "Just show me the code for SubmitAsync" |
+| `symbols_search` | Find symbols by name, kind, namespace | "Find all classes named *Service" |
+| `symbols_get_card` | Structured metadata + facts + **source code** (auto-included). Default choice. | "Tell me everything about OrderService" |
+| `symbols_get_context` | Card + code + callee cards with code | "Explain this method fully" |
+| `code_get_span` | Read specific source lines | "Show me lines 10-30 of OrderService.cs" |
+| `code_search_text` | Regex grep across indexed source files | "Find all files containing 'OrderNotFoundException'" |
+| `symbols_get_definition_span` | Source code only, no card overhead. Use for batch reads. | "Just show me the code for SubmitAsync" |
 
 ### Navigating Relationships
 
 | Tool | What It Does | Example Prompt |
 |------|-------------|----------------|
-| `refs.find` | Classified references (Call, Read, Write, Override) | "Who calls SubmitAsync and how?" |
-| `graph.callers` | Trace callers upward (depth-limited) | "What triggers this method?" |
-| `graph.callees` | Trace callees downward (depth-limited) | "What does this method do internally?" |
-| `types.hierarchy` | Inheritance: base type, interfaces, derived | "What implements IRepository?" |
-| `graph.trace_feature` | Full annotated feature flow | "Trace the order creation flow end-to-end" |
+| `refs_find` | Classified references (Call, Read, Write, Override) | "Who calls SubmitAsync and how?" |
+| `graph_callers` | Trace callers upward (depth-limited) | "What triggers this method?" |
+| `graph_callees` | Trace callees downward (depth-limited) | "What does this method do internally?" |
+| `types_hierarchy` | Inheritance: base type, interfaces, derived | "What implements IRepository?" |
+| `graph_trace_feature` | Full annotated feature flow | "Trace the order creation flow end-to-end" |
 
 ### Architectural Surfaces
 
 | Tool | What It Does | Example Prompt |
 |------|-------------|----------------|
-| `surfaces.list_endpoints` | All HTTP routes (controllers + minimal API) | "What API endpoints exist?" |
-| `surfaces.list_config_keys` | All configuration key usage | "What config does this app need?" |
-| `surfaces.list_db_tables` | All database tables (EF + raw SQL) | "What DB tables are accessed?" |
+| `surfaces_list_endpoints` | All HTTP routes (controllers + minimal API) | "What API endpoints exist?" |
+| `surfaces_list_config_keys` | All configuration key usage | "What config does this app need?" |
+| `surfaces_list_db_tables` | All database tables (EF + raw SQL) | "What DB tables are accessed?" |
 
 ### Intelligence & Portability
 
 | Tool | What It Does | Example Prompt |
 |------|-------------|----------------|
-| `codemap.summarize` | Architectural overview (10 sections) | "Give me a codebase overview" |
-| `codemap.export` | Self-contained markdown/JSON for any LLM | "Export this for ChatGPT review" |
-| `index.diff` | Semantic diff between two commits | "What changed since last week?" |
+| `codemap_summarize` | Architectural overview (10 sections) | "Give me a codebase overview" |
+| `codemap_export` | Self-contained markdown/JSON for any LLM | "Export this for ChatGPT review" |
+| `index_diff` | Semantic diff between two commits | "What changed since last week?" |
 
 ### Managing the Index
 
 | Tool | What It Does | Example Prompt |
 |------|-------------|----------------|
-| `repo.status` | Git state + index status | "Is the index up to date?" |
-| `index.ensure_baseline` | Build or pull the semantic index | "Index this solution" |
-| `index.list_baselines` | List cached baselines with size and age | "How many baselines are stored?" |
-| `index.cleanup` | Remove old baselines safely (dry-run default) | "Clean up old indexes" |
+| `repo_status` | Git state + index status | "Is the index up to date?" |
+| `index_ensure_baseline` | Build or pull the semantic index | "Index this solution" |
+| `index_list_baselines` | List cached baselines with size and age | "How many baselines are stored?" |
+| `index_cleanup` | Remove old baselines safely (dry-run default) | "Clean up old indexes" |
+| `index_remove_repo` | Remove every baseline of a repo | "Remove the index for this old repo" |
+| `codemap_guide` | Quick-start guide: session setup, which tool to use | "How should you use codemap here?" |
 
 ### Workspace (In-Progress Edits)
 
 | Tool | What It Does | Example Prompt |
 |------|-------------|----------------|
-| `workspace.create` | Start tracking agent's edits | "Create a workspace for this feature" |
-| `workspace.reset` | Discard tracked changes | "Start over on this workspace" |
-| `workspace.list` | See all workspaces + staleness | "Show me all active workspaces" |
-| `workspace.delete` | Remove a workspace completely | "Clean up the old workspace" |
-| `index.refresh_overlay` | Re-index after file changes (~63ms) | "Update the index with my changes" |
+| `workspace_create` | Start tracking agent's edits | "Create a workspace for this feature" |
+| `workspace_reset` | Discard tracked changes | "Start over on this workspace" |
+| `workspace_list` | See all workspaces + staleness | "Show me all active workspaces" |
+| `workspace_delete` | Remove a workspace completely | "Clean up the old workspace" |
+| `index_refresh_overlay` | Re-index after file changes (~63ms) | "Update the index with my changes" |
 
 ---
 
 ## Where Everything Lives
 
-CodeMap stores all data under `~/.codemap/` in your home directory. Here's
-the complete layout:
+CodeMap stores all data under `~/.codemap/` in your home directory. Set
+`CODEMAP_HOME` (an absolute path, or `~/…`) to move all of it elsewhere.
+Here's the layout:
 
 ```
 ~/.codemap/
 │
-├── store/                               ← v2 binary baselines (default engine)
+├── store/
 │   └── {repo-id}/
-│       └── baselines/
-│           └── {commit-sha}/            ← One directory per indexed commit
-│               ├── manifest.json        ← Metadata, checksums
-│               ├── symbols.seg          ← Symbol records (mmap'd)
-│               ├── edges.seg, facts.seg ← References + architectural facts
-│               ├── search.idx           ← Token search index
-│               └── ...                  ← Other segment files
-│
-├── baselines/                           ← SQLite baselines (CODEMAP_ENGINE=sqlite)
-│   └── {repo-id}/
-│       └── {commit-sha}.db             ← One .db per indexed commit
-│
-├── overlays/                            ← Workspace overlay databases
-│   └── {repo-id}/
-│       └── agent-1.db                   ← Workspace overlay
+│       ├── baselines/
+│       │   └── {commit-sha}/            ← One directory per indexed commit
+│       │       ├── manifest.json        ← Metadata, checksums, per-project diagnostics
+│       │       ├── symbols.seg          ← Symbol records (memory-mapped)
+│       │       ├── edges.seg, facts.seg ← References + architectural facts
+│       │       ├── search.idx           ← Token search index
+│       │       └── ...                  ← Other segment files
+│       └── overlays/
+│           └── {workspace-id}/          ← One directory per workspace
+│               ├── overlay.wal          ← Append-only log of refreshes
+│               └── overlay.snapshot     ← Compacted state
 │
 ├── logs/                                ← Structured JSON log files
 │   ├── codemap-2026-03-05.log           ← One file per day
 │   └── codemap-2026-03-06.log
 │
-├── config.json                          ← Settings (log level, cache dir, budgets)
-├── _savings.json                        ← Cumulative token savings counter
-│
-└── bin/                                 ← Published daemon binary (if installed locally)
-    └── CodeMap.Daemon.dll
+├── config.json                          ← Settings (log level, budgets)
+└── _savings.json                        ← Cumulative token savings counter
 ```
 
 ### Understanding Repository IDs
 
-The folder name under `store/` (v2) or `baselines/` (SQLite) is a sanitized
-repo ID derived from your repository's path. For example:
+The folder name under `store/` is the repo ID. It is a hash of the repository's
+remote URL, or of its path (`local-…`) when the repository has no remote:
 
 ```
-C:\Users\Developer\source\repos\MyProject
+C:\Users\Developer\source\repos\MyProject   (no remote)
   → repo ID: local-b73d0e677cfb93f6
-  → v2 baselines at: ~/.codemap/store/local-b73d0e677cfb93f6/baselines/
+  → baselines at: ~/.codemap/store/local-b73d0e677cfb93f6/baselines/
 ```
 
 ### Understanding Baseline Files
 
-**v2 (default):** Each baseline is a directory of memory-mapped binary segments.
-**SQLite (fallback):** Each `.db` is a SQLite database with the semantic index
-for one specific commit:
-
-```
-~/.codemap/baselines/local-b73d0e677cfb93f6/
-  e9cdd20f...b6.db     ← 2.1 MB — indexed yesterday (old commit)
-  03e6c1c9...6c.db     ← 2.3 MB — indexed today (current HEAD)
-```
+Each baseline is a directory of memory-mapped binary segments holding the semantic
+index for one commit.
 
 Key facts:
-- **One database per commit SHA.** Switch branches, new baseline. Push a
+- **One baseline per commit SHA.** Switch branches, new baseline. Push a
   commit, new baseline. Each is independent.
-- **Baselines are immutable.** Once created, never modified. Safe to read
-  from multiple agents simultaneously.
-- **Old baselines accumulate.** They're never automatically deleted. Over
-  weeks of active development, you may accumulate dozens of baseline files.
-- **Typical size:** 1-5 MB per baseline for a medium C# solution.
-  A solution with 1,000 symbols and 5,000 references produces ~2-3 MB.
-- **WAL files (-shm, -wal)** are SQLite working files. They appear when
-  a baseline is being read and disappear when all connections close. If you
-  see stale WAL files after a crash, they're safe to delete — SQLite will
-  recover on next open.
+- **Baselines are immutable.** Once published, never modified. Safe to read
+  from many agents at once.
+- **Old baselines accumulate.** They're never deleted automatically. Use
+  `index_list_baselines` and `index_cleanup` (see below).
 
 ### Understanding Overlay Files
 
-Workspace overlays track in-progress agent edits:
-
-```
-~/.codemap/overlays/local-b73d0e677cfb93f6/
-  agent-1.db            ← Agent 1's tracked changes
-  agent-2.db            ← Agent 2's tracked changes
-```
-
-These are created by `workspace.create` and deleted by `workspace.delete`.
-They're small (usually < 500 KB) because they only store the diff against
-the baseline.
+Workspace overlays track in-progress agent edits. `workspace_create` creates
+`store/{repo-id}/overlays/{workspace-id}/`, and `workspace_delete` removes it. They
+are small because they store only the changes against the baseline.
 
 ### Shared Cache (Optional)
 
-If you set `CODEMAP_CACHE_DIR`, baselines are also copied there:
+If you set `CODEMAP_CACHE_DIR`, complete baselines are also copied there:
 
 ```
 /shared/codemap-cache/                   ← Network drive or shared folder
-  └── local-b73d0e677cfb93f6/
-      ├── abc123...def.db                ← Shared baseline (pushed after build)
-      └── def456...789.db                ← Another shared baseline
+  └── {repo-id}/
+      ├── abc123.../                     ← Shared baseline (pushed after build)
+      └── def456.../                     ← Another shared baseline
 ```
 
-This is a mirror of your local baselines — same structure, same files.
-Other developers pull from here instead of rebuilding.
+Other developers pull from here instead of rebuilding. A baseline built while
+the environment was incomplete (e.g. no `dotnet restore`) is not pushed.
 
 ### Managing Disk Space
 
-Over time, old baselines accumulate. To check how much space CodeMap uses:
+Ask the agent, or look at the store directly:
 
 **Windows:**
 ```powershell
-# Total size
-(Get-ChildItem -Path "$env:USERPROFILE\.codemap" -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
-
 # Size per repo
-Get-ChildItem -Path "$env:USERPROFILE\.codemap\baselines" -Directory |
+Get-ChildItem -Path "$env:USERPROFILE\.codemap\store" -Directory |
   ForEach-Object { "$($_.Name): $([math]::Round((Get-ChildItem $_.FullName -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)) MB" }
-
-# Count baselines per repo
-Get-ChildItem -Path "$env:USERPROFILE\.codemap\baselines\*\*.db" |
-  Group-Object Directory |
-  ForEach-Object { "$($_.Name | Split-Path -Leaf): $($_.Count) baselines" }
 ```
 
 **macOS / Linux:**
 ```bash
-# Total size
-du -sh ~/.codemap/
-
-# Size per repo
-du -sh ~/.codemap/baselines/*/
-
-# Count baselines per repo
-for d in ~/.codemap/baselines/*/; do echo "$(basename $d): $(ls $d/*.db 2>/dev/null | wc -l) baselines"; done
+du -sh ~/.codemap/store/*/
 ```
 
-**Manual cleanup — remove old baselines:**
-
-```bash
-# WARNING: only do this when CodeMap daemon is NOT running
-
-# Delete ALL baselines for a repo (forces full reindex next time)
-rm -rf ~/.codemap/baselines/local-b73d0e677cfb93f6/
-
-# Keep only the most recent baseline (by modification time)
-cd ~/.codemap/baselines/local-b73d0e677cfb93f6/
-ls -t *.db | tail -n +2 | xargs rm -f   # Keeps newest, deletes rest
-
-# Delete baselines older than 7 days
-find ~/.codemap/baselines/ -name "*.db" -mtime +7 -delete
-```
-
-> **Tip:** Use `index.list_baselines` to see all cached baselines with
-> their size and age, and `index.cleanup` to safely remove old ones
+> **Tip:** Use `index_list_baselines` to see all cached baselines with
+> their size and age, and `index_cleanup` to safely remove old ones
 > (dry-run by default — reports what would be deleted without deleting).
 > Both tools protect the current HEAD baseline and any workspace-referenced
 > baselines from deletion. For manual cleanup, use the commands above.
@@ -1320,12 +1275,12 @@ Instead of shell commands, let the agent handle it safely:
 ```
 You: Clean up old codemap baselines, keep only the 3 most recent.
 
-Claude: [calls index.cleanup(dry_run: true, keep_count: 3)]
+Claude: [calls index_cleanup(dry_run: true, keep_count: 3)]
 Would remove 7 baselines (18 MB). HEAD and workspace baselines protected.
 
 You: Go ahead.
 
-Claude: [calls index.cleanup(dry_run: false, keep_count: 3)]
+Claude: [calls index_cleanup(dry_run: false, keep_count: 3)]
 Removed 7 baselines, reclaimed 18 MB.
 ```
 
@@ -1371,18 +1326,18 @@ Roslyn Compiler (same engine Visual Studio uses)
            survives renames — same signature = same identity
      │
      ▼
-SQLite Database (~1-5 MB per solution)
-  ├── symbols table (with FTS5 full-text search)
-  ├── refs table (classified, with resolution state)
-  ├── type_relations table
-  ├── facts table (architectural surfaces)
-  └── files table (path + hash for change detection)
+Binary baseline (memory-mapped segment files, one directory per commit)
+  ├── symbols + token search index
+  ├── references (classified, with resolution state)
+  ├── type relations
+  ├── facts (architectural surfaces)
+  └── files (path + hash for change detection)
      │
      ▼
-19 MCP Tools — the agent queries structured data, not raw files
+28 MCP Tools — the agent queries structured data, not raw files
 ```
 
-The index is stored locally at `~/.codemap/baselines/` and is immutable
+The index is stored locally under `~/.codemap/store/` and is immutable
 per commit. When you switch branches or pull new code, a new index is
 built for the new commit (or pulled from the shared cache instantly).
 
@@ -1478,7 +1433,7 @@ updates automatically when the CodeMap daemon shuts down gracefully.
 To see savings without leaving Claude Code:
 
 ```
-You: Make any codemap query (like repo.status) and tell me the
+You: Make any codemap query (like repo_status) and tell me the
      tokens_saved_total from the response metadata.
 ```
 
@@ -1494,11 +1449,11 @@ cat ~/.codemap/_savings.json
 
 - **Read the tool examples in the README** — each tool has a usage example
 - **Set up shared caching** if you work on a team
-- **Try `graph.trace_feature`** — it's the most powerful tool, combining
+- **Try `graph_trace_feature`** — it's the most powerful tool, combining
   call graph traversal with architectural facts in one query
 - **Create a `.mcp.json`** in your project root so teammates get CodeMap
   automatically
 
 ---
 
-*CodeMap MCP — 19 tools, 90% token savings, one command to set up.*
+*CodeMap MCP — 28 tools, 90% token savings, one command to set up.*

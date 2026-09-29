@@ -10,7 +10,7 @@ using CodeMap.Harness.Repos;
 using CodeMap.Harness.Telemetry;
 
 /// <summary>
-/// symbols.get_card and symbols.get_context.
+/// symbols_get_card and symbols_get_context.
 /// Parity rule: field-by-field (fqn, kind); FactKeys set-equal.
 /// </summary>
 public sealed class CardForFirstSearchHitSuite(RepoDescriptor repo, RepoId repoId) : IHarnessQuery
@@ -19,7 +19,7 @@ public sealed class CardForFirstSearchHitSuite(RepoDescriptor repo, RepoId repoI
         ? repo.KnownQueryInputs[0]
         : "Service";
 
-    public string Name => $"symbols.get_card:{_term}";
+    public string Name => $"symbols_get_card:{_term}";
     public QuerySuiteCategory Category => QuerySuiteCategory.CardAndContext;
     public bool IncludeInSmoke => true;
 
@@ -51,7 +51,7 @@ public sealed class CardForFirstSearchHitSuite(RepoDescriptor repo, RepoId repoI
     }
 }
 
-/// <summary>symbols.get_context for anchor[1] (kind-filtered search for deterministic results).</summary>
+/// <summary>symbols_get_context for anchor[1] (kind-filtered search for deterministic results).</summary>
 public sealed class ContextForFirstSearchHitSuite(RepoDescriptor repo, RepoId repoId) : IHarnessQuery
 {
     private readonly string _term = repo.KnownQueryInputs.Count > 1
@@ -61,7 +61,7 @@ public sealed class ContextForFirstSearchHitSuite(RepoDescriptor repo, RepoId re
     // Use anchor kind to filter search — eliminates BM25 vs custom ranking divergence
     private readonly SymbolKind? _anchorKind = repo.Anchors.Count > 1 ? repo.Anchors[1].Kind : null;
 
-    public string Name => $"symbols.get_context:{_term}";
+    public string Name => $"symbols_get_context:{_term}";
     public QuerySuiteCategory Category => QuerySuiteCategory.CardAndContext;
     public bool IncludeInSmoke => false;
 

@@ -479,7 +479,7 @@ public sealed class RoslynCompiler : IRoslynCompiler
                     _logger.LogWarning(
                         "Project {Project} has no NuGet restore output ({Path}) and {Count} compile error(s): " +
                         "package references are unresolved and the index is incomplete. Run 'dotnet restore' on the " +
-                        "solution in this checkout, then rebuild the baseline (next commit, or index.remove_repo).",
+                        "solution in this checkout, then rebuild the baseline (next commit, or index_remove_repo).",
                         group.CanonicalName, missingRestoreOutput, errors.Count);
 
                 var (symbols, stableIdMap) = SymbolExtractor.ExtractAllWithStableIds(

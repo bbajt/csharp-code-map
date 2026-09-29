@@ -8,9 +8,9 @@ using FluentAssertions;
 /// <summary>
 /// End-to-end pin for PHASE-21-04 T02 (ADR-045): a read-only tool never answers a storage problem
 /// with JSON-RPC <c>-32603</c>. Scenario: a baseline that lost a segment (the F6 "gutted" shape) is
-/// queried by <c>symbols.search</c> in a fresh daemon.
+/// queried by <c>symbols_search</c> in a fresh daemon.
 /// The query path pre-checks completeness (ADR-040), so the agent gets <c>INDEX_NOT_AVAILABLE</c>
-/// naming <c>index.ensure_baseline</c>. (The spec assumed this surfaced as an exception → -32603; it
+/// naming <c>index_ensure_baseline</c>. (The spec assumed this surfaced as an exception → -32603; it
 /// never did. Escaped exceptions are covered in-process by <c>McpServerTests</c>.)
 /// </summary>
 [Trait("Category", "Integration")]
@@ -34,7 +34,7 @@ public sealed class QueryToolErrorEnvelopeTests : IDisposable
         // 1. Index with one daemon, then stop it so nothing maps the baseline.
         await using (var indexer = await StartDaemonAsync(home, "indexer", ct))
         {
-            var built = await indexer.CallToolAsync("index.ensure_baseline",
+            var built = await indexer.CallToolAsync("index_ensure_baseline",
                 new JsonObject { ["repo_path"] = worktree, ["solution_path"] = solution }, ct);
             built.Ok.Should().BeTrue($"{built.ErrorCode}: {built.ErrorMessage}");
         }
@@ -46,13 +46,13 @@ public sealed class QueryToolErrorEnvelopeTests : IDisposable
 
         // 3. A fresh daemon serves a read-only tool from it.
         await using var reader = await StartDaemonAsync(home, "reader", ct);
-        var search = await reader.CallToolAsync("symbols.search",
+        var search = await reader.CallToolAsync("symbols_search",
             new JsonObject { ["repo_path"] = worktree, ["query"] = "Order" }, ct);
 
         search.Ok.Should().BeFalse("a gutted baseline must never be served (ADR-040)");
         search.ErrorCode.Should().Be("INDEX_NOT_AVAILABLE",
             $"the agent needs an actionable CodeMap error, never -32603 (got {search.ErrorCode}: {search.ErrorMessage})");
-        search.ErrorMessage.Should().Contain("index.ensure_baseline");
+        search.ErrorMessage.Should().Contain("index_ensure_baseline");
     }
 
     private Task<StdioMcpClient> StartDaemonAsync(string home, string name, CancellationToken ct)

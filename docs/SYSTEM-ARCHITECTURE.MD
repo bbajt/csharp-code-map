@@ -389,7 +389,7 @@ CREATE VIRTUAL TABLE files_fts USING fts5(
     content_rowid='rowid'
 );
 ```
-Used by `code.search_text` for candidate file pre-filtering. Both FTS5 tables are
+Used by `code_search_text` for candidate file pre-filtering. Both FTS5 tables are
 external content tables — rebuilt explicitly via
 `INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')` and
 `INSERT INTO files_fts(files_fts) VALUES('rebuild')` in `BaselineStore.RebuildFtsAsync`
@@ -442,21 +442,21 @@ by `symbol_id` match during query-time merge.
 ### Supported Queries
 
 **Milestone 01:**
-* `symbols.search(query, filters?, limit?)` — FTS search with ranking
-* `symbols.get_card(symbol_id)` — structured SymbolCard
-* `code.get_span(file_path, start_line, end_line, context_lines?)` — bounded excerpt
-* `symbols.get_definition_span(symbol_id, max_lines?)` — convenience wrapper
+* `symbols_search(query, filters?, limit?)` — FTS search with ranking
+* `symbols_get_card(symbol_id)` — structured SymbolCard
+* `code_get_span(file_path, start_line, end_line, context_lines?)` — bounded excerpt
+* `symbols_get_definition_span(symbol_id, max_lines?)` — convenience wrapper
 
 **Milestone 02:**
-* `refs.find(symbol_id, ref_kind?, limit?)` — classified references
-* `graph.callers(symbol_id, depth?, limit?)` — depth-limited callers
-* `graph.callees(symbol_id, depth?, limit?)` — depth-limited callees
-* `types.hierarchy(symbol_id)` — base, interfaces, derived
+* `refs_find(symbol_id, ref_kind?, limit?)` — classified references
+* `graph_callers(symbol_id, depth?, limit?)` — depth-limited callers
+* `graph_callees(symbol_id, depth?, limit?)` — depth-limited callees
+* `types_hierarchy(symbol_id)` — base, interfaces, derived
 
 **Milestone 03:**
-* `surfaces.list_endpoints(filter?)` — ASP.NET routes
-* `surfaces.list_config_keys(filter?)` — IConfiguration usage
-* `surfaces.list_db_tables(filter?)` — EF entities, raw SQL strings
+* `surfaces_list_endpoints(filter?)` — ASP.NET routes
+* `surfaces_list_config_keys(filter?)` — IConfiguration usage
+* `surfaces_list_db_tables(filter?)` — EF entities, raw SQL strings
 
 ### Consistency Modes
 
@@ -603,7 +603,7 @@ Cached data:
 * Overlay revision increment invalidates all workspace-scoped keys
 * Baseline cache entries are permanent (immutable baseline)
 * Cache size bounded by configurable entry count + LRU eviction
-* Manual invalidation via `index.refresh_overlay` (Milestone 02)
+* Manual invalidation via `index_refresh_overlay` (Milestone 02)
 
 ---
 
@@ -761,10 +761,10 @@ Best for: CI pipelines, shared index servers, reproducible builds.
 
 | Operation                           | p95 Target |
 | ----------------------------------- | ---------- |
-| `symbols.search` (FTS, limit=20)   | < 30 ms    |
-| `symbols.get_card`                 | < 10 ms    |
-| `refs.find` (limit=50)            | < 80 ms    |
-| `graph.callers` (depth=2)         | < 150 ms   |
+| `symbols_search` (FTS, limit=20)   | < 30 ms    |
+| `symbols_get_card`                 | < 10 ms    |
+| `refs_find` (limit=50)            | < 80 ms    |
+| `graph_callers` (depth=2)         | < 150 ms   |
 | Incremental re-index (single file) | < 200 ms   |
 | Baseline full index (100-file sln) | < 30 s     |
 
@@ -849,7 +849,7 @@ for the definitive plan with phase-level detail, task breakdowns, and dependenci
 | Milestone | Goal                                    | Key Tools                          |
 | --------- | --------------------------------------- | ---------------------------------- |
 | 01        | Foundation — baseline index + search    | search, get_card, get_span         |
-| 02        | Workspace — overlays + navigation       | refs.find, graph.*, types.*        |
+| 02        | Workspace — overlays + navigation       | refs_find, graph.*, types.*        |
 | 03        | Surfaces — extractors + multi-agent     | surfaces.*, supervisor flow        |
 | 04        | Performance — tuning + packaging        | Docker, global tool, benchmarks    |
 

@@ -83,7 +83,134 @@ public sealed class McpServerTests
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    // ── PHASE-21-09 T01: canonical names + dotted aliases (ADR-051) ─────────
+
+    [Fact]
+    public async Task ToolsCall_DottedAlias_DispatchesAndAppendsDeprecationNote()
+    {
+        var server = new McpServer(AliasedRegistry(), NullLogger<McpServer>.Instance);
+
+        var canonical = (await RunAsync(server, ToolCall(1, "symbols_search"))).Single();
+        var aliased = (await RunAsync(server, ToolCall(2, "symbols.search"))).Single();
+
+        var content = aliased["result"]!["content"]!.AsArray();
+        content.Should().HaveCount(2);
+        content[0]!["text"]!.GetValue<string>().Should().Be(
+            canonical["result"]!["content"]![0]!["text"]!.GetValue<string>());
+        var note = content[1]!["text"]!.GetValue<string>();
+        note.Should().Contain("'symbols.search' is deprecated").And.Contain("'symbols_search'").And.Contain("2.11.0");
+        aliased["result"]!["isError"]!.GetValue<bool>().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ToolsCall_CanonicalName_NoDeprecationNote()
+    {
+        var server = new McpServer(AliasedRegistry(), NullLogger<McpServer>.Instance);
+
+        var response = (await RunAsync(server, ToolCall(1, "symbols_search"))).Single();
+
+        response["error"].Should().BeNull();
+        response["result"]!["content"]!.AsArray().Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task ToolsCall_Alias_LogsWarningOncePerAlias()
+    {
+        var logger = new CapturingLogger();
+        var server = new McpServer(AliasedRegistry(), logger);
+
+        await RunAsync(server,
+            ToolCall(1, "symbols.search"), ToolCall(2, "symbols.search"), ToolCall(3, "graph.callers"));
+
+        logger.Warnings.Should().HaveCount(2);
+        logger.Warnings.Should().ContainSingle(w => w.Contains("symbols.search") && w.Contains("symbols_search"));
+        logger.Warnings.Should().ContainSingle(w => w.Contains("graph.callers") && w.Contains("graph_callers"));
+    }
+
+    [Theory]
+    [InlineData("symbol.search", "symbols_search")]
+    [InlineData("graph.caller", "graph_callers")]
+    [InlineData("symbols_serch", "symbols_search")]
+    public async Task ToolsCall_UnknownName_SuggestsCanonical(string requested, string expected)
+    {
+        var server = new McpServer(AliasedRegistry(), NullLogger<McpServer>.Instance);
+
+        var response = (await RunAsync(server, ToolCall(1, requested))).Single();
+
+        response["error"]!["message"]!.GetValue<string>().Should().EndWith($"Did you mean: {expected}?");
+    }
+
+    [Fact]
+    public async Task ToolsCall_AliasHandlerThrows_ClassifiedWithCanonicalName()
+    {
+        var registry = new ToolRegistry();
+        registry.Register(new ToolDefinition(
+            "test_throws", "Throws for tests", new JsonObject { ["type"] = "object" },
+            (_, _) => Task.FromException<ToolCallResult>(new ArgumentException("bad"))));
+        registry.RegisterAlias("test.throws", "test_throws");
+        var server = new McpServer(registry, NullLogger<McpServer>.Instance);
+
+        var response = (await RunAsync(server, ToolCall(1, "test.throws"))).Single();
+
+        var envelope = JsonNode.Parse(response["result"]!["content"]![0]!["text"]!.GetValue<string>())!;
+        envelope["code"]!.GetValue<string>().Should().Be("INTERNAL_ERROR");
+        envelope["message"]!.GetValue<string>().Should().StartWith("test_throws failed");
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    private static ToolRegistry AliasedRegistry()
+    {
+        var registry = new ToolRegistry();
+        foreach (var name in new[] { "symbols_search", "graph_callers" })
+        {
+            var n = name;
+            registry.Register(new ToolDefinition(
+                n, n, new JsonObject { ["type"] = "object" },
+                (_, _) => Task.FromResult(new ToolCallResult($"{{\"tool\":\"{n}\"}}"))));
+        }
+        registry.RegisterAlias("symbols.search", "symbols_search");
+        registry.RegisterAlias("graph.callers", "graph_callers");
+        return registry;
+    }
+
+    private static JsonObject ToolCall(int id, string name) => new()
+    {
+        ["jsonrpc"] = "2.0",
+        ["id"] = id,
+        ["method"] = "tools/call",
+        ["params"] = new JsonObject { ["name"] = name, ["arguments"] = new JsonObject() },
+    };
+
+    private static async Task<List<JsonObject>> RunAsync(McpServer server, params JsonObject[] requests)
+    {
+        var text = string.Concat(requests.Select(r => r.ToJsonString() + "\n"));
+        using var input = new MemoryStream(Encoding.UTF8.GetBytes(text));
+        using var output = new MemoryStream();
+
+        await server.RunAsync(input, output, CancellationToken.None);
+
+        return Encoding.UTF8.GetString(output.ToArray())
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => JsonNode.Parse(l)!.AsObject())
+            .ToList();
+    }
+
+    private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger<McpServer>
+    {
+        public List<string> Warnings { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
+            TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Warning)
+                Warnings.Add(formatter(state, exception));
+        }
+    }
 
     private static async Task<(JsonObject Response, JsonObject Envelope)> CallThrowingToolAsync(
         Exception toThrow, JsonObject arguments)

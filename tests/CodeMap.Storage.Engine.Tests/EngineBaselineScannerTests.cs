@@ -6,7 +6,7 @@ using Xunit;
 
 /// <summary>
 /// <see cref="EngineBaselineScanner"/> — legacy overlay sweep added with repo-scoped overlays
-/// (PHASE-21-03 T02, ADR-043): <c>index.cleanup</c> removes the pre-v2.8.2 flat
+/// (PHASE-21-03 T02, ADR-043): <c>index_cleanup</c> removes the pre-v2.8.2 flat
 /// <c>store/overlays/&lt;ws&gt;/</c> tree, skipping any overlay a running daemon still holds.
 /// </summary>
 public sealed class EngineBaselineScannerTests : IDisposable

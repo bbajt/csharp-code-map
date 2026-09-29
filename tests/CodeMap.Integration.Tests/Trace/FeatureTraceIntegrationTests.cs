@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 /// <summary>
-/// Integration tests for graph.trace_feature (PHASE-04-06).
+/// Integration tests for graph_trace_feature (PHASE-04-06).
 /// Uses manually seeded BaselineStore + real QueryEngine — no Roslyn.
 ///
 /// Seeded call chain: Controller.Get → Service.GetOrders → Repository.FindAll

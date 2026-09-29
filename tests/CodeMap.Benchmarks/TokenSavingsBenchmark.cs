@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 /// <summary>
 /// Measures token savings from using CodeMap vs raw file reading for 17 canonical agent tasks.
 /// M01 tasks (1-10): symbol search, card, span, definition span.
-/// M02 tasks (11-17): refs.find, graph.callers, graph.callees, types.hierarchy, virtual files.
+/// M02 tasks (11-17): refs_find, graph_callers, graph_callees, types_hierarchy, virtual files.
 ///
 /// Methodology:
 ///   Raw tokens  = reading ALL source files (without an index, an agent must scan
@@ -358,18 +358,18 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
 
         // Task 11: "Who calls OrderService.SubmitAsync?"
         // Raw: read ALL files, text-search for "SubmitAsync", parse contexts
-        // CodeMap: refs.find returns classified call refs only
+        // CodeMap: refs_find returns classified call refs only
         {
             var r = await _engine.FindReferencesAsync(
                 Routing, _submitAsyncId, RefKind.Call,
                 new BudgetLimits(maxResults: 20), CancellationToken.None);
             int cm = r.IsSuccess ? EstimateTokens(JsonSerializer.Serialize(r.Value)) : rawAll;
-            results.Add(Measure("Who calls SubmitAsync? (refs.find)", rawAll, cm));
+            results.Add(Measure("Who calls SubmitAsync? (refs_find)", rawAll, cm));
         }
 
         // Task 12: "What does OrderService.SubmitAsync call?"
         // Raw: open OrderService.cs, read method, manually trace each invocation
-        // CodeMap: graph.callees returns the structured call graph
+        // CodeMap: graph_callees returns the structured call graph
         {
             var r = await _engine.GetCalleesAsync(
                 Routing, _submitAsyncId, depth: 1, limitPerLevel: 20,
@@ -380,7 +380,7 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
 
         // Task 13: "Full caller chain for SaveAsync (depth 2)"
         // Raw: find all callers, then find callers of those callers (recursive file scan)
-        // CodeMap: single graph.callers call with depth=2
+        // CodeMap: single graph_callers call with depth=2
         {
             var r = await _engine.GetCallersAsync(
                 Routing, _saveAsyncId, depth: 2, limitPerLevel: 20,
@@ -391,7 +391,7 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
 
         // Task 14: "What does Order extend and implement?"
         // Raw: open Order.cs, read class declaration, follow base types manually
-        // CodeMap: types.hierarchy returns structured base/interface/derived data
+        // CodeMap: types_hierarchy returns structured base/interface/derived data
         {
             var r = await _engine.GetTypeHierarchyAsync(
                 Routing, _orderId, CancellationToken.None);
@@ -401,7 +401,7 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
 
         // Task 15: "Find all implementations of IOrderService"
         // Raw: grep for ': IOrderService' across all files
-        // CodeMap: types.hierarchy(IOrderService) → DerivedTypes
+        // CodeMap: types_hierarchy(IOrderService) → DerivedTypes
         {
             var r = await _engine.GetTypeHierarchyAsync(
                 Routing, _iOrderServiceId, CancellationToken.None);
@@ -411,7 +411,7 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
 
         // Task 16: "Show me the current (unsaved) version of OrderService.cs lines 1-20"
         // Raw: agent must write file content to disk and read it back (full file round-trip)
-        // CodeMap: code.get_span with virtual_files returns only the requested lines
+        // CodeMap: code_get_span with virtual_files returns only the requested lines
         {
             var orderServiceContent = File.ReadAllText(
                 Path.Combine(SampleSolutionDir, "SampleApp", "Services", "OrderService.cs"));
@@ -431,72 +431,72 @@ public sealed class TokenSavingsBenchmark : IAsyncLifetime
 
         // Task 17: "What are all the Read references to the Status property?"
         // Raw: find property declaration, text-search property name in all files (noisy grep)
-        // CodeMap: refs.find(property, kind: Read) returns classified Read references only
+        // CodeMap: refs_find(property, kind: Read) returns classified Read references only
         {
             var r = await _engine.FindReferencesAsync(
                 Routing, _orderStatusPropertyId, RefKind.Read,
                 new BudgetLimits(maxResults: 20), CancellationToken.None);
             int cm = r.IsSuccess ? EstimateTokens(JsonSerializer.Serialize(r.Value)) : rawAll;
-            results.Add(Measure("Status property Read refs (refs.find kind=Read)", rawAll, cm));
+            results.Add(Measure("Status property Read refs (refs_find kind=Read)", rawAll, cm));
         }
 
         // ── M03 canonical tasks (18-24) ───────────────────────────────────────
 
         // Task 18: "What HTTP endpoints does this solution expose?"
         // Raw: grep all files for [HttpGet/Post/...], MapGet, etc.
-        // CodeMap: surfaces.list_endpoints returns structured endpoint list
+        // CodeMap: surfaces_list_endpoints returns structured endpoint list
         {
             var r = await _engine.ListEndpointsAsync(
                 Routing, null, null, 50, CancellationToken.None);
             int cm = r.IsSuccess ? EstimateTokens(JsonSerializer.Serialize(r.Value)) : rawAll;
-            results.Add(Measure("List HTTP endpoints (surfaces.list_endpoints)", rawAll, cm));
+            results.Add(Measure("List HTTP endpoints (surfaces_list_endpoints)", rawAll, cm));
         }
 
         // Task 19: "What config keys does this solution use?"
         // Raw: grep all files for IConfiguration, GetValue, GetSection
-        // CodeMap: surfaces.list_config_keys returns structured key+usage list
+        // CodeMap: surfaces_list_config_keys returns structured key+usage list
         {
             var r = await _engine.ListConfigKeysAsync(
                 Routing, null, 50, CancellationToken.None);
             int cm = r.IsSuccess ? EstimateTokens(JsonSerializer.Serialize(r.Value)) : rawAll;
-            results.Add(Measure("List config keys (surfaces.list_config_keys)", rawAll, cm));
+            results.Add(Measure("List config keys (surfaces_list_config_keys)", rawAll, cm));
         }
 
         // Task 20: "What database tables does this solution touch?"
         // Raw: grep for DbSet, [Table], FROM/INTO/UPDATE in SQL strings
-        // CodeMap: surfaces.list_db_tables returns aggregated table+entity mapping
+        // CodeMap: surfaces_list_db_tables returns aggregated table+entity mapping
         {
             var r = await _engine.ListDbTablesAsync(
                 Routing, null, 50, CancellationToken.None);
             int cm = r.IsSuccess ? EstimateTokens(JsonSerializer.Serialize(r.Value)) : rawAll;
-            results.Add(Measure("List DB tables (surfaces.list_db_tables)", rawAll, cm));
+            results.Add(Measure("List DB tables (surfaces_list_db_tables)", rawAll, cm));
         }
 
         // Task 21: "How is the DI container configured?"
         // Raw: find and read AddScoped/AddSingleton/AddTransient calls across startup files
-        // CodeMap: symbols.get_card(diSetupMethod) → card.Facts includes DI registrations
+        // CodeMap: symbols_get_card(diSetupMethod) → card.Facts includes DI registrations
         {
             var r = await _engine.GetSymbolCardAsync(Routing, _diSetupMethodId, CancellationToken.None);
             int cm = r.IsSuccess ? EstimateTokens(JsonSerializer.Serialize(r.Value)) : rawAll;
-            results.Add(Measure("DI config via card.Facts (symbols.get_card)", rawAll, cm));
+            results.Add(Measure("DI config via card.Facts (symbols_get_card)", rawAll, cm));
         }
 
         // Task 22: "What's the middleware pipeline order?"
         // Raw: find and read the middleware configuration method
-        // CodeMap: symbols.get_card(middlewareSetupMethod) → ordered pipeline in card.Facts
+        // CodeMap: symbols_get_card(middlewareSetupMethod) → ordered pipeline in card.Facts
         {
             var r = await _engine.GetSymbolCardAsync(Routing, _middlewareSetupMethodId, CancellationToken.None);
             int cm = r.IsSuccess ? EstimateTokens(JsonSerializer.Serialize(r.Value)) : rawAll;
-            results.Add(Measure("Middleware pipeline via card.Facts (symbols.get_card)", rawAll, cm));
+            results.Add(Measure("Middleware pipeline via card.Facts (symbols_get_card)", rawAll, cm));
         }
 
         // Task 23: "Is this workspace stale?"
         // Raw: agent must call git log, compare HEAD against workspace base commit manually
-        // CodeMap: workspace.list → IsStale flag per workspace, single structured call
+        // CodeMap: workspace_list → IsStale flag per workspace, single structured call
         {
             var workspaces = await _wsMgr.ListWorkspacesAsync(RepoId.From("benchmark-repo"));
             int cm = EstimateTokens(JsonSerializer.Serialize(workspaces));
-            results.Add(Measure("Workspace staleness check (workspace.list)", rawAll, cm));
+            results.Add(Measure("Workspace staleness check (workspace_list)", rawAll, cm));
         }
 
         // Print summary table (tasks 1-23, token-based)

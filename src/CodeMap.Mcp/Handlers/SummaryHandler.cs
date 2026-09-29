@@ -12,10 +12,10 @@ using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>codemap.summarize</c> MCP tool.
+/// Handles the <c>codemap_summarize</c> MCP tool.
 /// </summary>
 /// <remarks>
-/// <b>codemap.summarize</b> params: repo_path (required), workspace_id, section_filter, max_items_per_section (all optional).
+/// <b>codemap_summarize</b> params: repo_path (required), workspace_id, section_filter, max_items_per_section (all optional).
 /// Generates a structured markdown summary of the indexed codebase covering all 8 FactKinds.
 /// Returns INVALID_ARGUMENT if repo_path is missing.
 /// Sections with zero items are omitted from output.
@@ -42,11 +42,11 @@ public sealed class SummaryHandler
         _logger = logger;
     }
 
-    /// <summary>Registers codemap.summarize into the ToolRegistry.</summary>
+    /// <summary>Registers codemap_summarize into the ToolRegistry.</summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "codemap.summarize",
+            ToolNames.CodemapSummarize,
             "Generate a structured markdown summary of the indexed codebase — API surface, data layer, config, DI, middleware, resilience, error handling, and logging.",
             new JsonObject
             {

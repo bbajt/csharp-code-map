@@ -34,7 +34,7 @@ internal static class HandlerHelpers
     /// The original message is always kept. Callers still log the exception.
     /// </summary>
     /// <param name="ex">The caught exception (never <see cref="OperationCanceledException"/>).</param>
-    /// <param name="operation">Tool name used as the message prefix, e.g. <c>workspace.create</c>.</param>
+    /// <param name="operation">Tool name used as the message prefix, e.g. <c>workspace_create</c>.</param>
     /// <param name="workspaceId">Non-null for workspace-scoped operations.</param>
     internal static CodeMapError ClassifyException(Exception ex, string operation, string? workspaceId)
     {
@@ -164,7 +164,7 @@ internal static class HandlerHelpers
     }
     /// <summary>
     /// Returns an Err result for NOT_FOUND errors augmented with a
-    /// <c>symbols.search</c> suggestion. For all other error codes
+    /// <c>symbols_search</c> suggestion. For all other error codes
     /// returns a plain Err result unchanged.
     /// </summary>
     internal static ToolCallResult ErrWithNotFoundSuggestion(CodeMapError error, string symbolId)
@@ -174,7 +174,7 @@ internal static class HandlerHelpers
         var enhanced = new CodeMapError(
             error.Code,
             error.Message + $" Tip: FQNs must be exact (Roslyn doc-comment ID format). " +
-            $"Try: symbols.search(\"{simpleName}\") to find the correct symbol_id.");
+            $"Try: symbols_search(\"{simpleName}\") to find the correct symbol_id.");
         return Err(enhanced);
     }
 
@@ -200,7 +200,7 @@ internal static class HandlerHelpers
     /// Async upgrade of <see cref="ErrWithNotFoundSuggestion"/> that actually runs
     /// the suggested search and inlines up to 3 candidate symbol IDs in the error.
     /// Agents reading the error see real IDs they can retry with — no second
-    /// round-trip to symbols.search needed. Falls back to the text-only hint
+    /// round-trip to symbols_search needed. Falls back to the text-only hint
     /// when the simple-name search itself returns nothing.
     /// </summary>
     internal static async Task<ToolCallResult> ErrWithFuzzyCandidatesAsync(
@@ -235,7 +235,7 @@ internal static class HandlerHelpers
     // the prose summary; richer clients can post-process.
 
     /// <summary>
-    /// Builds a one-line hint for an empty <c>symbols.search</c> result. Tells the
+    /// Builds a one-line hint for an empty <c>symbols_search</c> result. Tells the
     /// agent which adjacent tool to try next based on whether filters were
     /// applied — relaxation, then content fallback, then guide.
     /// </summary>
@@ -249,7 +249,7 @@ internal static class HandlerHelpers
             // Keep the wording generic so the hint works for either set.
             return "0 hits. Tip: filters (kinds / namespace / file_path / project_name) narrow "
                 + "the index — drop them and retry. If you want literal text in source bodies "
-                + "(not symbol names), use code.search_text.";
+                + "(not symbol names), use code_search_text.";
         }
         if (string.IsNullOrEmpty(query))
         {
@@ -268,11 +268,11 @@ internal static class HandlerHelpers
             : "";
         return "0 hits. Tip: " + orTip + "Terms match symbol names, namespaces and doc words by prefix "
             + "(`Order` finds `OrderService`), so try a shorter or different part of the name. "
-            + "For literal text inside source bodies (string constants, comments) use code.search_text.";
+            + "For literal text inside source bodies (string constants, comments) use code_search_text.";
     }
 
     /// <summary>
-    /// Builds a hint for <c>symbols.get_card</c> / <c>get_context</c> on a Type
+    /// Builds a hint for <c>symbols_get_card</c> / <c>get_context</c> on a Type
     /// symbol. The card returns class-level metadata + static-initializer callees,
     /// which agents often misread as "this Type has no members." Point them at the
     /// tools that actually enumerate members.
@@ -288,8 +288,8 @@ internal static class HandlerHelpers
         var simpleName = ExtractSimpleName(card.SymbolId.Value);
         return $"This is a {card.Kind.ToString().ToLowerInvariant()}. Its card lists static-field-initializer "
             + $"callees only — NOT members. To enumerate members: "
-            + $"symbols.search(kinds: [\"Method\",\"Property\",\"Field\"], file_path: \"{card.FilePath.Value}\"). "
-            + $"For inheritance / interfaces / derived types use types.hierarchy(name: \"{simpleName}\").";
+            + $"symbols_search(kinds: [\"Method\",\"Property\",\"Field\"], file_path: \"{card.FilePath.Value}\"). "
+            + $"For inheritance / interfaces / derived types use types_hierarchy(name: \"{simpleName}\").";
     }
 
     /// <summary>

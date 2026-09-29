@@ -3,6 +3,7 @@ namespace CodeMap.Harness.Concurrency;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using CodeMap.Core.Models;
 
 /// <summary>
 /// Turns concurrency reports into one Markdown table, so the numbers in the docs are generated
@@ -15,14 +16,22 @@ public static class ConcurrencySummary
     private const double BytesPerMb = 1024.0 * 1024.0;
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    /// <summary>The latency columns: (header, tool name).</summary>
+    /// <summary>The latency columns: (header, canonical tool name).</summary>
     private static readonly (string Header, string Tool)[] LatencyColumns =
     [
-        ("search", "symbols.search"),
-        ("get_card", "symbols.get_card"),
-        ("refs.find", "refs.find"),
-        ("refresh", "index.refresh_overlay"),
+        ("search", ToolNames.SymbolsSearch),
+        ("get_card", ToolNames.SymbolsGetCard),
+        ("refs_find", ToolNames.RefsFind),
+        ("refresh", ToolNames.IndexRefreshOverlay),
     ];
+
+    /// <summary>
+    /// True when a report's tool name is <paramref name="canonical"/> — reports written before v2.9.0
+    /// (e.g. the committed Phase 0 reports) record the deprecated dotted names (ADR-051).
+    /// </summary>
+    private static bool IsTool(string recorded, string canonical) =>
+        recorded == canonical
+        || (ToolNames.LegacyAliases.TryGetValue(recorded, out var mapped) && mapped == canonical);
 
     /// <summary>
     /// Parses a report file's JSON. Refuses any schema other than
@@ -102,7 +111,7 @@ public static class ConcurrencySummary
         };
         foreach (var (_, tool) in LatencyColumns)
         {
-            var t = r.Tools.FirstOrDefault(x => x.Tool == tool);
+            var t = r.Tools.FirstOrDefault(x => IsTool(x.Tool, tool));
             cells.Add(t is null || t.Calls == 0 ? None : string.Create(Inv, $"{t.P50Ms:0.0}/{t.P95Ms:0.0}"));
         }
         cells.AddRange(

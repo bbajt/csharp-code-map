@@ -7,8 +7,8 @@ namespace CodeMap.Mcp.Context;
 /// single call; stickiness is overridden, not replaced.
 /// </summary>
 /// <remarks>
-/// State is in-memory and per-process. <c>workspace.create</c> sets the sticky value;
-/// <c>workspace.delete</c> clears it if the deleted workspace was sticky. Agents that
+/// State is in-memory and per-process. <c>workspace_create</c> sets the sticky value;
+/// <c>workspace_delete</c> clears it if the deleted workspace was sticky. Agents that
 /// juggle multiple workspaces in one session should keep passing <c>workspace_id</c>
 /// explicitly — defaulting only removes ceremony in the single-workspace case.
 /// </remarks>
@@ -19,7 +19,7 @@ public interface IWorkspaceStickyRegistry
 
     /// <summary>
     /// Clears the sticky default for <paramref name="repoPath"/> if and only if it currently
-    /// equals <paramref name="workspaceId"/>. No-op otherwise — prevents <c>workspace.delete</c>
+    /// equals <paramref name="workspaceId"/>. No-op otherwise — prevents <c>workspace_delete</c>
     /// of a non-sticky workspace from clearing an unrelated default.
     /// </summary>
     void Clear(string repoPath, string workspaceId);

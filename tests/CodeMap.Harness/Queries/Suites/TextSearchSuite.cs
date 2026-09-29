@@ -6,7 +6,7 @@ using CodeMap.Harness.Comparison;
 using CodeMap.Harness.Repos;
 
 /// <summary>
-/// code.search_text with literal and regex patterns.
+/// code_search_text with literal and regex patterns.
 /// Parity rule: same (file_path, line, excerpt) tuple set.
 /// </summary>
 public sealed class TextSearchLiteralSuite(RepoDescriptor repo, RepoId repoId) : IHarnessQuery
@@ -16,7 +16,7 @@ public sealed class TextSearchLiteralSuite(RepoDescriptor repo, RepoId repoId) :
         ? repo.KnownQueryInputs[0]
         : "class";
 
-    public string Name => $"code.search_text.literal:{_term}";
+    public string Name => $"code_search_text.literal:{_term}";
     public QuerySuiteCategory Category => QuerySuiteCategory.TextSearch;
     public bool IncludeInSmoke => true;
 
@@ -32,7 +32,7 @@ public sealed class TextSearchLiteralSuite(RepoDescriptor repo, RepoId repoId) :
 
 public sealed class TextSearchNoMatchSuite(RepoId repoId) : IHarnessQuery
 {
-    public string Name => "code.search_text.no_match:__xyzzy_nonexistent__";
+    public string Name => "code_search_text.no_match:__xyzzy_nonexistent__";
     public QuerySuiteCategory Category => QuerySuiteCategory.TextSearch;
     public bool IncludeInSmoke => false;
 

@@ -1,9 +1,11 @@
 namespace CodeMap.Mcp;
 
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using CodeMap.Core.Models;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -28,6 +30,9 @@ public sealed class McpServer
     private readonly ToolRegistry _registry;
     private readonly ILogger<McpServer> _logger;
     private readonly string _version;
+
+    /// <summary>Deprecated aliases already logged by this server instance (one warning per alias).</summary>
+    private readonly ConcurrentDictionary<string, byte> _loggedAliases = new(StringComparer.Ordinal);
 
     public McpServer(ToolRegistry registry, ILogger<McpServer> logger, string? version = null)
     {
@@ -189,19 +194,24 @@ public sealed class McpServer
         if (string.IsNullOrEmpty(name))
             return BuildError(id, -32602, "Invalid params: 'name' is required");
 
-        var tool = _registry.Find(name);
+        var tool = _registry.Find(name, out var usedAlias);
         if (tool is null)
         {
-            // Did-you-mean: agents typo tool names ("symbol.search", "graph.caller")
-            // or carry stale names across CodeMap upgrades. A Levenshtein-based
-            // closest match resolves both without forcing an extra tools/list round-trip.
+            // Did-you-mean: agents typo tool names or carry stale names across CodeMap upgrades.
+            // Candidates are the canonical names and the deprecated aliases (a typo of a dotted
+            // name is closest to its alias), but the suggestion is always canonical (ADR-051).
             var registered = _registry.GetAll().Select(t => t.Name).ToList();
-            var closest = Handlers.HandlerHelpers.ClosestName(name, registered);
+            var closest = Handlers.HandlerHelpers.ClosestName(name, [.. registered, .. _registry.Aliases.Keys]);
+            if (closest is not null && _registry.Aliases.TryGetValue(closest, out var canonicalOfAlias))
+                closest = canonicalOfAlias;
             var msg = closest is not null
                 ? $"Unknown tool: {name}. Did you mean: {closest}?"
                 : $"Unknown tool: {name}. Call tools/list to see the {registered.Count} registered tools.";
             return BuildError(id, -32602, msg);
         }
+
+        if (usedAlias is not null && _loggedAliases.TryAdd(usedAlias, 0))
+            _logger.LogWarning("DeprecatedToolAlias {Alias} → {Canonical}", usedAlias, tool.Name);
 
         var arguments = @params?["arguments"] as JsonObject;
         ToolCallResult toolResult;
@@ -216,19 +226,30 @@ public sealed class McpServer
             // standard error envelope with an honest code and retryable flag, not JSON-RPC -32603
             // (ADR-045). Only the explicit workspace_id argument is used — the boundary does no
             // I/O to resolve sticky defaults.
-            _logger.LogError(ex, "Tool {Tool} failed", name);
+            _logger.LogError(ex, "Tool {Tool} failed", tool.Name);
             var workspaceId = (arguments?["workspace_id"] as JsonValue)?.TryGetValue<string>(out var ws) == true
                 && !string.IsNullOrEmpty(ws) ? ws : null;
             toolResult = Handlers.HandlerHelpers.ErrorResult(
-                Handlers.HandlerHelpers.ClassifyUnhandled(ex, name, workspaceId));
+                Handlers.HandlerHelpers.ClassifyUnhandled(ex, tool.Name, workspaceId));
         }
+
+        var content = new JsonArray { new JsonObject { ["type"] = "text", ["text"] = toolResult.Content } };
+        // A deprecated alias is answered normally; the note rides in a second content item so the
+        // envelope in content[0] stays exactly what the canonical call returns (ADR-051).
+        if (usedAlias is not null)
+            content.Add(new JsonObject { ["type"] = "text", ["text"] = DeprecationNote(usedAlias, tool.Name) });
 
         return BuildSuccess(id, new JsonObject
         {
-            ["content"] = new JsonArray { new JsonObject { ["type"] = "text", ["text"] = toolResult.Content } },
+            ["content"] = content,
             ["isError"] = toolResult.IsError,
         });
     }
+
+    /// <summary>The note appended to a response when a deprecated tool alias was called.</summary>
+    internal static string DeprecationNote(string alias, string canonical) =>
+        $"Note: tool name '{alias}' is deprecated; call '{canonical}' instead. " +
+        $"The dotted names will be removed in v{ToolNames.AliasRemovalVersion} at the earliest.";
 
     // ─── JSON-RPC helpers ─────────────────────────────────────────────────────
 

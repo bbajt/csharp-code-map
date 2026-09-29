@@ -120,7 +120,7 @@ public class ReferenceExtractorTests
     {
         // The agent-feedback bug: `receiver.Ext()` was resolving to the reduced-extension
         // form, whose doc-comment ID didn't match the stored symbol_id of the declaration.
-        // Callers were silently dropped — graph.callers returned 0 results.
+        // Callers were silently dropped — graph_callers returned 0 results.
         const string source = """
             public static class Extensions
             {

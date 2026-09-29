@@ -6,7 +6,7 @@ using CodeMap.Mcp;
 using CodeMap.Mcp.Handlers;
 using FluentAssertions;
 
-/// <summary>Unit tests for <see cref="GuideHandler"/> — codemap.guide tool (#28).</summary>
+/// <summary>Unit tests for <see cref="GuideHandler"/> — codemap_guide tool (#28).</summary>
 public sealed class GuideHandlerTests
 {
     private readonly GuideHandler _handler = new();
@@ -50,8 +50,8 @@ public sealed class GuideHandlerTests
             .GetProperty("commands");
 
         commands.GetArrayLength().Should().Be(2);
-        commands[0].GetString().Should().Contain("index.ensure_baseline");
-        commands[1].GetString().Should().Contain("workspace.create");
+        commands[0].GetString().Should().Contain("index_ensure_baseline");
+        commands[1].GetString().Should().Contain("workspace_create");
     }
 
     [Fact]
@@ -68,12 +68,12 @@ public sealed class GuideHandlerTests
             .Select(i => table[i].GetProperty("use_tool").GetString())
             .ToList();
 
-        useTools.Should().Contain("symbols.search");
-        useTools.Should().Contain("symbols.get_context");
-        useTools.Should().Contain(t => t!.StartsWith("graph.callers"),
+        useTools.Should().Contain("symbols_search");
+        useTools.Should().Contain("symbols_get_context");
+        useTools.Should().Contain(t => t!.StartsWith("graph_callers"),
             because: "the row may now include a follow_interface hint suffix");
-        useTools.Should().Contain("graph.callees");
-        useTools.Should().Contain("codemap.summarize");
+        useTools.Should().Contain("graph_callees");
+        useTools.Should().Contain("codemap_summarize");
 
         // BUG-5 regression: don't advertise tools that aren't registered.
         // surfaces.list_di_registrations was on the decision_table but had no
@@ -149,9 +149,43 @@ public sealed class GuideHandlerTests
             .Select(i => tools[i].GetProperty("name").GetString())
             .ToList();
 
-        names.Should().Contain("codemap.guide");
-        names.Should().Contain("symbols.search");
-        names.Should().Contain("symbols.get_context");
+        names.Should().Contain("codemap_guide");
+        names.Should().Contain("symbols_search");
+        names.Should().Contain("symbols_get_context");
+    }
+
+    [Fact]
+    public async Task Handle_AllToolNamesInGuide_AreCanonical()
+    {
+        // PHASE-21-09 T01: decision table, verbose tool list, session start and after-edit command
+        // name only canonical tools.
+        var result = await _handler.HandleGetGuideAsync(
+            new JsonObject { ["verbose"] = true }, CancellationToken.None);
+
+        var root = JsonDocument.Parse(result.Content).RootElement;
+        var tools = root.GetProperty("tools");
+        Enumerable.Range(0, tools.GetArrayLength())
+            .Select(i => tools[i].GetProperty("name").GetString())
+            .Should().BeEquivalentTo(CodeMap.Core.Models.ToolNames.All);
+        foreach (var dotted in CodeMap.Core.Models.ToolNames.LegacyAliases.Keys)
+        {
+            root.GetProperty("decision_table").GetRawText().Should().NotContain(dotted);
+            root.GetProperty("session_start").GetRawText().Should().NotContain(dotted);
+            root.GetProperty("rules").GetRawText().Should().NotContain(dotted);
+            root.GetProperty("after_edit_command").GetString().Should().NotContain(dotted);
+        }
+        root.GetProperty("session_start").GetRawText().Should().Contain("index_ensure_baseline");
+        root.GetProperty("after_edit_command").GetString().Should().StartWith("index_refresh_overlay");
+    }
+
+    [Fact]
+    public async Task Handle_DeprecatedAliases_NoticeWithRemovalVersion()
+    {
+        var result = await _handler.HandleGetGuideAsync(null, CancellationToken.None);
+
+        var notice = JsonDocument.Parse(result.Content).RootElement.GetProperty("deprecated_aliases");
+        notice.GetProperty("removal_version").GetString().Should().Be("2.11.0");
+        notice.GetProperty("note").GetString().Should().Contain("deprecated");
     }
 
     [Fact]
@@ -183,7 +217,7 @@ public sealed class GuideHandlerTests
         var registry = new ToolRegistry();
         _handler.Register(registry);
 
-        registry.Find("codemap.guide").Should().NotBeNull();
+        registry.Find("codemap_guide").Should().NotBeNull();
     }
 
     [Fact]
@@ -192,7 +226,7 @@ public sealed class GuideHandlerTests
         var registry = new ToolRegistry();
         _handler.Register(registry);
 
-        var tool = registry.Find("codemap.guide")!;
+        var tool = registry.Find("codemap_guide")!;
         var required = tool.InputSchema["required"]?.AsArray();
         required?.Count.Should().Be(0);
     }
@@ -203,7 +237,7 @@ public sealed class GuideHandlerTests
         var registry = new ToolRegistry();
         _handler.Register(registry);
 
-        var tool = registry.Find("codemap.guide")!;
+        var tool = registry.Find("codemap_guide")!;
         tool.Description.ToLowerInvariant().Should().Contain("guide");
     }
 }

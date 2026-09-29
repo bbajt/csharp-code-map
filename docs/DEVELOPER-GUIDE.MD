@@ -19,7 +19,7 @@ For architecture decisions, see [DECISIONS.MD](DECISIONS.MD).
 - **MSBuild** (included with .NET SDK) — required for integration tests that
   open real solutions via Roslyn MSBuildWorkspace
 - A C# solution to index (or use the built-in `testdata/SampleSolution/`) — both `.sln`
-  and `.slnx` formats are accepted by `index.ensure_baseline`
+  and `.slnx` formats are accepted by `index_ensure_baseline`
 - **Restored test fixtures** for the integration tests, once per checkout. `CodeMap.sln` doesn't
   include `testdata/`, and MSBuildWorkspace doesn't restore; an unrestored fixture indexes degraded
   (F12: `missing_restore_output`, `semantic_level: partial`) and tests that expect `Full` fail:
@@ -187,7 +187,7 @@ a request manually:
 2. Paste a JSON-RPC message to stdin (one line, no trailing newline needed):
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"repo.status","arguments":{"repo_path":"/path/to/your/repo"}}}
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"repo_status","arguments":{"repo_path":"/path/to/your/repo"}}}
 ```
 
 3. The JSON response appears on stdout.
@@ -436,7 +436,7 @@ Open [`src/CodeMap.Daemon/ServiceRegistration.cs`](../src/CodeMap.Daemon/Service
 
 ## Composite Tools (No New Storage Methods)
 
-`symbols.get_context` is an example of a **composite tool** — it orchestrates
+`symbols_get_context` is an example of a **composite tool** — it orchestrates
 existing `IQueryEngine` methods rather than adding new storage queries:
 
 1. `GetSymbolCardAsync` → primary card
@@ -444,7 +444,7 @@ existing `IQueryEngine` methods rather than adding new storage queries:
 3. `GetSymbolCardAsync` × N → callee cards
 4. `GetDefinitionSpanAsync` × (1 + N) → source code for each
 
-No new `ISymbolStore` methods were needed. The value of `symbols.get_context`
+No new `ISymbolStore` methods were needed. The value of `symbols_get_context`
 comes from **composing existing operations**, not from new data access.
 
 ### When to Use the Composite Pattern
@@ -906,7 +906,7 @@ with daily rotation. Each line is a JSON object:
 
 Four tools read source code. The right choice depends on what else you need.
 
-### `symbols.get_card` — default choice
+### `symbols_get_card` — default choice
 
 Returns metadata, facts, **and** source code in one call. Auto-includes the
 full source for the symbol (up to 100 lines, `include_code: false` to skip).
@@ -915,11 +915,11 @@ Use when you want to understand a symbol: its signature, documentation,
 DI registrations, config keys used, exceptions thrown, and its implementation.
 
 ```
-symbols.get_card { symbol_id: "T:MyApp.OrderService" }
+symbols_get_card { symbol_id: "T:MyApp.OrderService" }
 → kind, signature, docs, facts, source code
 ```
 
-### `symbols.get_definition_span` — batch reads or code-only
+### `symbols_get_definition_span` — batch reads or code-only
 
 Returns only the source code, with no card DB query or fact hydration.
 Saves a small amount of overhead per call.
@@ -930,11 +930,11 @@ Use when:
 - You already have a card and just want to refresh the code
 
 ```
-symbols.get_definition_span { symbol_id: "T:MyApp.OrderService" }
+symbols_get_definition_span { symbol_id: "T:MyApp.OrderService" }
 → file_path, span_start, span_end, source_lines[]
 ```
 
-### `code.get_span` — arbitrary line ranges
+### `code_get_span` — arbitrary line ranges
 
 Reads any line range from any file. Not symbol-aware — it reads raw lines.
 
@@ -945,11 +945,11 @@ Use when:
 - You want to read a file that isn't indexed (e.g., a `.md` or `.json` file)
 
 ```
-code.get_span { file_path: "src/Program.cs", start_line: 1, end_line: 50 }
+code_get_span { file_path: "src/Program.cs", start_line: 1, end_line: 50 }
 → source_lines[]
 ```
 
-### `code.search_text` — grep across indexed source files
+### `code_search_text` — grep across indexed source files
 
 Searches file content by regex or substring. Returns file path, line number,
 and a one-line excerpt for each match. Restricted to files in the baseline index
@@ -961,7 +961,7 @@ Use when:
 - You need a quick cross-file search without knowing which symbol contains the text
 
 ```
-code.search_text { repo_path: "...", pattern: "OrderNotFoundException", limit: 50 }
+code_search_text { repo_path: "...", pattern: "OrderNotFoundException", limit: 50 }
 → matches: [{ file_path, line, excerpt }, ...]
 ```
 

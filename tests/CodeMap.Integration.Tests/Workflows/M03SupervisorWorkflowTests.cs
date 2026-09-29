@@ -86,17 +86,17 @@ public sealed class M03SupervisorWorkflowTests
         const string FakeSln = "/fake/solution.sln";
         var overlayFile = FilePath.From("SampleApp.Api/Controllers/OverlayController.cs");
 
-        // 1. index.ensure_baseline (in test context: verify baseline already exists)
+        // 1. index_ensure_baseline (in test context: verify baseline already exists)
         var baselineExists = await _f.BaselineStore.BaselineExistsAsync(_f.RepoId, _f.Sha);
         baselineExists.Should().BeTrue("fixture must have indexed the baseline before this test");
 
-        // 2. workspace.create("agent-1"), workspace.create("agent-2")
+        // 2. workspace_create("agent-1"), workspace_create("agent-2")
         await _workspaceMgr.CreateWorkspaceAsync(
             _f.RepoId, agent1, _f.Sha, FakeSln, IndexedSampleSolutionFixture.SampleSolutionDir);
         await _workspaceMgr.CreateWorkspaceAsync(
             _f.RepoId, agent2, _f.Sha, FakeSln, IndexedSampleSolutionFixture.SampleSolutionDir);
 
-        // 3. workspace.list → both workspaces present, both fresh (revision=0)
+        // 3. workspace_list → both workspaces present, both fresh (revision=0)
         var workspaces = await _workspaceMgr.ListWorkspacesAsync(_f.RepoId);
         workspaces.Should().Contain(ws => ws.WorkspaceId == agent1,
             "agent-1 workspace must be listed after creation");
@@ -142,7 +142,7 @@ public sealed class M03SupervisorWorkflowTests
 
         await _workspaceMgr.RefreshOverlayAsync(_f.RepoId, agent1, [overlayFile]);
 
-        // 5. surfaces.list_endpoints(workspace_id: agent-1) → overlay endpoint visible
+        // 5. surfaces_list_endpoints(workspace_id: agent-1) → overlay endpoint visible
         var wsEndpoints = await _mergedEngine.ListEndpointsAsync(
             WorkspaceRouting(agent1), pathFilter: null, httpMethod: null, limit: 50);
         wsEndpoints.IsSuccess.Should().BeTrue();
@@ -150,7 +150,7 @@ public sealed class M03SupervisorWorkflowTests
             e => e.RoutePath == "/api/overlay/test",
             "workspace agent-1 overlay should expose the newly added endpoint");
 
-        // 6. surfaces.list_endpoints() → committed mode, no overlay endpoint
+        // 6. surfaces_list_endpoints() → committed mode, no overlay endpoint
         var committedEndpoints = await _mergedEngine.ListEndpointsAsync(
             CommittedRouting(), pathFilter: null, httpMethod: null, limit: 50);
         committedEndpoints.IsSuccess.Should().BeTrue();
@@ -158,11 +158,11 @@ public sealed class M03SupervisorWorkflowTests
             e => e.RoutePath == "/api/overlay/test",
             "committed mode must not show workspace-only overlay endpoints");
 
-        // 7. workspace.delete("agent-1"), workspace.delete("agent-2")
+        // 7. workspace_delete("agent-1"), workspace_delete("agent-2")
         await _workspaceMgr.DeleteWorkspaceAsync(_f.RepoId, agent1);
         await _workspaceMgr.DeleteWorkspaceAsync(_f.RepoId, agent2);
 
-        // 8. workspace.list → both agents gone
+        // 8. workspace_list → both agents gone
         var remaining = await _workspaceMgr.ListWorkspacesAsync(_f.RepoId);
         remaining.Should().NotContain(ws => ws.WorkspaceId == agent1,
             "deleted workspace agent-1 must not appear in list");
@@ -200,12 +200,12 @@ public sealed class M03SupervisorWorkflowTests
         var localPath = pullFactory.GetDbPath(_f.RepoId, _f.Sha);
         File.Exists(localPath).Should().BeFalse("new temp local dir must not have the baseline yet");
 
-        // 4. index.ensure_baseline (cache hit path) → pull from cache
+        // 4. index_ensure_baseline (cache hit path) → pull from cache
         var pulledPath = await pullManager.PullAsync(_f.RepoId, _f.Sha);
         pulledPath.Should().NotBeNull("cache pull must succeed when the cache was populated");
         File.Exists(pulledPath!).Should().BeTrue("pulled DB file must exist locally after pull");
 
-        // 5. symbols.search("OrderService") → verify pulled index is usable
+        // 5. symbols_search("OrderService") → verify pulled index is usable
         SqliteConnection.ClearAllPools();
         var pullStore = new BaselineStore(pullFactory, NullLogger<BaselineStore>.Instance);
         var pullEngine = new QueryEngine(

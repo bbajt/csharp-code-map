@@ -93,7 +93,7 @@ public sealed class CardHandlerTests
 
         // Assert — error contains suggestion with simple name
         result.IsError.Should().BeTrue();
-        result.Content.Should().Contain("symbols.search");
+        result.Content.Should().Contain("symbols_search");
         result.Content.Should().Contain("DoAsync");
     }
 
@@ -114,9 +114,9 @@ public sealed class CardHandlerTests
             new JsonObject { ["repo_path"] = RepoPath, ["symbol_id"] = symbolId },
             CancellationToken.None);
 
-        // The JSON content has the name embedded in symbols.search("...") — check name is present
+        // The JSON content has the name embedded in symbols_search("...") — check name is present
         result.Content.Should().Contain(expectedName);
-        result.Content.Should().Contain("symbols.search");
+        result.Content.Should().Contain("symbols_search");
     }
 
     [Fact]
@@ -227,6 +227,6 @@ public sealed class CardHandlerTests
     {
         var registry = new ToolRegistry();
         _handler.RegisterQueryTools(registry);
-        registry.Find("symbols.get_card").Should().NotBeNull();
+        registry.Find("symbols_get_card").Should().NotBeNull();
     }
 }

@@ -7,7 +7,7 @@ using CodeMap.Integration.Tests.Workflows;
 using FluentAssertions;
 
 /// <summary>
-/// VB.NET regression: callers, callees, refs.find, and list_endpoints.
+/// VB.NET regression: callers, callees, refs_find, and list_endpoints.
 /// All graph/ref queries should succeed without error for VB.NET symbols.
 /// </summary>
 [Trait("Category", "Integration")]

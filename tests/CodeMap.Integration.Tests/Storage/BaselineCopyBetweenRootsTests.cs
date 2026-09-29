@@ -60,7 +60,7 @@ public sealed class BaselineCopyBetweenRootsTests : IDisposable
 
     private static async Task<JsonNode> EnsureBaselineAsync(StdioMcpClient client, string worktree, string solution, CancellationToken ct)
     {
-        var result = await client.CallToolAsync("index.ensure_baseline",
+        var result = await client.CallToolAsync("index_ensure_baseline",
             new JsonObject { ["repo_path"] = worktree, ["solution_path"] = solution }, ct);
         result.Ok.Should().BeTrue($"{result.ErrorCode}: {result.ErrorMessage}");
         return result.PayloadJson()!;
@@ -69,21 +69,21 @@ public sealed class BaselineCopyBetweenRootsTests : IDisposable
     /// <summary>The <c>data</c> of three answers that exercise the search index, refs and the graph.</summary>
     private static async Task<JsonNode?[]> QueryAsync(StdioMcpClient client, string worktree, CancellationToken ct)
     {
-        var search = await CallDataAsync(client, "symbols.search",
+        var search = await CallDataAsync(client, "symbols_search",
             new JsonObject { ["repo_path"] = worktree, ["query"] = "Order", ["limit"] = 50 }, ct);
-        var method = await CallDataAsync(client, "symbols.search",
+        var method = await CallDataAsync(client, "symbols_search",
             new JsonObject { ["repo_path"] = worktree, ["query"] = "Submit", ["kinds"] = new JsonArray("method") }, ct);
         var methodId = method?["hits"]?.AsArray().FirstOrDefault()?["symbol_id"]?.GetValue<string>();
         methodId.Should().NotBeNullOrEmpty("SampleSolution has a Submit method");
 
-        var iface = await CallDataAsync(client, "symbols.search",
+        var iface = await CallDataAsync(client, "symbols_search",
             new JsonObject { ["repo_path"] = worktree, ["query"] = "IOrderService", ["kinds"] = new JsonArray("interface") }, ct);
         var ifaceId = iface?["hits"]?.AsArray().FirstOrDefault()?["symbol_id"]?.GetValue<string>();
         ifaceId.Should().NotBeNullOrEmpty("SampleSolution declares IOrderService");
 
-        var refs = await CallDataAsync(client, "refs.find",
+        var refs = await CallDataAsync(client, "refs_find",
             new JsonObject { ["repo_path"] = worktree, ["symbol_id"] = ifaceId }, ct);
-        var callers = await CallDataAsync(client, "graph.callers",
+        var callers = await CallDataAsync(client, "graph_callers",
             new JsonObject { ["repo_path"] = worktree, ["symbol_id"] = methodId }, ct);
         return [search, method, iface, refs, callers];
     }

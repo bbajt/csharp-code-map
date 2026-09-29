@@ -132,7 +132,7 @@ public sealed class BaselineCacheIntegrationTests : IClassFixture<IndexedSampleS
                 git, compiler, localStore, cacheManager,
                 NullLogger<CodeMap.Mcp.Handlers.IndexHandler>.Instance);
 
-            // 3. index.ensure_baseline — should pull from cache, skip compilation
+            // 3. index_ensure_baseline — should pull from cache, skip compilation
             var result = await handler.HandleAsync(
                 new System.Text.Json.Nodes.JsonObject
                 {
@@ -248,7 +248,7 @@ public sealed class BaselineCacheIntegrationTests : IClassFixture<IndexedSampleS
                 git, compiler, localStore, cacheManager,
                 NullLogger<CodeMap.Mcp.Handlers.IndexHandler>.Instance);
 
-            // 2. index.ensure_baseline — corrupt cache entry → falls back to Roslyn build
+            // 2. index_ensure_baseline — corrupt cache entry → falls back to Roslyn build
             var result = await handler.HandleAsync(
                 new System.Text.Json.Nodes.JsonObject
                 {

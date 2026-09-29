@@ -211,7 +211,7 @@ public interface ISymbolStore
 
     /// <summary>
     /// Returns all repo-relative file paths indexed for the given commit.
-    /// Used by <c>code.search_text</c> to enumerate files for content search.
+    /// Used by <c>code_search_text</c> to enumerate files for content search.
     /// </summary>
     Task<IReadOnlyList<FilePath>> GetAllFilePathsAsync(
         RepoId repoId,
@@ -221,7 +221,7 @@ public interface ISymbolStore
     /// <summary>
     /// Returns all repo-relative file paths and their stored source content for the given commit.
     /// <c>Content</c> is <c>null</c> for old baselines that pre-date the content column.
-    /// Used by <c>code.search_text</c> to search file content without disk I/O.
+    /// Used by <c>code_search_text</c> to search file content without disk I/O.
     /// </summary>
     Task<IReadOnlyList<(FilePath Path, string? Content)>> GetAllFileContentsAsync(
         RepoId repoId,
@@ -230,7 +230,7 @@ public interface ISymbolStore
 
     /// <summary>
     /// Returns the repository root path stored in the baseline metadata.
-    /// Used by <c>code.search_text</c> to resolve repo-relative paths to absolute paths for disk reads.
+    /// Used by <c>code_search_text</c> to resolve repo-relative paths to absolute paths for disk reads.
     /// </summary>
     Task<string?> GetRepoRootAsync(
         RepoId repoId,

@@ -4,12 +4,12 @@ using CodeMap.Core.Errors;
 
 /// <summary>
 /// Per-process registry of repo paths the daemon has seen via
-/// <c>index.ensure_baseline</c> or <c>workspace.create</c>. Used to auto-default the
+/// <c>index_ensure_baseline</c> or <c>workspace_create</c>. Used to auto-default the
 /// <c>repo_path</c> argument when a session is working on a single repo.
 /// </summary>
 /// <remarks>
 /// State is in-memory and per-process. A daemon restart clears the registry; agents
-/// repopulate it implicitly by calling <c>index.ensure_baseline</c>, which is
+/// repopulate it implicitly by calling <c>index_ensure_baseline</c>, which is
 /// idempotent and fast. This keeps the layer stateless-enough for concurrent clients
 /// and avoids surprises where an old baseline silently becomes "default" at startup.
 /// </remarks>
@@ -29,7 +29,7 @@ public interface IRepoRegistry
     /// <list type="bullet">
     ///   <item>Non-empty explicit path → normalized and returned verbatim.</item>
     ///   <item>Exactly one repo known → that repo.</item>
-    ///   <item>Zero repos known → <c>INVALID_ARGUMENT</c> pointing to <c>index.ensure_baseline</c>.</item>
+    ///   <item>Zero repos known → <c>INVALID_ARGUMENT</c> pointing to <c>index_ensure_baseline</c>.</item>
     ///   <item>Two+ repos known → <c>INVALID_ARGUMENT</c> listing known repos so the caller can choose.</item>
     /// </list>
     /// </summary>

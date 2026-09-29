@@ -1,7 +1,7 @@
 namespace CodeMap.Core.Models;
 
 /// <summary>
-/// Top-level response payload for the <c>codemap.guide</c> MCP tool.
+/// Top-level response payload for the <c>codemap_guide</c> MCP tool.
 /// Contains everything an agent needs to start a CodeMap session correctly.
 /// </summary>
 public sealed record GuideResponse(
@@ -30,7 +30,20 @@ public sealed record GuideResponse(
     /// <summary>
     /// Full tool list with descriptions. Null unless <c>verbose: true</c> was requested.
     /// </summary>
-    IReadOnlyList<GuideToolEntry>? Tools = null
+    IReadOnlyList<GuideToolEntry>? Tools = null,
+    /// <summary>
+    /// Notice that the pre-v2.9.0 dotted tool names still work as deprecated aliases
+    /// until <see cref="GuideDeprecatedAliases.RemovalVersion"/> (ADR-051). Null when there are none.
+    /// </summary>
+    GuideDeprecatedAliases? DeprecatedAliases = null
+);
+
+/// <summary>Deprecated tool-name aliases notice (PHASE-21-09, ADR-051).</summary>
+public sealed record GuideDeprecatedAliases(
+    /// <summary>One-sentence explanation for agents.</summary>
+    string Note,
+    /// <summary>Earliest CodeMap version that may remove the aliases.</summary>
+    string RemovalVersion
 );
 
 /// <summary>Session setup commands an agent must run before any code work.</summary>
@@ -38,7 +51,7 @@ public sealed record GuideSessionStart(
     /// <summary>Human-readable description of when to run these commands.</summary>
     string Description,
     /// <summary>
-    /// Ordered list of commands to run. First: index.ensure_baseline. Second: workspace.create.
+    /// Ordered list of commands to run. First: index_ensure_baseline. Second: workspace_create.
     /// </summary>
     IReadOnlyList<string> Commands
 );
@@ -58,7 +71,7 @@ public sealed record GuideDecisionEntry(
 
 /// <summary>One entry in the verbose tool list.</summary>
 public sealed record GuideToolEntry(
-    /// <summary>MCP tool name (e.g. <c>symbols.search</c>).</summary>
+    /// <summary>MCP tool name (e.g. <c>symbols_search</c>).</summary>
     string Name,
     /// <summary>One-line description of what the tool does.</summary>
     string Description

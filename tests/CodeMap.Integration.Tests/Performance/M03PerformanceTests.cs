@@ -17,11 +17,11 @@ using NSubstitute;
 /// Verifies queries complete within 2× the informal p95 targets.
 ///
 /// Targets (2× p95):
-///   surfaces.list_endpoints  → &lt; 120 ms  (p95: 60 ms)
-///   surfaces.list_config_keys → &lt; 120 ms
-///   surfaces.list_db_tables   → &lt; 120 ms
-///   symbols.get_card + facts  → &lt; 40 ms  (p95: 20 ms)
-///   workspace.list            → &lt; 60 ms  (p95: 30 ms)
+///   surfaces_list_endpoints  → &lt; 120 ms  (p95: 60 ms)
+///   surfaces_list_config_keys → &lt; 120 ms
+///   surfaces_list_db_tables   → &lt; 120 ms
+///   symbols_get_card + facts  → &lt; 40 ms  (p95: 20 ms)
+///   workspace_list            → &lt; 60 ms  (p95: 30 ms)
 ///   cache pull                → &lt; 500 ms (hard target from spec)
 ///
 /// Each test discards the first (cold) run and checks the median of the remaining runs.
@@ -68,7 +68,7 @@ public sealed class M03PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
         var median = MedianMs(times);
         median.Should().BeLessOrEqualTo(120,
-            $"surfaces.list_endpoints median={median}ms must be ≤ 120ms (2× p95=60ms)");
+            $"surfaces_list_endpoints median={median}ms must be ≤ 120ms (2× p95=60ms)");
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public sealed class M03PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
         var median = MedianMs(times);
         median.Should().BeLessOrEqualTo(120,
-            $"surfaces.list_config_keys median={median}ms must be ≤ 120ms (2× p95=60ms)");
+            $"surfaces_list_config_keys median={median}ms must be ≤ 120ms (2× p95=60ms)");
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public sealed class M03PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
         var median = MedianMs(times);
         median.Should().BeLessOrEqualTo(120,
-            $"surfaces.list_db_tables median={median}ms must be ≤ 120ms (2× p95=60ms)");
+            $"surfaces_list_db_tables median={median}ms must be ≤ 120ms (2× p95=60ms)");
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public sealed class M03PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
         var median = MedianMs(times);
         median.Should().BeLessOrEqualTo(40,
-            $"symbols.get_card+facts median={median}ms must be ≤ 40ms (2× p95=20ms)");
+            $"symbols_get_card+facts median={median}ms must be ≤ 40ms (2× p95=20ms)");
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public sealed class M03PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
             var median = MedianMs(times);
             median.Should().BeLessOrEqualTo(60,
-                $"workspace.list median={median}ms must be ≤ 60ms (2× p95=30ms)");
+                $"workspace_list median={median}ms must be ≤ 60ms (2× p95=30ms)");
         }
         finally
         {

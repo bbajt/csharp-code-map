@@ -12,10 +12,10 @@ using CodeMap.Mcp.Serialization;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>index.diff</c> MCP tool.
+/// Handles the <c>index_diff</c> MCP tool.
 /// </summary>
 /// <remarks>
-/// <b>index.diff</b> params: repo_path, from_commit, to_commit (all required).
+/// <b>index_diff</b> params: repo_path, from_commit, to_commit (all required).
 /// Optional: kinds (symbol kind filter), include_facts (default true).
 /// Both commits must have existing baselines — returns INDEX_NOT_AVAILABLE otherwise.
 /// Use <c>to_commit: "HEAD"</c> to diff against the current working commit.
@@ -42,11 +42,11 @@ public sealed class DiffHandler
         _logger = logger;
     }
 
-    /// <summary>Registers index.diff into the ToolRegistry.</summary>
+    /// <summary>Registers index_diff into the ToolRegistry.</summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "index.diff",
+            ToolNames.IndexDiff,
             "Compare two indexed commits and show what changed semantically: symbols added/removed/renamed, endpoints added/removed, config keys and DI registrations changed.",
             new JsonObject
             {

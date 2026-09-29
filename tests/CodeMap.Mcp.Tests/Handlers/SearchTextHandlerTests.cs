@@ -13,7 +13,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
-/// <summary>Tests for code.search_text handler (PHASE-09-02).</summary>
+/// <summary>Tests for code_search_text handler (PHASE-09-02).</summary>
 public sealed class SearchTextHandlerTests
 {
     private const string RepoPath = "/fake/repo";

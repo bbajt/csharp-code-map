@@ -69,7 +69,7 @@ public sealed class WorkspaceHandlerTests : IDisposable
         _handler = new WorkspaceHandler(_manager, _git, new RepoRegistry(), new WorkspaceStickyRegistry(), NullLogger<WorkspaceHandler>.Instance);
     }
 
-    // ── workspace.create ──────────────────────────────────────────────────────
+    // ── workspace_create ──────────────────────────────────────────────────────
 
     public void Dispose()
     {
@@ -153,7 +153,7 @@ public sealed class WorkspaceHandlerTests : IDisposable
         result.IsError.Should().BeTrue();
     }
 
-    // ── workspace.reset ───────────────────────────────────────────────────────
+    // ── workspace_reset ───────────────────────────────────────────────────────
 
     [Fact]
     public async Task Reset_ValidParams_DelegatesToWorkspaceManager()

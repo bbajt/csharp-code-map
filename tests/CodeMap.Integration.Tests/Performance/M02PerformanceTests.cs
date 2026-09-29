@@ -19,13 +19,13 @@ using NSubstitute;
 /// The 2× multiplier provides CI/test-environment headroom without masking regressions.
 ///
 /// Targets (2× p95):
-///   refs.find (limit=50)       → &lt; 160 ms   (p95: 80 ms)
-///   graph.callers (depth=1)    → &lt; 100 ms
-///   graph.callers (depth=2)    → &lt; 300 ms   (p95: 150 ms)
-///   graph.callees (depth=1)    → &lt; 100 ms
-///   types.hierarchy            → &lt; 60 ms    (p95: 30 ms)
+///   refs_find (limit=50)       → &lt; 160 ms   (p95: 80 ms)
+///   graph_callers (depth=1)    → &lt; 100 ms
+///   graph_callers (depth=2)    → &lt; 300 ms   (p95: 150 ms)
+///   graph_callees (depth=1)    → &lt; 100 ms
+///   types_hierarchy            → &lt; 60 ms    (p95: 30 ms)
 ///   incremental reindex        → &lt; 400 ms   (p95: 200 ms)
-///   symbols.search             → &lt; 60 ms    (p95: 30 ms)
+///   symbols_search             → &lt; 60 ms    (p95: 30 ms)
 ///
 /// Each test discards the first (cold) run and checks the median of the remaining runs.
 /// </summary>
@@ -74,7 +74,7 @@ public sealed class M02PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
         var median = MedianMs(times);
         median.Should().BeLessOrEqualTo(160,
-            $"refs.find median={median}ms must be ≤ 160ms (2× p95=80ms)");
+            $"refs_find median={median}ms must be ≤ 160ms (2× p95=80ms)");
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class M02PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
         var median = MedianMs(times);
         median.Should().BeLessOrEqualTo(100,
-            $"graph.callers(depth=1) median={median}ms must be ≤ 100ms");
+            $"graph_callers(depth=1) median={median}ms must be ≤ 100ms");
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public sealed class M02PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
         var median = MedianMs(times);
         median.Should().BeLessOrEqualTo(300,
-            $"graph.callers(depth=2) median={median}ms must be ≤ 300ms (2× p95=150ms)");
+            $"graph_callers(depth=2) median={median}ms must be ≤ 300ms (2× p95=150ms)");
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public sealed class M02PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
         var median = MedianMs(times);
         median.Should().BeLessOrEqualTo(100,
-            $"graph.callees(depth=1) median={median}ms must be ≤ 100ms");
+            $"graph_callees(depth=1) median={median}ms must be ≤ 100ms");
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public sealed class M02PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
         var median = MedianMs(times);
         median.Should().BeLessOrEqualTo(60,
-            $"types.hierarchy median={median}ms must be ≤ 60ms (2× p95=30ms)");
+            $"types_hierarchy median={median}ms must be ≤ 60ms (2× p95=30ms)");
     }
 
     [Fact]
@@ -201,6 +201,6 @@ public sealed class M02PerformanceTests : IClassFixture<IndexedSampleSolutionFix
 
         var median = MedianMs(times);
         median.Should().BeLessOrEqualTo(60,
-            $"symbols.search median={median}ms must be ≤ 60ms (2× p95=30ms)");
+            $"symbols_search median={median}ms must be ≤ 60ms (2× p95=30ms)");
     }
 }

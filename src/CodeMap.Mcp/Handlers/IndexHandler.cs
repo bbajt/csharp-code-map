@@ -12,7 +12,7 @@ using CodeMap.Query;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Handles the <c>index.ensure_baseline</c>, <c>index.list_baselines</c> MCP tools.
+/// Handles the <c>index_ensure_baseline</c>, <c>index_list_baselines</c> MCP tools.
 /// Checks if a baseline index exists and builds one if not; lists cached baselines.
 ///
 /// Cache flow for ensure_baseline:
@@ -65,13 +65,13 @@ public sealed class IndexHandler
     }
 
     /// <summary>
-    /// Registers the <c>index.list_baselines</c>, <c>index.cleanup</c>,
-    /// and <c>index.ensure_baseline</c> tools into the ToolRegistry.
+    /// Registers the <c>index_list_baselines</c>, <c>index_cleanup</c>,
+    /// and <c>index_ensure_baseline</c> tools into the ToolRegistry.
     /// </summary>
     public void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition(
-            "index.list_baselines",
+            ToolNames.IndexListBaselines,
             "List all cached baselines for a repository, showing commit SHA, creation date, file size, and whether each is the current HEAD or referenced by an active workspace.",
             new JsonObject
             {
@@ -86,7 +86,7 @@ public sealed class IndexHandler
             HandlerHelpers.AnnotReadOnly));
 
         registry.Register(new ToolDefinition(
-            "index.cleanup",
+            ToolNames.IndexCleanup,
             "Remove old cached baselines to reclaim disk space. Current HEAD and workspace-referenced baselines are never deleted. Default is dry_run:true — set dry_run:false to actually delete.",
             new JsonObject
             {
@@ -104,8 +104,8 @@ public sealed class IndexHandler
             HandlerHelpers.AnnotDestructIdempotent));
 
         registry.Register(new ToolDefinition(
-            "index.remove_repo",
-            "Remove ALL cached baselines for a repository, freeing all disk space. Unlike index.cleanup, this ignores protection rules — HEAD and workspace-referenced baselines are also deleted. Default is dry_run:true.",
+            ToolNames.IndexRemoveRepo,
+            "Remove ALL cached baselines for a repository, freeing all disk space. Unlike index_cleanup, this ignores protection rules — HEAD and workspace-referenced baselines are also deleted. Default is dry_run:true.",
             new JsonObject
             {
                 ["type"] = "object",
@@ -120,7 +120,7 @@ public sealed class IndexHandler
             HandlerHelpers.AnnotDestructIdempotent));
 
         registry.Register(new ToolDefinition(
-            "index.ensure_baseline",
+            ToolNames.IndexEnsureBaseline,
             "Build a semantic index for a .NET solution. Idempotent: returns immediately if the current commit is already indexed.",
             new JsonObject
             {
@@ -142,7 +142,7 @@ public sealed class IndexHandler
     {
         var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
         if (repoErr is { } re) return re;
-        if (_scanner is null) return ScannerNotConfigured("index.list_baselines");
+        if (_scanner is null) return ScannerNotConfigured(ToolNames.IndexListBaselines);
 
         try
         {
@@ -155,7 +155,7 @@ public sealed class IndexHandler
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogWarning(ex, "index.list_baselines: could not resolve HEAD for {RepoPath}", repoPath);
+                _logger.LogWarning(ex, "index_list_baselines: could not resolve HEAD for {RepoPath}", repoPath);
             }
 
             var baselines = await _scanner.ListBaselinesAsync(repoId, ct).ConfigureAwait(false);
@@ -185,8 +185,8 @@ public sealed class IndexHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "index.list_baselines failed for {RepoPath}", repoPath);
-            return Classified(ex, "index.list_baselines");
+            _logger.LogError(ex, "index_list_baselines failed for {RepoPath}", repoPath);
+            return Classified(ex, ToolNames.IndexListBaselines);
         }
     }
 
@@ -194,7 +194,7 @@ public sealed class IndexHandler
     {
         var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
         if (repoErr is { } re) return re;
-        if (_scanner is null) return ScannerNotConfigured("index.cleanup");
+        if (_scanner is null) return ScannerNotConfigured(ToolNames.IndexCleanup);
 
         var keepCount = args.GetInt("keep_count", 5);
         var olderThanDays = args.GetInt("older_than_days");
@@ -224,8 +224,8 @@ public sealed class IndexHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "index.cleanup failed for {RepoPath}", repoPath);
-            return Classified(ex, "index.cleanup");
+            _logger.LogError(ex, "index_cleanup failed for {RepoPath}", repoPath);
+            return Classified(ex, ToolNames.IndexCleanup);
         }
     }
 
@@ -233,7 +233,7 @@ public sealed class IndexHandler
     {
         var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
         if (repoErr is { } re) return re;
-        if (_scanner is null) return ScannerNotConfigured("index.remove_repo");
+        if (_scanner is null) return ScannerNotConfigured(ToolNames.IndexRemoveRepo);
 
         var dryRun = args?["dry_run"]?.GetValue<bool>() ?? true;
 
@@ -252,8 +252,8 @@ public sealed class IndexHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "index.remove_repo failed for {RepoPath}", repoPath);
-            return Classified(ex, "index.remove_repo");
+            _logger.LogError(ex, "index_remove_repo failed for {RepoPath}", repoPath);
+            return Classified(ex, ToolNames.IndexRemoveRepo);
         }
     }
 
@@ -301,7 +301,7 @@ public sealed class IndexHandler
             var exists = await _store.BaselineExistsAsync(repoId, commitSha, ct).ConfigureAwait(false);
             if (exists)
             {
-                _logger.LogInformation("index.ensure_baseline: baseline already exists for {Sha}", commitSha.Value[..8]);
+                _logger.LogInformation("index_ensure_baseline: baseline already exists for {Sha}", commitSha.Value[..8]);
                 _repoRegistry.Register(repoPath!);
                 var skipped = new EnsureBaselineResponse(commitSha, AlreadyExisted: true, Stats: null);
                 return new ToolCallResult(JsonSerializer.Serialize(skipped, CodeMapJsonOptions.Default));
@@ -316,7 +316,7 @@ public sealed class IndexHandler
                 if (pulledExists)
                 {
                     _logger.LogInformation(
-                        "index.ensure_baseline: baseline {Sha} pulled from shared cache", commitSha.Value[..8]);
+                        "index_ensure_baseline: baseline {Sha} pulled from shared cache", commitSha.Value[..8]);
                     _repoRegistry.Register(repoPath!);
                     var cached = new EnsureBaselineResponse(commitSha, AlreadyExisted: true, Stats: null, FromCache: true);
                     return new ToolCallResult(JsonSerializer.Serialize(cached, CodeMapJsonOptions.Default));
@@ -324,7 +324,7 @@ public sealed class IndexHandler
             }
 
             // Step 3: Build locally via Roslyn (existing behavior)
-            _logger.LogInformation("index.ensure_baseline: compiling {SolutionPath}", solutionPath);
+            _logger.LogInformation("index_ensure_baseline: compiling {SolutionPath}", solutionPath);
             var compilationResult = await _compiler.CompileAndExtractAsync(solutionPath, ct).ConfigureAwait(false);
 
             if (compilationResult.Symbols.Count == 0 && compilationResult.Stats.Confidence == Core.Enums.Confidence.Low)
@@ -336,7 +336,7 @@ public sealed class IndexHandler
             await _store.CreateBaselineAsync(repoId, commitSha, compilationResult, repoPath, ct).ConfigureAwait(false);
 
             _logger.LogInformation(
-                "index.ensure_baseline: indexed {Symbols} symbols, {Refs} refs in {Ms:F1}ms",
+                "index_ensure_baseline: indexed {Symbols} symbols, {Refs} refs in {Ms:F1}ms",
                 compilationResult.Stats.SymbolCount,
                 compilationResult.Stats.ReferenceCount,
                 compilationResult.Stats.ElapsedSeconds * 1000);
@@ -350,7 +350,7 @@ public sealed class IndexHandler
                 .ToList();
             if (degraded is { Count: > 0 })
                 _logger.LogInformation(
-                    "index.ensure_baseline: {Sha} is not pushed to a shared cache (if one is configured) — environment-degraded project(s): {Projects}",
+                    "index_ensure_baseline: {Sha} is not pushed to a shared cache (if one is configured) — environment-degraded project(s): {Projects}",
                     commitSha.Value[..8], string.Join(", ", degraded));
             else
                 await _cache.PushAsync(repoId, commitSha, ct).ConfigureAwait(false);
@@ -361,8 +361,8 @@ public sealed class IndexHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "index.ensure_baseline failed for {SolutionPath}", solutionPath);
-            return Classified(ex, "index.ensure_baseline");
+            _logger.LogError(ex, "index_ensure_baseline failed for {SolutionPath}", solutionPath);
+            return Classified(ex, ToolNames.IndexEnsureBaseline);
         }
     }
 

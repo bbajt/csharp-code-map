@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 /// <summary>
-/// Integration tests for codemap.summarize / IQueryEngine.SummarizeAsync.
+/// Integration tests for codemap_summarize / IQueryEngine.SummarizeAsync.
 /// Uses manually seeded BaselineStore — no Roslyn compilation.
 /// Validates that all 8 FactKind sections appear, filtering works,
 /// and project diagnostics are surfaced correctly.

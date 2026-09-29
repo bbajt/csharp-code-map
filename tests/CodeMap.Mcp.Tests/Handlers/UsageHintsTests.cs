@@ -27,16 +27,16 @@ public sealed class UsageHintsTests
     // ── Pure helpers in HandlerHelpers ─────────────────────────────────────────
 
     [Theory]
-    [InlineData("symbol.search", "symbols.search")]    // missing 's' typo
-    [InlineData("symbols.serach", "symbols.search")]   // transposition
-    [InlineData("graph.caller", "graph.callers")]      // missing trailing 's'
-    [InlineData("symbols_search", "symbols.search")]   // separator confusion
+    [InlineData("symbol.search", "symbols_search")]    // missing 's' typo
+    [InlineData("symbols_serach", "symbols_search")]   // transposition
+    [InlineData("graph_caller", "graph_callers")]      // missing trailing 's'
+    [InlineData("symbols.search", "symbols_search")]   // separator confusion (pre-v2.9.0 dotted name)
     public void ClosestName_PicksClosestMatch(string requested, string expected)
     {
         var registered = new List<string>
         {
-            "symbols.search", "symbols.get_card", "graph.callers", "graph.callees",
-            "code.search_text", "codemap.guide", "index.ensure_baseline",
+            "symbols_search", "symbols_get_card", "graph_callers", "graph_callees",
+            "code_search_text", "codemap_guide", "index_ensure_baseline",
         };
         var result = typeof(HandlerHelpers).GetMethod("ClosestName",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
@@ -47,7 +47,7 @@ public sealed class UsageHintsTests
     [Fact]
     public void ClosestName_TooFarAway_ReturnsNull()
     {
-        var registered = new List<string> { "symbols.search", "codemap.guide" };
+        var registered = new List<string> { "symbols_search", "codemap_guide" };
         var result = typeof(HandlerHelpers).GetMethod("ClosestName",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
             .Invoke(null, ["totally_unrelated_xyz", registered]);
@@ -67,8 +67,8 @@ public sealed class UsageHintsTests
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
             .Invoke(null, [card]);
         hint.Should().NotBeNull();
-        hint.Should().Contain("symbols.search");
-        hint.Should().Contain("types.hierarchy");
+        hint.Should().Contain("symbols_search");
+        hint.Should().Contain("types_hierarchy");
         hint.Should().Contain("src/MyApp/Foo.cs");
     }
 
@@ -96,7 +96,7 @@ public sealed class UsageHintsTests
 
     [Theory]
     [InlineData(null, false, "kinds")]                  // no query, no filters → suggest kinds-browse
-    [InlineData("Foo", false, "code.search_text")]      // query only → suggest text fallback / wildcard
+    [InlineData("Foo", false, "code_search_text")]      // query only → suggest text fallback / wildcard
     [InlineData("Foo", true, "drop them")]              // filters present → suggest relaxation
     public void EmptySearchHint_ShapeDependsOnInputs(string? query, bool hasFilters, string expectedSubstring)
     {
@@ -220,9 +220,9 @@ public sealed class UsageHintsTests
             CancellationToken.None);
 
         var answer = JsonNode.Parse(result.Content)!["answer"]!.GetValue<string>();
-        answer.Should().Contain("symbols.search",
+        answer.Should().Contain("symbols_search",
             "the Type-card hint must fire even when include_code=false skips the source-fetch branch");
-        answer.Should().Contain("types.hierarchy");
+        answer.Should().Contain("types_hierarchy");
     }
 
     [Fact]
