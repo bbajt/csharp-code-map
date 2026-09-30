@@ -36,6 +36,19 @@ public class ConcurrencyReportTests
         run["passed"]!.GetValue<bool>().Should().BeTrue();
     }
 
+    [Fact]
+    public void Json_PostIdlePrivateBytes_WrittenAndMissingInOldReportsReadsZero()
+    {
+        var json = JsonSerializer.Serialize(new ConcurrencyReport(ConcurrencyReport.SchemaV1, [Sample()]), ConcurrencyJson.Options);
+        var node = JsonNode.Parse(json)!;
+        node["runs"]![0]!["memory"]!["post_idle_total_private_bytes"]!.GetValue<long>().Should().Be(700);
+
+        node["runs"]![0]!["memory"]!.AsObject().Remove("post_idle_total_private_bytes"); // a Phase 0 report
+        var old = JsonSerializer.Deserialize<ConcurrencyReport>(node.ToJsonString(), ConcurrencyJson.Options)!;
+
+        old.Runs[0].Memory.PostIdleTotalPrivateBytes.Should().Be(0);
+    }
+
     [Theory]
     [InlineData(50, 5)]
     [InlineData(95, 10)]
@@ -102,7 +115,7 @@ public class ConcurrencyReportTests
         CallsPerSecond: 9.99,
         ErrorsByCode: new Dictionary<string, int> { ["TIMEOUT"] = 1 },
         Tools: [ToolStats.From("symbols_search", [1.0, 2.0, 3.0], 0)],
-        Memory: new MemoryStats(900, 800, 850, 1000, [450, 450], 40),
+        Memory: new MemoryStats(900, 800, 850, 1000, [450, 450], 40, PostIdleTotalPrivateBytes: 700),
         Setup: new SetupStats([100.0, 110.0], [3000.0, 3100.0], 2, 2, 0),
         Correctness: new CorrectnessStats(10, 10, 0, 0, 10, 0, 0, 0),
         SampleErrors: ["graph_callers: TIMEOUT: no response within 120s"]);

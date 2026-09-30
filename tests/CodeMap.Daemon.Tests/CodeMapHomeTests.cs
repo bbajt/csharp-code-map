@@ -148,4 +148,72 @@ public class CodeMapHomeTests
         result.Error.Code.Should().Be(ErrorCodes.InvalidArgument);
         result.Error.Message.Should().Contain("CODEMAP_CACHE_DIR").And.Contain(envValue);
     }
+
+    // ── ResolveCacheDir: config.json shared_cache_dir fallback (PHASE-21-11 T02) ──
+
+    [Fact]
+    public void ResolveCacheDir_EnvUnset_ConfigAbsolute_Used()
+    {
+        var result = CodeMapHome.ResolveCacheDir(null, Path.Combine(Absolute, "cfg-cache"), Profile);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be(Path.Combine(Absolute, "cfg-cache"), "config.json is the fallback when the env var is unset");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ResolveCacheDir_EnvSetBlank_ConfigIgnored_Disabled(string envValue)
+    {
+        var result = CodeMapHome.ResolveCacheDir(envValue, Path.Combine(Absolute, "cfg-cache"), Profile);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().BeNull("a set-but-blank CODEMAP_CACHE_DIR disables the cache, whatever config.json says");
+    }
+
+    [Fact]
+    public void ResolveCacheDir_EnvSet_WinsOverConfig()
+    {
+        var result = CodeMapHome.ResolveCacheDir(Path.Combine(Absolute, "env-cache"), "relative-is-never-looked-at", Profile);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be(Path.Combine(Absolute, "env-cache"));
+    }
+
+    [Theory]
+    [InlineData("cache")]
+    [InlineData("./cache")]
+    [InlineData(@"..\cache")]
+    public void ResolveCacheDir_ConfigRelative_FailsNamingConfigJson(string configValue)
+    {
+        var result = CodeMapHome.ResolveCacheDir(null, configValue, Profile);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(ErrorCodes.InvalidArgument);
+        result.Error.Message.Should().Contain("config.json").And.Contain("shared_cache_dir").And.Contain(configValue)
+            .And.NotContain("CODEMAP_CACHE_DIR must");
+    }
+
+    [Theory]
+    [InlineData("~/cfg-cache")]
+    [InlineData(@"~\cfg-cache")]
+    public void ResolveCacheDir_ConfigTilde_Expanded(string configValue)
+    {
+        var result = CodeMapHome.ResolveCacheDir(null, configValue, Profile);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be(Path.Combine(Profile, "cfg-cache"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ResolveCacheDir_EnvUnset_ConfigBlank_Disabled(string? configValue)
+    {
+        var result = CodeMapHome.ResolveCacheDir(null, configValue, Profile);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().BeNull();
+    }
 }

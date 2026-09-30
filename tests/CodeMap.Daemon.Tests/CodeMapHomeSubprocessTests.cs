@@ -110,6 +110,80 @@ public sealed class CodeMapHomeSubprocessTests : IDisposable
             "a blank CODEMAP_CACHE_DIR means no shared cache — nothing may be written to the working directory");
     }
 
+    // ── config.json shared_cache_dir, unknown keys (PHASE-21-11 T02) ───────────
+
+    [Fact]
+    public async Task ConfigSharedCacheDir_UsedWhenEnvUnset()
+    {
+        // shared_cache_dir used to be parsed and never read: the only way to enable the cache was
+        // CODEMAP_CACHE_DIR. With the env var unset, config.json is now the fallback.
+        var home = Path.Combine(_home, "home");
+        var cache = Path.Combine(_home, "cfg-cache");
+        Directory.CreateDirectory(home);
+        await File.WriteAllTextAsync(Path.Combine(home, "config.json"),
+            new JsonObject { ["shared_cache_dir"] = cache }.ToJsonString(), TestContext.Current.CancellationToken);
+
+        var run = await RunDaemonAsync(home, InitializeRequest + "\n" + EnsureBaselineRequest(),
+            cacheDir: null, timeout: TimeSpan.FromMinutes(3));
+
+        run.ExitCode.Should().Be(0, run.Stderr);
+        run.Stdout.Should().Contain("\"id\":2").And.NotContain("\"isError\":true");
+        Directory.Exists(cache).Should().BeTrue("ensure_baseline pushes the new baseline into the config-named cache");
+        Directory.EnumerateFiles(cache, "*", SearchOption.AllDirectories).Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task ConfigSharedCacheDir_Relative_Exit2()
+    {
+        Directory.CreateDirectory(_home);
+        await File.WriteAllTextAsync(Path.Combine(_home, "config.json"), """{"shared_cache_dir":"relative-cfg-cache"}""",
+            TestContext.Current.CancellationToken);
+
+        var run = await RunDaemonAsync(_home, InitializeRequest, cacheDir: null);
+
+        run.ExitCode.Should().Be(2, "a relative cache dir from config.json is refused like one from the env var");
+        run.Stdout.Should().BeEmpty();
+        run.Stderr.Should().Contain("config.json").And.Contain("shared_cache_dir").And.Contain("relative-cfg-cache");
+    }
+
+    [Fact]
+    public async Task ConfigUnknownKeys_LoggedOnceAsWarning()
+    {
+        Directory.CreateDirectory(_home);
+        await File.WriteAllTextAsync(Path.Combine(_home, "config.json"),
+            """{"log_level":"Information","budget_overrides":{"max_results":5},"log_levle":"Debug"}""",
+            TestContext.Current.CancellationToken);
+
+        var run = await RunDaemonAsync(_home, InitializeRequest);
+
+        run.ExitCode.Should().Be(0, run.Stderr);
+        var log = await File.ReadAllTextAsync(
+            Directory.GetFiles(Path.Combine(_home, "logs"), "codemap-*.log").Single(), TestContext.Current.CancellationToken);
+        var warnings = log.Split('\n').Where(l => l.Contains("ignoring unknown key", StringComparison.Ordinal)).ToList();
+        warnings.Should().ContainSingle("one startup warning lists every unknown key");
+        warnings[0].Should().Contain("budget_overrides").And.Contain("log_levle");
+    }
+
+    private static string EnsureBaselineRequest()
+    {
+        var repoRoot = FindRepoRoot();
+        return new JsonObject
+        {
+            ["jsonrpc"] = "2.0",
+            ["id"] = 2,
+            ["method"] = "tools/call",
+            ["params"] = new JsonObject
+            {
+                ["name"] = "index_ensure_baseline",
+                ["arguments"] = new JsonObject
+                {
+                    ["repo_path"] = repoRoot,
+                    ["solution_path"] = Path.Combine(repoRoot, "testdata", "SampleSolution", "SampleSolution.sln"),
+                },
+            },
+        }.ToJsonString();
+    }
+
     private static string FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

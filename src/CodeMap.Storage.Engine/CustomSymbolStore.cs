@@ -6,12 +6,11 @@ using CodeMap.Core.Models;
 using CodeMap.Core.Types;
 
 /// <summary>
-/// ISymbolStore adapter for the v2 custom storage engine.
-/// Phase 3: CreateBaselineAsync + BaselineExistsAsync.
-/// Phase 4: All read-only query methods implemented.
-/// Registered in DI when CODEMAP_ENGINE=custom.
+/// ISymbolStore implementation over the v2 binary storage engine, the only engine since v2.1.0
+/// (SQLite and the <c>CODEMAP_ENGINE</c> switch were removed). Registered as a singleton by
+/// <c>ServiceRegistration.AddCodeMapServices</c> in CodeMap.Daemon.
 /// </summary>
-public sealed class CustomSymbolStore : ISymbolStore, IDisposable
+public sealed class CustomSymbolStore : ISymbolStore, IDisposable, IBaselineReaderRelease
 {
     private readonly EngineBaselineBuilder _builder;
     private readonly string _storeBaseDir;
@@ -651,6 +650,31 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
         }
     }
 
+    /// <inheritdoc/>
+    void IBaselineReaderRelease.Release(string repoId, string? commitSha)
+    {
+        // Both caches are keyed "<repoId>|<key>". Everything released here is reopened lazily on the
+        // next query (GetOrOpen / GetOrCreateOverlay), so a workspace that survives is unaffected.
+        var prefix = CacheKey(repoId, "");
+        lock (_cacheLock)
+        {
+            foreach (var key in _cache.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+            {
+                if (commitSha is not null && key != CacheKey(repoId, commitSha)) continue;
+                if (_cache.Remove(key, out var entry))
+                    entry.Reader.Dispose();
+            }
+
+            // Overlays hold baseline readers and their ADR-044 writer lock; close them for the whole repo
+            // so a lock that is still held afterwards can only belong to another process.
+            foreach (var key in _overlays.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+            {
+                if (_overlays.Remove(key, out var overlay))
+                    overlay.Dispose();
+            }
+        }
+    }
+
     // ── Path helpers ─────────────────────────────────────────────────────────
 
     private string RepoStoreDir(string repoId)
@@ -661,6 +685,9 @@ public sealed class CustomSymbolStore : ISymbolStore, IDisposable
 
     private string OverlayDir(string repoId, string overlayKey)
         => Path.Combine(_storeBaseDir, SanitizeRepoId(repoId), "overlays", overlayKey);
+
+    /// <summary>The on-disk directory of an overlay (workspace id or baseline-level commit key).</summary>
+    internal string OverlayDirectory(string repoId, string overlayKey) => OverlayDir(repoId, overlayKey);
 
     private static string CacheKey(string repoId, string key)
         => $"{repoId}|{key}";

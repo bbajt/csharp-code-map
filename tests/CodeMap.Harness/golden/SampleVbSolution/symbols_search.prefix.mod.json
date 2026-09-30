@@ -1,0 +1,33 @@
+{
+  "category": "SymbolSearch",
+  "symbol_ids": [
+    "F:SampleVbApp.Models.OrderStatus.Cancelled",
+    "F:SampleVbApp.Models.OrderStatus.Delivered",
+    "F:SampleVbApp.Models.OrderStatus.Pending",
+    "F:SampleVbApp.Models.OrderStatus.Processing",
+    "F:SampleVbApp.Models.OrderStatus.Shipped",
+    "M:SampleVbApp.Models.Money.#ctor(System.Decimal,System.String)",
+    "M:SampleVbApp.Models.Money.ToString",
+    "M:SampleVbApp.Models.Order.#ctor(System.Int32,System.Int32)",
+    "M:SampleVbApp.Models.Order.AddItem(System.String)",
+    "M:SampleVbApp.Stubs.DbContext.OnModelCreating(System.Object)",
+    "P:SampleVbApp.Models.Money.Amount",
+    "P:SampleVbApp.Models.Money.Currency",
+    "P:SampleVbApp.Models.Order.CreatedAt",
+    "P:SampleVbApp.Models.Order.CustomerId",
+    "P:SampleVbApp.Models.Order.Id",
+    "P:SampleVbApp.Models.Order.Items",
+    "P:SampleVbApp.Models.Order.Status",
+    "P:SampleVbApp.Models.Order.Total",
+    "T:SampleVbApp.Models.Order",
+    "T:SampleVbApp.Models.OrderStatus"
+  ],
+  "edge_keys": [],
+  "fact_keys": [],
+  "scalar_fields": {
+    "total_count": "21",
+    "truncated": "true"
+  },
+  "is_truncated": true,
+  "total_available": 21
+}

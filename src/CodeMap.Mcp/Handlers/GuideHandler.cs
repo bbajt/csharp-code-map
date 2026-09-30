@@ -146,7 +146,7 @@ public sealed class GuideHandler
 
     internal Task<ToolCallResult> HandleGetGuideAsync(JsonObject? args, CancellationToken ct)
     {
-        var verbose = args?["verbose"]?.GetValue<bool>() ?? false;
+        var verbose = args.GetBool("verbose", false);
 
         var guide = new GuideResponse(
             Version:                _version,

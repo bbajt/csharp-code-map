@@ -110,10 +110,12 @@ Without it, CodeMap doesn't see any code you've added or changed this session.
 
 ---
 
-### Session End (Optional)
+### Session End — Delete Your Workspace
 
 ```
 workspace_delete { repo_path: ".", workspace_id: "session" }
 ```
+
+A workspace left behind keeps its baseline protected from `index_cleanup` for every CodeMap process.
 
 After committing: `index_ensure_baseline { repo_path: "." }` to index the new commit.

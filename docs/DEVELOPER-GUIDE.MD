@@ -56,9 +56,8 @@ the currently running daemon.
 ### Binary deployment rules
 
 - **Framework-dependent only** — never self-contained. `MSBuildWorkspace` requires the
-  host .NET SDK at runtime (for MSBuild). SQLite native DLLs (`e_sqlite3`) are resolved
-  from the `runtimes/*/native/` folder inside the tool or alongside the binary — they do
-  **not** need to be placed manually outside.
+  host .NET SDK at runtime (for MSBuild). There are no native storage DLLs: the v2 engine
+  is managed code over memory-mapped files.
 - Publish target: `C:\Users\Developer\.codemap\bin-next\`
 - Live binary: `C:\Users\Developer\.codemap\bin\`
 - Previous binary (kept for rollback): `C:\Users\Developer\.codemap\bin-old\`
@@ -98,6 +97,33 @@ The user always runs swap manually — never automate it from a script or agent,
 replaces the live daemon while it may be in use.
 
 ---
+
+## Release Checklist
+
+Releases are manual. There is no tag-triggered workflow, so a tag pushed to the mirror publishes nothing.
+The csproj `<Version>` is the single version source; `ReleaseMetadataTests` fails when `server.json`
+or the NuGet description disagree with it or with the tool surface.
+
+1. **On the feature branch, make a release commit** (`release: vX.Y.Z — …`):
+   - `<Version>` in `src/CodeMap.Daemon/CodeMap.Daemon.csproj`;
+   - both `"version"` fields in `server.json` (server entry and the nuget package);
+   - CHANGELOG `[Unreleased]` → `[X.Y.Z] — <date>`, with a new empty `[Unreleased]` above it;
+   - a CLAUDE.MD "Current Surface Area (vX.Y.Z)" entry, if not already written with the phase.
+2. `dotnet build -warnaserror` and the per-project test suites (see Run Tests). Run the Linux rig for
+   storage / integration changes.
+3. **Merge and tag:**
+   - `git checkout master && git merge --no-ff <branch> -m "Merge <branch> → master (vX.Y.Z)"`;
+   - `git tag -a vX.Y.Z -m "vX.Y.Z — <headline>"`.
+4. **Publish and pack:**
+   - `dotnet publish src/CodeMap.Daemon -c Release --no-self-contained -o ~/.codemap/bin-next/`, then
+     check `--version`;
+   - `dotnet pack src/CodeMap.Daemon/CodeMap.Daemon.csproj -c Release` → `dist/nupkg/`.
+5. **User steps:**
+   - `swap.bat`, with the MCP server disabled; then re-enable it and check the tools and `codemap_guide`
+     version in the client;
+   - sync the mirror with a commit message and tag, then push: `git commit -m "<message>"`,
+     `git tag -a vX.Y.Z -m "…"`, `git push origin <branch>`, `git push origin vX.Y.Z`;
+   - NuGet: `.\nuget-push.ps1`, from the interactive Windows shell that holds the DPAPI key.
 
 ## Run Tests
 
@@ -202,6 +228,13 @@ To enable verbose logging, set `log_level` in `~/.codemap/config.json`:
 { "log_level": "Debug" }
 ```
 
+Greppable lines at the default level:
+- `PHASE_TIMING_*`: indexing phase timings; `PHASE_TIMING_REFS_INNER` per assembly, including
+  `skipped_trees` and `scaffolding_skipped` (Razor generator members dropped, ADR-062).
+- `MEMORY_SNAPSHOT <event>`: working set, private bytes, GC heap, fragmentation and committed memory
+  at `baseline_built`, `solution_opened`, `reclaim_before` / `reclaim_after` (the idle compacting GC)
+  and `solution_evicted` (ADR-060 / ADR-061).
+
 ---
 
 ## Project Structure
@@ -214,7 +247,7 @@ src/
   CodeMap.Core        — Domain types, interfaces, enums, errors. Zero dependencies.
   CodeMap.Git         — Git integration via LibGit2Sharp (repo identity, diffs, branch state).
   CodeMap.Roslyn      — Roslyn compilation, symbol/ref/fact/type-relation extraction.
-  CodeMap.Storage     — SQLite persistence for baselines, overlays, and the shared cache.
+  CodeMap.Storage.Engine — v2 binary storage (memory-mapped segments): baselines, overlays, shared cache.
   CodeMap.Query       — Query engine, L1 cache, workspace manager, MergedQueryEngine.
   CodeMap.Mcp         — MCP tool handlers (JSON-RPC dispatch, parameter parsing, routing).
   CodeMap.Daemon      — DI composition root, entry point, config loading, file logging.
@@ -223,11 +256,11 @@ tests/
   CodeMap.Core.Tests         — Core model/interface contract tests (types, validation).
   CodeMap.Git.Tests          — Git operation tests (real temp repos via LibGit2Sharp).
   CodeMap.Roslyn.Tests       — Extractor unit tests + Roslyn integration tests.
-  CodeMap.Storage.Tests      — SQLite store tests with real temp databases.
+  CodeMap.Storage.Engine.Tests — Engine tests against real temp store directories.
   CodeMap.Query.Tests        — Query engine + workspace manager tests (mocked stores).
   CodeMap.Mcp.Tests          — MCP handler delegation tests (mocked query engine).
   CodeMap.Daemon.Tests       — Config loading + file logging tests.
-  CodeMap.Integration.Tests  — Cross-layer E2E workflows (MCP → Roslyn → DB).
+  CodeMap.Integration.Tests  — Cross-layer E2E workflows (MCP → Roslyn → store).
   CodeMap.Benchmarks         — Token savings + BenchmarkDotNet performance suites.
   CodeMap.TestUtilities      — Shared builders, fixtures, test helpers (no xUnit ref).
 
@@ -238,7 +271,7 @@ testdata/
 docs/
   MILESTONE.MD               — Project overview, all phases and milestones.
   API-SCHEMA.MD              — All type definitions and MCP tool contracts.
-  SYSTEM-ARCHITECTURE.MD     — Component design, DB schema, query model.
+  SYSTEM-ARCHITECTURE.MD     — Component design, storage model, query model.
   DECISIONS.MD               — Architecture Decision Records (append-only).
   PERFORMANCE-BASELINE.MD    — BenchmarkDotNet baseline measurements.
   DEVELOPER-GUIDE.MD         — This file.
@@ -253,11 +286,11 @@ docs/
 The dependency graph is strict and enforced as build errors:
 
 ```
-Core ← Git, Roslyn, Storage, Query, Mcp, Daemon
+Core ← Git, Roslyn, Storage.Engine, Query, Mcp, Daemon
 Git  ← Core (+ LibGit2Sharp)
-Roslyn ← Core (+ Roslyn 4.x, MSBuildWorkspace)
-Storage ← Core (+ Microsoft.Data.Sqlite)
-Query ← Core (NOT Storage — queries through ISymbolStore/IOverlayStore interfaces)
+Roslyn ← Core (+ Roslyn 5.x, MSBuildWorkspace, FSharp.Compiler.Service)
+Storage.Engine ← Core (no third-party storage library)
+Query ← Core, Storage.Engine (queries go through the ISymbolStore/IOverlayStore interfaces)
 Mcp ← Core, Query
 Daemon ← ALL (the only project that references everything)
 ```
@@ -265,13 +298,12 @@ Daemon ← ALL (the only project that references everything)
 **Why these rules exist:**
 
 - **Core has zero deps** so types can be shared anywhere without pulling
-  in heavy libraries. Roslyn.dll would bloat Storage tests; SQLite would
-  bloat Roslyn tests.
+  in heavy libraries. Roslyn.dll would bloat Storage.Engine tests.
 
 - **Query talks to Storage through interfaces** (`ISymbolStore`, `IOverlayStore`)
   defined in Core. This means Query tests can mock the store without
-  SQLite, and you can swap in a different storage backend without touching
-  the query layer.
+  building real baselines. (This is how v2.0.0 replaced the SQLite engine
+  without touching the query layer.)
 
 - **Daemon is the sole composition root.** It's the only project that knows
   about every layer. All DI wiring happens in
@@ -450,7 +482,7 @@ comes from **composing existing operations**, not from new data access.
 ### When to Use the Composite Pattern
 
 - Your tool's value is in **combining or summarizing existing data**
-- No new information needs to be extracted from source code or stored in SQLite
+- No new information needs to be extracted from source code or stored in the index
 - The composition logic belongs in `CodeMap.Query` (not `CodeMap.Mcp`)
 
 ### How to Implement
@@ -707,10 +739,9 @@ public async Task CountSymbolsByKindAsync_WithMixedSymbols_ReturnsGroupedCounts(
 }
 ```
 
-Storage tests use real SQLite temp directories. The `BaselineDbFixture`
-helper (in `CodeMap.TestUtilities`) creates a temp dir and disposes it via
-`IDisposable`. On Windows, call `SqliteConnection.ClearAllPools()` in
-`Dispose()` before deleting the temp dir to avoid file-lock errors.
+Storage.Engine tests build real baselines in temp directories. Dispose the
+`CustomSymbolStore` (it holds memory-mapped readers) before deleting the temp
+dir; on Windows a mapped file cannot be deleted.
 
 ---
 
@@ -787,28 +818,13 @@ public class SymbolCountIntegrationTests(IndexedSampleSolutionFixture f)
 }
 ```
 
-### Storage Tests — real SQLite temp directories
+### Storage Tests — real temp store directories
 
-```csharp
-public class BaselineStoreTests : IDisposable
-{
-    private readonly string _tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-    private readonly BaselineDbFactory _factory;
-    private readonly BaselineStore _store;
-
-    public BaselineStoreTests()
-    {
-        _factory = new BaselineDbFactory(_tempDir, NullLogger<BaselineDbFactory>.Instance);
-        _store = new BaselineStore(_factory, NullLogger<BaselineStore>.Instance);
-    }
-
-    public void Dispose()
-    {
-        SqliteConnection.ClearAllPools();  // Required on Windows before deleting
-        Directory.Delete(_tempDir, recursive: true);
-    }
-}
-```
+Build a baseline with `EngineBaselineBuilder` into a temp store, query it through
+`CustomSymbolStore`, and dispose the store before deleting the directory (mapped
+files can't be deleted on Windows). See `tests/CodeMap.Storage.Engine.Tests` for
+the current fixtures; `CODEMAP_HOME` must point at a temp dir for anything that
+spawns the daemon.
 
 ### Token Savings Benchmark (xUnit)
 
@@ -829,28 +845,24 @@ runner will invoke it without warmup and produce garbage numbers.
 
 ## Configuration Reference
 
-Configuration lives at `~/.codemap/config.json`. It is loaded once at
-startup; changes require a daemon restart.
+Configuration lives at `config.json` in the data root (`~/.codemap`, or `CODEMAP_HOME`). It is
+loaded once at startup; changes require a daemon restart. A missing or invalid file means defaults.
 
 ```json
 {
   "log_level": "Information",
-  "shared_cache_dir": "/mnt/team-cache/codemap",
-  "budget_overrides": {
-    "max_results": 100,
-    "max_lines": 500,
-    "max_chars": 50000
-  }
+  "shared_cache_dir": "/mnt/team-cache/codemap"
 }
 ```
 
-| Field                        | Default       | Description                                                         |
-|------------------------------|---------------|---------------------------------------------------------------------|
-| `log_level`                  | `Information` | Minimum log level: `Trace`, `Debug`, `Information`, `Warning`, `Error` |
-| `shared_cache_dir`           | `null`        | Directory for the shared baseline cache (team-shared file store). Null = cache disabled. |
-| `budget_overrides.max_results` | `null`      | Override the hard cap on result counts (e.g., for search/refs).     |
-| `budget_overrides.max_lines` | `null`        | Override the hard cap on excerpt line count.                        |
-| `budget_overrides.max_chars` | `null`        | Override the hard cap on response character count.                  |
+| Field              | Default       | Description |
+|--------------------|---------------|-------------|
+| `log_level`        | `Information` | Minimum log level: `Trace`, `Debug`, `Information`, `Warning`, `Error` |
+| `shared_cache_dir` | `null`        | Shared baseline cache, used only when `CODEMAP_CACHE_DIR` is unset. Absolute or `~/…`; relative → exit 2; blank = disabled. |
+
+Keys match case-insensitively. Any other key — a typo, or `budget_overrides`, which never did anything
+and was removed in v2.10.0 — is ignored with one startup warning in the log:
+`config.json: ignoring unknown key(s) …` (ADR-059).
 
 **Data root override:** `CODEMAP_HOME` moves everything the daemon keeps
 under `~/.codemap` (`config.json`, `logs/`, `store/`, `_savings.json`) to
@@ -863,33 +875,23 @@ runs and benchmarks so they never touch your live store:
 CODEMAP_HOME=/tmp/codemap-scratch dotnet run --project src/CodeMap.Daemon
 ```
 
-**Shared cache:** `CODEMAP_CACHE_DIR` enables the shared baseline cache. It's the only way to
-set it: `CodeMapConfig.SharedCacheDir` exists but `config.json`'s `shared_cache_dir` is **not read**
-by the daemon (known gap). Rules (ADR-047, same as `CODEMAP_HOME`): unset or blank → disabled;
-`~/…` expanded; absolute → used; relative → startup error, exit code 2. Before v2.8.2 a blank or
-relative value was resolved against the working directory, writing baselines into the repo (F11).
+**Shared cache:** precedence is `CODEMAP_CACHE_DIR` > `config.json` `shared_cache_dir` > disabled
+(ADR-059). The env var wins whenever it is set, and a set-but-blank value disables the cache even if
+`config.json` names one. Rules for both (ADR-047, same as `CODEMAP_HOME`): blank → disabled; `~/…`
+expanded; absolute → used; relative → startup error, exit code 2, naming the env var or
+`config.json`. Before v2.8.2 a blank or relative value was resolved against the working directory,
+writing baselines into the repo (F11). Before v2.10.0 `shared_cache_dir` was parsed but never read.
+Note that `set CODEMAP_CACHE_DIR=` (cmd) and `$env:CODEMAP_CACHE_DIR = ''` (PowerShell) *remove* the
+variable, so it counts as unset and `config.json` applies; to disable a cache named there, remove
+`shared_cache_dir` from the file.
 
 ```bash
 export CODEMAP_CACHE_DIR=/mnt/team-cache/codemap
 dotnet run --project src/CodeMap.Daemon
 ```
 
-**Storage engine selection:** `CODEMAP_ENGINE` env var selects the storage backend.
-
-| Value | Engine | Storage location |
-|---|---|---|
-| `sqlite` (default) | SQLite + FTS5 | `~/.codemap/baselines/<repoId>/<sha>.db` |
-| `custom` | v2 binary mmap engine | `~/.codemap/store/baselines/<sha>/` (segments) |
-
-Both engines coexist — different directory structures, no collision. Set
-`CODEMAP_ENGINE=custom` to test the v2 engine:
-
-```bash
-export CODEMAP_ENGINE=custom
-dotnet run --project src/CodeMap.Daemon
-```
-
-The v2 engine uses WAL-backed overlays at `~/.codemap/store/<repoId>/overlays/<workspaceId>/`,
+Storage is the v2 binary engine (the SQLite engine and `CODEMAP_ENGINE` were removed in v2.1.0).
+Baselines live at `~/.codemap/store/<repoId>/baselines/<sha>/`; overlays are WAL-backed at `~/.codemap/store/<repoId>/overlays/<workspaceId>/`,
 scoped per repo so the same workspace id in two repos never shares state (ADR-043).
 Overlay-local symbols use negative IntIds. See ADR-031 for design details.
 
@@ -976,19 +978,12 @@ These are the constraints that catch contributors most often. They're all
 documented in CLAUDE.MD and DECISIONS.MD, but consolidated here for quick
 reference.
 
-### FTS5 bare `*` wildcard doesn't work
+### There is no match-all search
 
-SQLite FTS5 does not support a bare `*` as a match-all pattern. Use a
-prefix like `Order*`, or use `ISymbolStore.GetSymbolsByFileAsync` for
-file-based queries that need all symbols. (ADR-017)
-
-```csharp
-// WRONG — throws or returns nothing:
-_store.SearchSymbolsAsync(repoId, sha, "*", kinds: null, limit: 100, ct);
-
-// RIGHT — use a real prefix:
-_store.SearchSymbolsAsync(repoId, sha, "Order*", kinds: null, limit: 100, ct);
-```
+`symbols_search` with only `*` (or only operators) returns `INVALID_ARGUMENT` ("nothing searchable"),
+and at the store level such a query matches nothing. Terms are prefix-matched already, so `Order` finds
+`OrderService`; a trailing `*` is accepted and ignored (ADR-055). To list symbols, omit `query` and pass
+a `kinds` filter, or use `ISymbolStore.GetSymbolsByFileAsync` for a file. (ADR-017 is the v1 origin.)
 
 ### stdout is sacred — never write to it
 

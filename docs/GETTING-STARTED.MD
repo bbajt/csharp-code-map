@@ -146,7 +146,7 @@ dotnet build
 dotnet run --project src/CodeMap.Daemon -- --version
 ```
 
-You should see something like `codemap-mcp 2.9.0`.
+You should see something like `codemap-mcp 2.10.0`.
 
 ### Option B: Install as .NET Global Tool
 
@@ -580,6 +580,18 @@ IReadOnlyDictionary<TKey, TValue> to the class declaration.
 
 ## Tips for Getting the Best Results
 
+### Upgrading to v2.10.0
+
+Nothing to re-index. Things you may notice:
+
+- `index_cleanup` and `index_remove_repo` need `repo_path` (they delete data, so no auto-default). Cleanup
+  protects every workspace's baseline, in every CodeMap process.
+- Uses written in Blazor components, MVC views and Razor Pages show up in `graph_callers` and `refs_find`
+  again, after the next baseline build.
+- An idle server gives most of its indexing memory back within a few minutes.
+- `~/.codemap/config.json` has two keys, `log_level` and `shared_cache_dir`; any other key is ignored with
+  a warning in the log.
+
 ### Upgrading to v2.9.0: new tool names
 
 Tool names changed from `symbols.search` to `symbols_search` (a dot became an
@@ -796,7 +808,7 @@ monthly or whenever disk space is a concern:
 Use codemap to clean up old baselines, keeping the 3 most recent.
 ```
 
-The agent will call `index_cleanup(dry_run: true, keep_count: 3)` first to
+The agent will call `index_cleanup(repo_path: ".", dry_run: true, keep_count: 3)` first to
 show what would be removed, then confirm before deleting. The current HEAD
 baseline and any workspace-referenced baselines are always protected.
 
@@ -1198,7 +1210,7 @@ Here's the layout:
 │   ├── codemap-2026-03-05.log           ← One file per day
 │   └── codemap-2026-03-06.log
 │
-├── config.json                          ← Settings (log level, budgets)
+├── config.json                          ← Settings (log_level, shared_cache_dir)
 └── _savings.json                        ← Cumulative token savings counter
 ```
 
@@ -1275,17 +1287,18 @@ Instead of shell commands, let the agent handle it safely:
 ```
 You: Clean up old codemap baselines, keep only the 3 most recent.
 
-Claude: [calls index_cleanup(dry_run: true, keep_count: 3)]
+Claude: [calls index_cleanup(repo_path: ".", dry_run: true, keep_count: 3)]
 Would remove 7 baselines (18 MB). HEAD and workspace baselines protected.
 
 You: Go ahead.
 
-Claude: [calls index_cleanup(dry_run: false, keep_count: 3)]
+Claude: [calls index_cleanup(repo_path: ".", dry_run: false, keep_count: 3)]
 Removed 7 baselines, reclaimed 18 MB.
 ```
 
-The tool always protects the current HEAD and any workspace baselines —
-safe to run without reviewing individual files first.
+The tool always protects the current HEAD and the baseline of every workspace, including workspaces
+of other agents running in their own CodeMap process. A baseline another process has open is never
+removed. It's safe to run without reviewing individual files first.
 
 ---
 

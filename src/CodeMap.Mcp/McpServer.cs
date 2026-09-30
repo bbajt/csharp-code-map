@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using CodeMap.Core.Interfaces;
 using CodeMap.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -30,14 +31,21 @@ public sealed class McpServer
     private readonly ToolRegistry _registry;
     private readonly ILogger<McpServer> _logger;
     private readonly string _version;
+    private readonly IActivityMonitor? _activity;
 
     /// <summary>Deprecated aliases already logged by this server instance (one warning per alias).</summary>
     private readonly ConcurrentDictionary<string, byte> _loggedAliases = new(StringComparer.Ordinal);
 
-    public McpServer(ToolRegistry registry, ILogger<McpServer> logger, string? version = null)
+    /// <summary>
+    /// Creates the server. <paramref name="activity"/> (PHASE-21-12): every dispatched request is wrapped in
+    /// <see cref="IActivityMonitor.BeginRequest"/>, so idle reclamation never runs while one is in flight.
+    /// </summary>
+    public McpServer(ToolRegistry registry, ILogger<McpServer> logger, string? version = null,
+        IActivityMonitor? activity = null)
     {
         _registry = registry;
         _logger = logger;
+        _activity = activity;
         _version = version
             ?? Assembly.GetEntryAssembly()
                 ?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
@@ -84,6 +92,8 @@ public sealed class McpServer
                 var method = msg["method"]?.GetValue<string>() ?? "";
                 var @params = msg["params"] as JsonObject;
 
+                // Idle reclamation (PHASE-21-12) never runs while a request is in flight.
+                using var activityScope = _activity?.BeginRequest();
                 var response = await DispatchAsync(method, id, @params, ct).ConfigureAwait(false);
                 _logger.LogDebug("MCP → {Json}", response.ToJsonString());
                 await SendAsync(writer, response, newlineDelimited ?? false, ct).ConfigureAwait(false);

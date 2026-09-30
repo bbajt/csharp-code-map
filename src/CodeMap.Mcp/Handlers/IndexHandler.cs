@@ -41,8 +41,10 @@ public sealed class IndexHandler
     private readonly IBaselineCacheManager _cache;
     private readonly IBaselineScanner? _scanner;
     private readonly WorkspaceManager? _workspaceManager;
+    private readonly IWorkspaceStickyRegistry? _stickyRegistry;
     private readonly IRepoRegistry _repoRegistry;
     private readonly ILogger<IndexHandler> _logger;
+    private readonly IActivityMonitor? _activity;
 
     public IndexHandler(
         IGitService git,
@@ -52,8 +54,12 @@ public sealed class IndexHandler
         IRepoRegistry repoRegistry,
         ILogger<IndexHandler> logger,
         IBaselineScanner? scanner = null,
-        WorkspaceManager? workspaceManager = null)
+        WorkspaceManager? workspaceManager = null,
+        IWorkspaceStickyRegistry? stickyRegistry = null,
+        IActivityMonitor? activity = null)
     {
+        _activity = activity;
+        _stickyRegistry = stickyRegistry;
         _git = git;
         _compiler = compiler;
         _store = store;
@@ -87,14 +93,14 @@ public sealed class IndexHandler
 
         registry.Register(new ToolDefinition(
             ToolNames.IndexCleanup,
-            "Remove old cached baselines to reclaim disk space. Current HEAD and workspace-referenced baselines are never deleted. Default is dry_run:true — set dry_run:false to actually delete.",
+            "Remove old cached baselines to reclaim disk space. Never deleted: the current HEAD, and the baseline of any workspace of any CodeMap process. A baseline another process has open is left intact (skipped_in_use). repo_path is required. Default is dry_run:true — set dry_run:false to actually delete.",
             new JsonObject
             {
                 ["type"] = "object",
-                ["required"] = new JsonArray(),
+                ["required"] = new JsonArray("repo_path"),
                 ["properties"] = new JsonObject
                 {
-                    ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root" },
+                    ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root (required: this tool deletes data)" },
                     ["keep_count"] = new JsonObject { ["type"] = "integer", ["description"] = "Keep the N most recent baselines (default: 5)" },
                     ["older_than_days"] = new JsonObject { ["type"] = "integer", ["description"] = "Remove baselines older than N days" },
                     ["dry_run"] = new JsonObject { ["type"] = "boolean", ["description"] = "If true, report what would be deleted without deleting (default: true)" },
@@ -105,14 +111,14 @@ public sealed class IndexHandler
 
         registry.Register(new ToolDefinition(
             ToolNames.IndexRemoveRepo,
-            "Remove ALL cached baselines for a repository, freeing all disk space. Unlike index_cleanup, this ignores protection rules — HEAD and workspace-referenced baselines are also deleted. Default is dry_run:true.",
+            "Remove ALL cached baselines and workspace overlays of a repository, freeing all disk space. Unlike index_cleanup, this ignores protection rules — HEAD and workspace-referenced baselines are also deleted. Refuses (WORKSPACE_IN_USE, nothing deleted) while another CodeMap process has a workspace open in the repo; a baseline another process has open is left intact and listed in skipped_in_use. repo_path is required. Default is dry_run:true.",
             new JsonObject
             {
                 ["type"] = "object",
-                ["required"] = new JsonArray(),
+                ["required"] = new JsonArray("repo_path"),
                 ["properties"] = new JsonObject
                 {
-                    ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root" },
+                    ["repo_path"] = new JsonObject { ["type"] = "string", ["description"] = "Absolute path to the repository root (required: this tool deletes data)" },
                     ["dry_run"] = new JsonObject { ["type"] = "boolean", ["description"] = "If true, report what would be deleted without deleting (default: true)" },
                 },
             },
@@ -192,13 +198,14 @@ public sealed class IndexHandler
 
     internal async Task<ToolCallResult> HandleCleanupAsync(JsonObject? args, CancellationToken ct)
     {
-        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        // Destructive: no auto-default to the sticky / only registered repo (PHASE-21-10).
+        var (repoPath, repoErr) = RequireExplicitRepoPath(args, ToolNames.IndexCleanup);
         if (repoErr is { } re) return re;
         if (_scanner is null) return ScannerNotConfigured(ToolNames.IndexCleanup);
 
         var keepCount = args.GetInt("keep_count", 5);
         var olderThanDays = args.GetInt("older_than_days");
-        var dryRun = args?["dry_run"]?.GetValue<bool>() ?? true;
+        var dryRun = args.GetBool("dry_run", true);
 
         try
         {
@@ -216,9 +223,21 @@ public sealed class IndexHandler
                 repoId, currentHead, workspaceBaseCommits,
                 keepCount, olderThanDays, dryRun, ct).ConfigureAwait(false);
 
+            if (!response.DryRun && response.WorkspacesInUse is { Count: > 0 } inUse)
+                return Err(new CodeMapError(
+                    ErrorCodes.WorkspaceInUse,
+                    $"index_cleanup refused: workspace(s) {string.Join(", ", inUse)} are open in another CodeMap " +
+                    "process and don't record their baseline (created by a CodeMap older than v2.10.0), so any " +
+                    "baseline could be theirs. Nothing was deleted. Retry after those sessions end.",
+                    new Dictionary<string, object> { ["workspace_ids"] = inUse },
+                    Retryable: true));
+
             var json = JsonSerializer.Serialize(response, CodeMapJsonOptions.Default);
             if (response.DryRun)
                 json += "\n(Dry run — no files were actually deleted. Pass dry_run:false to delete.)";
+            if (response.WorkspacesWithoutBaselineRecord is { Count: > 0 } unknown)
+                json += $"\n(Workspaces {string.Join(", ", unknown)} don't record their baseline, so it can't be " +
+                        "protected. If they are stale, remove them with workspace_delete.)";
 
             return new ToolCallResult(json);
         }
@@ -231,18 +250,43 @@ public sealed class IndexHandler
 
     internal async Task<ToolCallResult> HandleRemoveRepoAsync(JsonObject? args, CancellationToken ct)
     {
-        var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
+        // Destructive: no auto-default to the sticky / only registered repo (PHASE-21-10).
+        var (repoPath, repoErr) = RequireExplicitRepoPath(args, ToolNames.IndexRemoveRepo);
         if (repoErr is { } re) return re;
         if (_scanner is null) return ScannerNotConfigured(ToolNames.IndexRemoveRepo);
 
-        var dryRun = args?["dry_run"]?.GetValue<bool>() ?? true;
+        var dryRun = args.GetBool("dry_run", true);
 
         try
         {
             var repoId = await _git.GetRepoIdentityAsync(repoPath!, ct).ConfigureAwait(false);
+            IReadOnlyList<CodeMap.Query.WorkspaceSummary> ownWorkspaces = !dryRun && _workspaceManager is not null
+                ? await _workspaceManager.ListWorkspacesAsync(repoId, ct).ConfigureAwait(false)
+                : [];
+
             var response = await _scanner.RemoveRepoAsync(repoId, dryRun, ct).ConfigureAwait(false);
 
-            if (!dryRun) _repoRegistry.Forget(repoPath!);
+            if (!dryRun && response.WorkspacesInUse is { Count: > 0 } inUse)
+                return Err(new CodeMapError(
+                    ErrorCodes.WorkspaceInUse,
+                    $"index_remove_repo refused: workspace(s) {string.Join(", ", inUse)} are open in another CodeMap " +
+                    "process. Nothing was deleted. Delete them there (workspace_delete) or stop those agents, then retry.",
+                    new Dictionary<string, object> { ["workspace_ids"] = inUse },
+                    Retryable: true));
+
+            if (!dryRun)
+            {
+                // This process's workspaces were closed and their overlays removed with the repo; drop
+                // them from the registry and the sticky default too.
+                foreach (var ws in ownWorkspaces)
+                {
+                    await _workspaceManager!.DeleteWorkspaceAsync(repoId, ws.WorkspaceId, ct).ConfigureAwait(false);
+                    _stickyRegistry?.Clear(repoPath!, ws.WorkspaceId.Value);
+                }
+
+                if (response.SkippedInUse is not { Count: > 0 })
+                    _repoRegistry.Forget(repoPath!);
+            }
 
             var json = JsonSerializer.Serialize(response, CodeMapJsonOptions.Default);
             if (response.DryRun)
@@ -255,6 +299,22 @@ public sealed class IndexHandler
             _logger.LogError(ex, "index_remove_repo failed for {RepoPath}", repoPath);
             return Classified(ex, ToolNames.IndexRemoveRepo);
         }
+    }
+
+    /// <summary>
+    /// Destructive tools take no auto-default (PHASE-21-10): a missing <c>repo_path</c> is
+    /// <c>INVALID_ARGUMENT</c>, naming the repos this process knows.
+    /// </summary>
+    private (string? RepoPath, ToolCallResult? Error) RequireExplicitRepoPath(JsonObject? args, string tool)
+    {
+        var repoPath = (args?["repo_path"] as JsonValue)?.TryGetValue<string>(out var v) == true ? v : null;
+        if (!string.IsNullOrWhiteSpace(repoPath))
+            return (repoPath, null);
+
+        var known = _repoRegistry.KnownRepos;
+        var knownText = known.Count > 0 ? string.Join(", ", known) : "none";
+        return (null, Err(CodeMapError.InvalidArgument(
+            $"{tool} deletes data and needs an explicit repo_path (known repos: {knownText}).")));
     }
 
     internal async Task<ToolCallResult> HandleAsync(JsonObject? args, CancellationToken ct)
@@ -340,6 +400,10 @@ public sealed class IndexHandler
                 compilationResult.Stats.SymbolCount,
                 compilationResult.Stats.ReferenceCount,
                 compilationResult.Stats.ElapsedSeconds * 1000);
+
+            // PHASE-21-12: memory right after a build (the compiler's workspace is disposed, not yet collected).
+            _logger.LogInformation(MemorySnapshot.LogTemplate, MemorySnapshot.Capture().LogArgs("baseline_built"));
+            _activity?.MarkHeavyWork("baseline_built");
 
             // Step 4: Push to shared cache — fire-and-forget for errors. Never share a baseline this
             // machine degraded (unrestored checkout, generator load failure): another machine pulling

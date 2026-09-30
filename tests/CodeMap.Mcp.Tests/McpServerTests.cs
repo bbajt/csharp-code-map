@@ -157,6 +157,58 @@ public sealed class McpServerTests
         envelope["message"]!.GetValue<string>().Should().StartWith("test_throws failed");
     }
 
+    // ── PHASE-21-12 T02: activity for idle reclamation ──────────────────────
+
+    [Fact]
+    public async Task Dispatch_WrapsRequestInActivityMonitor()
+    {
+        var activity = new RecordingActivity();
+        var registry = new ToolRegistry();
+        registry.Register(new ToolDefinition(
+            "probe", "probe", new JsonObject { ["type"] = "object" },
+            (_, _) =>
+            {
+                activity.InFlightSeenByHandler = activity.RequestInFlight;
+                return Task.FromResult(new ToolCallResult("{}"));
+            }));
+        var server = new McpServer(registry, NullLogger<McpServer>.Instance, activity: activity);
+
+        await RunAsync(server, ToolCall(1, "probe"), ToolCall(2, "probe"));
+
+        activity.Begun.Should().Be(2, "one scope per dispatched request");
+        activity.InFlightSeenByHandler.Should().BeTrue("the handler runs inside the scope");
+        activity.RequestInFlight.Should().BeFalse("every scope is disposed after the response");
+    }
+
+    private sealed class RecordingActivity : IActivityMonitor
+    {
+        private int _inFlight;
+
+        public int Begun { get; private set; }
+
+        public bool InFlightSeenByHandler { get; set; }
+
+        public IDisposable BeginRequest()
+        {
+            Begun++;
+            _inFlight++;
+            return new Scope(() => _inFlight--);
+        }
+
+        public void MarkHeavyWork(string reason) { }
+
+        public DateTimeOffset LastActivityUtc => DateTimeOffset.UnixEpoch;
+
+        public DateTimeOffset? LastHeavyWorkUtc => null;
+
+        public bool RequestInFlight => _inFlight > 0;
+
+        private sealed class Scope(Action onDispose) : IDisposable
+        {
+            public void Dispose() => onDispose();
+        }
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static ToolRegistry AliasedRegistry()

@@ -450,6 +450,47 @@ public sealed class IndexHandlerTests : IDisposable
         Retryable(result).Should().BeFalse();
     }
 
+    // ── MEMORY_SNAPSHOT (PHASE-21-12 T01) ────────────────────────────────────
+
+    [Fact]
+    public async Task EnsureBaseline_NewIndex_LogsOneMemorySnapshotBaselineBuilt()
+    {
+        var logger = new CapturingLogger();
+        var handler = new IndexHandler(_git, _compiler, _store, _cache, new RepoRegistry(), logger);
+
+        await handler.HandleAsync(Args(RepoPath, _tempSolutionPath), CancellationToken.None);
+
+        logger.Messages.Where(m => m.StartsWith("MEMORY_SNAPSHOT", StringComparison.Ordinal))
+            .Should().ContainSingle().Which.Should().StartWith("MEMORY_SNAPSHOT baseline_built ws_mb=");
+    }
+
+    [Fact]
+    public async Task EnsureBaseline_ExistingIndex_LogsNoMemorySnapshot()
+    {
+        _store.BaselineExistsAsync(Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+        var logger = new CapturingLogger();
+        var handler = new IndexHandler(_git, _compiler, _store, _cache, new RepoRegistry(), logger);
+
+        await handler.HandleAsync(Args(RepoPath, _tempSolutionPath), CancellationToken.None);
+
+        logger.Messages.Should().NotContain(m => m.StartsWith("MEMORY_SNAPSHOT", StringComparison.Ordinal),
+            "nothing heavy happened: no build");
+    }
+
+    private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger<IndexHandler>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
+            TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
+    }
+
     private static string? Code(ToolCallResult r) => JsonNode.Parse(r.Content)?["code"]?.GetValue<string>();
 
     private static bool? Retryable(ToolCallResult r) => JsonNode.Parse(r.Content)?["retryable"]?.GetValue<bool>();

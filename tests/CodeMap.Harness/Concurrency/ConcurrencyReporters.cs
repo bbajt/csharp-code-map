@@ -46,7 +46,8 @@ public sealed class ConcurrencyConsoleReporter : IConcurrencyReporter
             $"setup failures {r.Setup.AgentsFailedSetup}"));
         Console.WriteLine(string.Create(Inv,
             $"  memory  peak {Mb(r.Memory.PeakTotalWorkingSetBytes)} · steady {Mb(r.Memory.SteadyTotalWorkingSetBytes)} · " +
-            $"post-idle {Mb(r.Memory.PostIdleTotalWorkingSetBytes)} (total WS across {r.Agents} process(es))"));
+            $"post-idle {Mb(r.Memory.PostIdleTotalWorkingSetBytes)} (total WS across {r.Agents} process(es)) · " +
+            $"private peak {Mb(r.Memory.PeakTotalPrivateBytes)} · post-idle {Mb(r.Memory.PostIdleTotalPrivateBytes)}"));
         Console.WriteLine(string.Create(Inv,
             $"  correctness  own-edit missing {r.Correctness.OwnEditMissing}/{r.Correctness.OwnEditChecks} · " +
             $"cross-talk {r.Correctness.CrossTalkViolations}/{r.Correctness.CrossTalkProbes} · " +

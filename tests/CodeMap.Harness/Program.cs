@@ -142,14 +142,10 @@ if (mode == "concurrency")
 }
 
 // ── Standard modes: v2 custom engine only ────────────────────────────────────
-var sp = BuildServiceProvider(baseDir);
+var sp = HarnessServices.Build(baseDir, Environment.GetEnvironmentVariable("CODEMAP_CACHE_DIR"));
 
 var engine = sp.GetRequiredService<IQueryEngine>();
-var indexer = new HarnessIndexer(
-    sp.GetRequiredService<IGitService>(),
-    sp.GetRequiredService<IRoslynCompiler>(),
-    sp.GetRequiredService<ISymbolStore>(),
-    sp.GetRequiredService<IBaselineCacheManager>());
+var indexer = HarnessServices.CreateIndexer(sp);
 
 switch (mode)
 {
@@ -194,50 +190,6 @@ switch (mode)
 
 return exitCode;
 
-// ── Helper: builds a complete DI container for the v2 custom engine ──────────
-static ServiceProvider BuildServiceProvider(string baseDir)
-{
-    var services = new ServiceCollection();
-    services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
-
-    services.AddSingleton<IGitService, GitService>();
-    services.AddSingleton<IRoslynCompiler, RoslynCompiler>();
-    services.AddSingleton<IResolutionWorker, ResolutionWorker>();
-
-    var storeDir = Path.Combine(baseDir, "store");
-    var customStore = new CustomSymbolStore(storeDir);
-    services.AddSingleton<ISymbolStore>(customStore);
-    services.AddSingleton<IOverlayStore>(new CustomEngineOverlayStore(customStore, storeDir));
-
-    var sharedCacheDir = Environment.GetEnvironmentVariable("CODEMAP_CACHE_DIR");
-    services.AddSingleton<IBaselineCacheManager>(
-        new EngineBaselineCacheManager(storeDir, sharedCacheDir));
-
-    services.AddSingleton<SymbolDiffer>();
-    services.AddSingleton<IncrementalCompiler>();
-    services.AddSingleton<IIncrementalCompiler>(sp => sp.GetRequiredService<IncrementalCompiler>());
-    services.AddSingleton<IMetadataResolver, MetadataResolver>();
-    services.AddSingleton<ICacheService, InMemoryCacheService>();
-    services.AddSingleton<ITokenSavingsTracker>(new TokenSavingsTracker(baseDir));
-    services.AddSingleton<WorkspaceManager>();
-    services.AddSingleton<ExcerptReader>();
-    services.AddSingleton<GraphTraverser>(sp =>
-        new GraphTraverser(sp.GetRequiredService<IMetadataResolver>()));
-    services.AddSingleton<FeatureTracer>();
-    services.AddSingleton<QueryEngine>();
-    services.AddSingleton<IQueryEngine>(sp =>
-        new MergedQueryEngine(
-            sp.GetRequiredService<QueryEngine>(),
-            sp.GetRequiredService<IOverlayStore>(),
-            sp.GetRequiredService<WorkspaceManager>(),
-            sp.GetRequiredService<ICacheService>(),
-            sp.GetRequiredService<ITokenSavingsTracker>(),
-            sp.GetRequiredService<ExcerptReader>(),
-            sp.GetRequiredService<GraphTraverser>(),
-            sp.GetRequiredService<ILogger<MergedQueryEngine>>()));
-
-    return services.BuildServiceProvider();
-}
 
 static string? GetArg(List<string> args, string name)
 {

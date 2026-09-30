@@ -25,12 +25,12 @@ Thin validation + routing layer:
 - Returns structured `ResponseEnvelope<T>` (see Section 2.5)
 - MCP transport: stdio (primary) — HTTP/SSE optional/future
 
-## 1.2 Backend Engine (CodeMap.Query → CodeMap.Storage → CodeMap.Roslyn)
+## 1.2 Backend Engine (CodeMap.Query → CodeMap.Storage.Engine → CodeMap.Roslyn)
 
 Core semantic engine. MCP Façade must NOT contain:
 - Indexing logic
 - Roslyn references
-- Direct SQLite access
+- Direct storage-engine access
 - Business rules beyond input validation
 
 ---
@@ -490,6 +490,41 @@ public record VirtualFile(
 
 The server registers 28 tools. The sections below document the core set, organized by milestone;
 `codemap_guide` returns the full list with one-line descriptions (`verbose: true`).
+
+### Destructive tools: `index_remove_repo`, `index_cleanup` (v2.10.0, PHASE-21-10)
+
+- **`repo_path` is required** on both. There is no auto-default: a missing `repo_path` returns
+  `INVALID_ARGUMENT` naming the repos this process knows. `dry_run` defaults to `true`.
+- **`index_cleanup`** never removes the current HEAD or the baseline of any workspace of any process.
+  - `workspace_create` writes `overlays/<ws>/overlay.meta.json` (`baseline_commit_sha`), so other
+    processes can see which baseline a workspace needs. Those baselines are listed in
+    `protected_by_workspaces`.
+  - A workspace directory without that file (created before v2.10.0) is listed in
+    `workspaces_without_baseline_record`.
+  - If such a workspace is live in another process, a non-dry-run cleanup returns `WORKSPACE_IN_USE`
+    and deletes nothing.
+  - A baseline-level overlay (`overlays/<commit sha>/`) is not a workspace: it is removed with its baseline.
+  - Response additions: `protected_by_workspaces`, `skipped_in_use`, `workspaces_without_baseline_record`,
+    `workspaces_in_use`.
+- **`index_remove_repo`** removes the repo's baselines **and workspace overlays**.
+  - If another CodeMap process has a workspace open in the repo (its `overlay.lock` is held), the call
+    returns `WORKSPACE_IN_USE` with `details.workspace_ids` and deletes nothing. A dry run lists those
+    workspaces in `workspaces_in_use`.
+  - This process's own workspaces are closed and deleted, and the sticky default is cleared.
+- **No partial deletes:**
+  - A baseline is removed only when none of its files is open elsewhere. It is renamed aside in one
+    step, then deleted.
+  - A baseline in use stays complete and is listed in `skipped_in_use`. It isn't counted in
+    `baselines_removed` / `bytes_freed` / `removed_commits`.
+- **`index_remove_repo` response additions** (optional, omitted when empty): `workspaces_removed`,
+  `skipped_in_use`, `workspaces_in_use`.
+
+### Parameter types sent as strings (v2.10.0 for booleans)
+
+Some MCP clients send every parameter as a JSON string. Integer parameters (`limit`, `depth`, …) accept
+`8000` and `"8000"`; since v2.10.0 boolean parameters (`include_code`, `include_facts`, `verbose`,
+`dry_run`, `follow_interface`) accept `true` and `"true"` (any case). Any other value gives the parameter's
+default; for `dry_run` that is `true`, so a malformed value never deletes anything.
 
 ### Tool names and aliases (v2.9.0, ADR-051 / ADR-056)
 

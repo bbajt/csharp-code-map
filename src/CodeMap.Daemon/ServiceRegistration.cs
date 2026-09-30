@@ -29,8 +29,8 @@ public static class ServiceRegistration
     /// to the user's home directory at runtime.
     /// </param>
     /// <param name="sharedCacheDir">
-    /// Absolute shared baseline cache directory (<c>CODEMAP_CACHE_DIR</c>, resolved by
-    /// <see cref="CodeMapHome.ResolveCacheDir"/>), or <c>null</c> to disable the shared cache.
+    /// Absolute shared baseline cache directory (<c>CODEMAP_CACHE_DIR</c>, else <c>config.json</c> <c>shared_cache_dir</c>; resolved by
+    /// <see cref="CodeMapHome.ResolveCacheDir(string?, string?, string)"/>), or <c>null</c> to disable the shared cache.
     /// </param>
     /// <remarks>
     /// Registration order is significant:
@@ -76,13 +76,17 @@ public static class ServiceRegistration
 
         // ── Shared baseline cache ─────────────────────────────────────────────
         // Shared cache directory, already resolved by CodeMapHome.ResolveCacheDir (null = disabled;
-        // blank = disabled, relative = startup error, F11 / ADR-047).
+        // env var wins, then config.json; blank = disabled, relative = startup error, F11 / ADR-047 / ADR-059).
         services.AddSingleton<IBaselineCacheManager>(sp =>
             new EngineBaselineCacheManager(storeDir, sharedCacheDir,
                 sp.GetRequiredService<ILogger<EngineBaselineCacheManager>>()));
 
         // ── Incremental compiler ──────────────────────────────────────────────
         services.AddSingleton<SymbolDiffer>();
+        // Idle memory reclamation (PHASE-21-12, ADR-061): request activity + heavy-work signals, and the
+        // reclaimer Program starts after the host is built.
+        services.AddSingleton<IActivityMonitor, ActivityMonitor>();
+        services.AddSingleton<IdleMemoryReclaimer>();
         services.AddSingleton<IncrementalCompiler>();
         services.AddSingleton<IIncrementalCompiler>(sp => sp.GetRequiredService<IncrementalCompiler>());
 
@@ -123,7 +127,8 @@ public static class ServiceRegistration
         services.AddSingleton<IRepoRegistry, RepoRegistry>();
         services.AddSingleton<IWorkspaceStickyRegistry, WorkspaceStickyRegistry>();
         services.AddSingleton<RepoStatusHandler>();
-        services.AddSingleton<IBaselineScanner>(new EngineBaselineScanner(storeDir));
+        // The scanner closes this process's readers/overlays for a repo before deleting it (PHASE-21-10).
+        services.AddSingleton<IBaselineScanner>(new EngineBaselineScanner(storeDir, customStore));
         services.AddSingleton<IndexHandler>(sp => new IndexHandler(
             sp.GetRequiredService<IGitService>(),
             sp.GetRequiredService<IRoslynCompiler>(),
@@ -132,7 +137,9 @@ public static class ServiceRegistration
             sp.GetRequiredService<IRepoRegistry>(),
             sp.GetRequiredService<ILogger<IndexHandler>>(),
             sp.GetRequiredService<IBaselineScanner>(),
-            sp.GetRequiredService<WorkspaceManager>()));
+            sp.GetRequiredService<WorkspaceManager>(),
+            sp.GetRequiredService<IWorkspaceStickyRegistry>(),
+            sp.GetRequiredService<IActivityMonitor>()));
         services.AddSingleton<McpToolHandlers>();
         services.AddSingleton<WorkspaceHandler>();
         services.AddSingleton<OverlayRefreshHandler>();

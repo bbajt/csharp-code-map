@@ -81,6 +81,30 @@ public sealed class DiffHandlerTests
             Arg.Any<CancellationToken>());
     }
 
+    /// <summary>PHASE-21-13 T02: a stringified boolean is honoured, not an INTERNAL_ERROR.</summary>
+    [Fact]
+    public async Task HandleAsync_IncludeFactsStringFalse_PassedToEngine()
+    {
+        var args = new JsonObject
+        {
+            ["repo_path"]     = RepoPath,
+            ["from_commit"]   = ShaAStr,
+            ["to_commit"]     = ShaBStr,
+            ["include_facts"] = "false",
+        };
+
+        var result = await _handler.HandleAsync(args, CancellationToken.None);
+
+        result.IsError.Should().BeFalse();
+        await _engine.Received(1).DiffAsync(
+            Arg.Any<RoutingContext>(),
+            Arg.Any<CommitSha>(),
+            Arg.Any<CommitSha>(),
+            Arg.Any<IReadOnlyList<SymbolKind>?>(),
+            Arg.Is(false),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task HandleAsync_HeadResolved_ViaGetCurrentCommitAsync()
     {

@@ -136,6 +136,18 @@ public sealed class GuideHandlerTests
         toolsProp.GetArrayLength().Should().Be(28);
     }
 
+    /// <summary>PHASE-21-13 T02: a stringified boolean is honoured, not an INTERNAL_ERROR.</summary>
+    [Fact]
+    public async Task Handle_VerboseStringTrue_ContainsToolsList()
+    {
+        var result = await _handler.HandleGetGuideAsync(
+            new JsonObject { ["verbose"] = "true" },
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse();
+        JsonDocument.Parse(result.Content).RootElement.TryGetProperty("tools", out _).Should().BeTrue();
+    }
+
     [Fact]
     public async Task Handle_VerboseTrue_ToolsContainCodeMapGuide()
     {

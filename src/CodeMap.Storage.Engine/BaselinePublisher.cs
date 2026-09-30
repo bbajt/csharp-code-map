@@ -24,6 +24,12 @@ internal static class BaselinePublisher
     /// <summary>Prefix of directories moved aside by <see cref="Publish"/> under the quarantine root.</summary>
     internal const string QuarantinePrefix = "quarantine-";
 
+    /// <summary>
+    /// Prefix of baselines moved aside by <c>index_remove_repo</c> / <c>index_cleanup</c> before deletion
+    /// (PHASE-21-10). A leftover means its delete failed; <see cref="SweepQuarantine"/> retries it.
+    /// </summary>
+    internal const string RemovedPrefix = "removed-";
+
     /// <summary>Every file a complete baseline contains — single source of truth for completeness.</summary>
     internal static readonly IReadOnlyList<string> RequiredFiles =
     [
@@ -135,8 +141,58 @@ internal static class BaselinePublisher
     internal static void SweepQuarantine(string quarantineRoot)
     {
         if (!Directory.Exists(quarantineRoot)) return;
-        foreach (var dir in Directory.EnumerateDirectories(quarantineRoot, QuarantinePrefix + "*"))
+        foreach (var dir in Directory.EnumerateDirectories(quarantineRoot, QuarantinePrefix + "*")
+                     .Concat(Directory.EnumerateDirectories(quarantineRoot, RemovedPrefix + "*")))
             DeleteBestEffort(dir);
+    }
+
+    /// <summary>
+    /// Removes a baseline directory without ever leaving it half-deleted (PHASE-21-10). The directory is
+    /// first renamed into <paramref name="quarantineRoot"/> in one step. If any segment is still open
+    /// elsewhere the rename fails, and the baseline stays complete where it was. Only the moved-aside
+    /// copy is then deleted, best effort; leftovers go with the next <see cref="SweepQuarantine"/>.
+    /// </summary>
+    /// <returns>True when the baseline was moved out of place (it is gone from its original path).</returns>
+    internal static bool TryRemove(string baselineDir, string quarantineRoot)
+    {
+        if (!Directory.Exists(baselineDir)) return true;
+        if (AnySegmentOpen(baselineDir)) return false;
+
+        var target = Path.Combine(quarantineRoot,
+            $"{RemovedPrefix}{Path.GetFileName(baselineDir)}-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..8]}");
+        try
+        {
+            Directory.CreateDirectory(quarantineRoot);
+            Directory.Move(baselineDir, target);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        DeleteBestEffort(target);
+        return true;
+    }
+
+    /// <summary>
+    /// True when a file in <paramref name="baselineDir"/> can't be opened exclusively — another process
+    /// has it open (a mapped segment). Checked before the rename because an open file doesn't always
+    /// stop a directory rename.
+    /// </summary>
+    private static bool AnySegmentOpen(string baselineDir)
+    {
+        foreach (var file in Directory.EnumerateFiles(baselineDir))
+        {
+            try
+            {
+                using var probe = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void DeleteBestEffort(string dir)

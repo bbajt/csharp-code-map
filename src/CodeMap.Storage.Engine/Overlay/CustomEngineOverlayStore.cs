@@ -35,6 +35,10 @@ public sealed class CustomEngineOverlayStore : IOverlayStore
 
         var (reader, _) = _symbolStore.GetOrOpenBaseline(repoId.Value, baselineCommitSha.Value);
         _symbolStore.GetOrCreateOverlay(repoId.Value, workspaceId.Value, reader);
+
+        // Other processes can't see this process's workspace registry; the marker tells their
+        // index_cleanup which baseline this workspace needs (PHASE-21-10).
+        OverlayMarker.Write(_symbolStore.OverlayDirectory(repoId.Value, workspaceId.Value), baselineCommitSha.Value);
         return Task.CompletedTask;
     }
 

@@ -5,7 +5,7 @@ using System.Diagnostics.Metrics;
 
 /// <summary>
 /// Shared ActivitySource and Meter for the CodeMap storage layer.
-/// Both the SQLite engine and the custom engine instrument through this class.
+/// The v2 storage engine instruments through this class.
 /// All instruments are pre-created at startup; no allocations on the hot path.
 /// </summary>
 public static class StorageTelemetry

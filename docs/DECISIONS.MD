@@ -1866,3 +1866,268 @@ occurrences across Core, Query, Mcp, Roslyn and Storage.Engine.
   reports, which record dotted names.
 - Removing the aliases (v2.11.0 or later) means deleting `LegacyAliases`, the `RegisterAlias` loop and
   the note, plus flipping the alias tests.
+
+## ADR-057: Destructive Tools Are Scoped, Workspace-Aware and Never Delete Partially (PHASE-21-10)
+
+**Date:** 2026-09-29
+**Status:** Accepted (spec approved by the user, PHASE-21-10; T01 `index_remove_repo`, T02 `index_cleanup`)
+
+**Context:**
+Phase 0 made several agents on one store the normal case (one process per agent, T1). The two deleting
+tools didn't account for it [verified by failing tests on Windows and with two real daemons]:
+- **`index_remove_repo`** deleted `store/<repo>/` recursively, overlays included, and didn't report them.
+  It swallowed IO errors and still reported every baseline as removed.
+- **Mapped files:** on Windows a file mapped by this process (the store's reader cache) or by another
+  daemon can't be deleted. The recursive delete removed the rest and left a gutted baseline, which then
+  fails with "incomplete (missing segments)".
+- **Two-daemon case:** agent A's `index_cleanup` deleted `manifest.json` and other files of the baseline
+  under agent B's workspace, and reported that baseline as kept.
+- **`index_cleanup`** protected only this process's in-memory workspaces.
+- **Scope:** both tools accepted a missing `repo_path` (v2.4.0 auto-default).
+
+**Decision:**
+- **Explicit scope:** `repo_path` is required on both tools; `INVALID_ARGUMENT` names the known repos.
+- **Workspace marker:** `workspace_create` writes `overlays/<ws>/overlay.meta.json`
+  (`baseline_commit_sha`, `created_utc`; temp + rename). `index_cleanup` protects the baselines named
+  by every marker, from any process, live or idle, since an idle overlay is reopened when its workspace is
+  created again.
+  - **Overlays without a marker (pre-v2.10):** listed. If one is live elsewhere, a non-dry-run cleanup
+    deletes nothing (`WORKSPACE_IN_USE`).
+  - **Directories named by a commit SHA** are baseline-level overlays, not workspaces. They are removed
+    with their baseline.
+- **Liveness** is the ADR-044 writer lock: `overlay.lock` held (probe with `FileShare.None`) means a
+  process has the workspace open. `index_remove_repo` refuses (`WORKSPACE_IN_USE`, nothing deleted)
+  while any overlay of the repo is held elsewhere. It first releases this process's readers and overlays
+  (`IBaselineReaderRelease`), deletes its own workspaces through `WorkspaceManager` and clears the sticky
+  default.
+- **No partial deletes (`BaselinePublisher.TryRemove`):**
+  1. Probe every file of the baseline with `FileShare.None` (an exclusive `flock` on Unix).
+  2. Rename the directory into `store/<repo>/temp/removed-<sha>-…` in one step.
+  3. Delete that copy; leftovers are swept with the quarantine.
+  A baseline in use stays complete and is reported in `skipped_in_use`; counts include only what was
+  removed.
+  - [verified] The probe is required on Linux: a rename succeeds there while another process maps a
+    file inside. On Windows the rename itself fails.
+
+**Consequences:**
+- Scripts relying on the `repo_path` auto-default for these two tools must pass it (CHANGELOG "Changed").
+- **Idle workspaces keep their baseline protected** until `workspace_delete`. The agent guide now says to
+  delete workspaces at session end.
+- **Baselines used in committed mode by another worktree are not protected** (KNOWN-LIMITATIONS L-13).
+  Cross-process "recently used" tracking or the ADR-053 identity work may close this gap.
+- A baseline-level overlay held by another process also blocks `index_remove_repo` and is reported under
+  its SHA. That is conservative, and rare.
+
+## ADR-058: One Version Source; CI Mirrors the Local Test Run; No Release Workflow (PHASE-21-11 T01)
+
+**Date:** 2026-09-29
+**Status:** Accepted (spec approved by the user, PHASE-21-11 T01)
+
+**Context:**
+- **Stale release metadata.** `server.json` said 1.3.2 while the package was 2.9.0. The NuGet description
+  said "26 tools" (there are 28) and offered a SQLite fallback that was removed in v2.1.0.
+- **Stale CI.** `ci.yml` installed .NET 9 for a .NET 10 solution and ran a solution-wide `dotnet test`,
+  which can run out of memory.
+- **Unwanted auto-publish.** `release.yml` would publish on any tag pushed to the mirror, but releases are
+  made by hand with `nuget-push.ps1`.
+
+**Decision:**
+- **Version source:** the csproj `<Version>` is the only source. `server.json` and the description are
+  edited by hand in the release commit, and `ReleaseMetadataTests` (Daemon.Tests) fails if they disagree
+  with it or with `ToolNames.All`.
+- **CI:**
+  - It uses the SDK from `global.json`, restores the 4 `testdata` solutions and builds with
+    `-warnaserror`.
+  - Each test project runs on its own through `dotnet run`, with `CODEMAP_HOME` in the runner's temp dir.
+- **Deviation from the frozen T01 contract:** CI runs every test project **without a trait filter**. The
+  spec said "unit filter for the fast projects; Integration without Concurrency". Reasons:
+  - `Benchmark` tests exist only in `CodeMap.Benchmarks`, which CI doesn't run.
+  - The Integration-tagged tests in Roslyn/Daemon need only the restored fixtures, which CI provides.
+  - The Concurrency tests passed in the proxy run and match the Linux test container's `integration`
+    suite.
+  - Filtering would leave those tests unrun anywhere in CI.
+- **Release workflow:** `release.yml` is deleted. The manual steps are in the DEVELOPER-GUIDE
+  "Release Checklist".
+
+**Consequences:**
+- A version bump that forgets `server.json`, or a tool added without updating the description, fails the
+  Daemon tests.
+- CI takes longer (Roslyn + Integration, including Concurrency). The job has a 60-minute timeout.
+- **Not verified:** a real GitHub Actions run. It was checked with a stand-in run of the same commands, in
+  order, inside the Linux test container on a git copy of the tree.
+
+## ADR-059: `config.json` Is Honest — Read What It Documents, Warn About the Rest (PHASE-21-11 T02)
+
+**Date:** 2026-09-29
+**Status:** Accepted (spec approved by the user, PHASE-21-11 T02)
+
+**Context:**
+- `CodeMapConfig` had three keys, and only `log_level` did anything [verified: file reads, and failing
+  tests before the fix].
+- `shared_cache_dir` was parsed and never read. The docs said "not read (known gap)".
+- `budget_overrides` was parsed and never used. `BudgetLimits.HardCaps` is a constant, and wiring it
+  through the query layer is not small.
+- Unknown keys and typos were ignored silently, so a user couldn't tell a working key from a dead one.
+- Findings §9 Phase 1 planned an OS-conventional config path (APPDATA / XDG). The user dropped it at
+  scoping: the file had one working key, and `CODEMAP_HOME` (ADR-039) already relocates the data root.
+
+**Decision:**
+- **Two keys:** `CodeMapConfig(LogLevel, SharedCacheDir)`.
+- **Cache precedence:** `CODEMAP_CACHE_DIR` > `config.json` `shared_cache_dir` > disabled
+  (`CodeMapHome.ResolveCacheDir(env, config, profile)`).
+  - The env var wins whenever it is set. A set-but-blank value disables the cache even if the config
+    names one, so a client config can always switch the cache off.
+  - The config value follows the ADR-047 rules: blank → disabled; `~/…` or absolute → used; relative →
+    exit 2, with a stderr message that names `config.json` and `shared_cache_dir`.
+- **`budget_overrides` removed**, not implemented. Configurable caps come back only on demand
+  (PHASE-21-11 §6).
+- **Unknown keys:** `Program.LoadConfig` returns the top-level keys it doesn't know (case-insensitive,
+  in file order). After the host is built, startup logs one warning, category `CodeMap.Daemon.Config`:
+  `config.json: ignoring unknown key(s) …`.
+- **Startup order:** `CODEMAP_HOME` → `config.json` → cache dir → host → warning.
+- **Docs:** SQLite / FTS5 / `CODEMAP_ENGINE` appear only as history in SYSTEM-ARCHITECTURE,
+  DEVELOPER-GUIDE, README, API-SCHEMA, CLAUDE.MD and the affected doc comments.
+
+**Consequences:**
+- A `config.json` with a relative `shared_cache_dir`, which used to be ignored, now stops startup with
+  exit 2 (CHANGELOG "Changed").
+- A `config.json` with an absolute `shared_cache_dir` now enables the cache, and `index_ensure_baseline`
+  pushes baselines there.
+- Scripts that disable the cache by unsetting `CODEMAP_CACHE_DIR` must also use a data root whose
+  `config.json` names no cache. The tests and benchmarks already use a temp `CODEMAP_HOME`.
+- `set X=` (cmd) and `$env:X = ''` (PowerShell) remove a variable rather than blank it. On Windows, the
+  way to turn off a cache named in `config.json` is to edit the file.
+- A warning at `log_level` `Error` is not written. That is accepted: the level is the user's choice.
+
+## ADR-060: The Golden Check Fails on a Missing Golden File for a Query That Returns a Result (PHASE-21-12 T01)
+
+**Date:** 2026-09-29
+**Status:** Accepted (deviation from the frozen PHASE-21-12 T01 contract, recorded here)
+
+**Context:**
+- PHASE-21-09 renamed the harness query names (`symbols.search:…` → `symbols_search:…`), and the golden
+  files kept their old names. Since then `golden check` compared 1 of 19 queries per sample and still
+  passed, because a missing golden file was a skip [verified: check output on `e804389`].
+- The T01 contract says "a query with no golden file is a failure". But `golden save` writes a file only
+  for a query that returns a result. On SampleVbSolution 5 queries return none (`symbols_get_card`,
+  `graph_callees`, `graph_trace_feature` and `types_hierarchy` have no hits on the VB anchors, plus the diff
+  suite, which has no second baseline); SampleSolution and SampleBlazorSolution have one each (the diff suite). Under the
+  literal rule those would fail forever, and people would learn to ignore the failure.
+
+**Decision:**
+- In `GoldenRunner.CheckWithOutcomeAsync`, each query is executed first.
+  - **No golden file, and the query returned a result** → failure, listed as "returned a result but has
+    no golden file" with the expected file name.
+  - **No golden file, and no result** → skipped, as `golden save` would.
+- `GoldenCheckOutcome` returns passed / failed / missing / skipped per query. `CheckAsync` keeps
+  returning an exit code for the CLI.
+- `GoldenRunnerTests` (Integration) runs the check on the three committed samples, so CI runs it.
+- **A diff is resolved in one of two ways:**
+  - **Refresh the golden, with a reason.** Only files whose compared fields changed are refreshed.
+    Files that change only in fields the comparator ignores (`total_files`, `stable_id`) are left
+    unchanged, so a refresh doesn't hide unrelated churn.
+  - **A regression:** the golden stays as it is, and the test row is skipped with the reason and the
+    tracking reference.
+- Applied to the Blazor `reference_count` (golden 10, actual 1), which is a real regression from v2.5.2.
+  It is left to a follow-up task, per decision D2 (KNOWN-LIMITATIONS L-14).
+
+**Consequences:**
+- Renaming or adding a query without a golden file fails CI; `golden save` adds the file.
+- A query that stops returning a result becomes a silent skip. That was already the case; the comparator
+  has always had this blind spot. Accepted.
+
+## ADR-061: Idle Memory Is Returned — One Compacting GC After Heavy Work, Solution Eviction After 10 Minutes (PHASE-21-12 T02)
+
+**Date:** 2026-09-29
+**Status:** Accepted (spec approved by the user; target approved after T01's series)
+
+**Context:**
+- PHASE-21-12 T01 measured one daemon per repo after a 150 s idle: private bytes of 723 MB (Bitwarden)
+  and 2,922 MB (nopCommerce). Nothing in CodeMap asked the GC to compact or return memory after a
+  baseline build.
+- `IncrementalCompiler` kept its `MSBuildWorkspace` + `Solution` for the life of the process.
+- MGs (findings §4.2.7) reclaimed 84 % of the working set with one LOH-compacting blocking GC after a
+  quiet period, plus idle eviction of cached Solutions.
+
+**Decision:**
+- **Signals:** `IActivityMonitor` (Core; `ActivityMonitor` in the Daemon).
+  - `McpServer` wraps every dispatched request, including sending its response, in `BeginRequest`.
+  - `IndexHandler` (`baseline_built`), `IncrementalCompiler` (`solution_opened`) and the eviction itself
+    call `MarkHeavyWork`.
+- **`IdleMemoryReclaimer`** (Daemon), started by `Program` after the host is built. On a `TimeProvider`
+  timer every 15 s, never while a request is in flight:
+  1. **Eviction:** `IncrementalCompiler.EvictIfIdle(10 min)` drops the cached workspace and solution when
+     no overlay refresh has come for 10 minutes (decision D1). It never waits for the compile lock.
+  2. **Compacting GC:** runs when heavy work is newer than the last reclaim's start, no request has come
+     for 120 s, and the GC heap is at least 256 MB. It runs
+     `GCSettings.LargeObjectHeapCompactionMode = CompactOnce;
+     GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true)`, logged as
+     `MEMORY_SNAPSHOT reclaim_before` / `reclaim_after` with its duration.
+     - At most once per heavy-work episode.
+     - `Aggressive` also decommits free memory, so private bytes fall, not just the heap.
+- **No knobs** (decision D3): the constants live in `IdleMemoryReclaimer.Defaults`.
+- **Failure handling:** a failing tick is logged and retried on the next tick. Overlapping ticks are
+  skipped.
+
+**Consequences:**
+- After a baseline build or a first overlay refresh, an idle daemon returns most of the build's memory
+  within about 2.5 minutes (numbers: PHASE-21-12 T02 report).
+- The first overlay refresh after 10 idle minutes is a cold open: seconds on small solutions, up to a
+  minute on large ones. `solution_evicted` is logged.
+- A request arriving during the blocking GC waits for it. Measured: 137–231 ms (eShopOnWeb, Bitwarden)
+  and **~1.5 s on nopCommerce** (a 2.8 GB heap, 1.8 GB of it fragmented). Accepted: it only happens after
+  120 s of silence, once per heavy-work episode.
+- Measured (PHASE-21-12 T02, post-idle private bytes): nopCommerce 2,922 → 1,116 MB after 150 s and 204 MB
+  after 13 min; Bitwarden 723 → 342 / 352 MB.
+- One process's idle cost falls. The N-fold multiplication across processes (F1) stays until the shared
+  host (ADR-048).
+
+---
+
+## ADR-062: Razor Generator Trees Are Not Skipped by Reference Extraction (PHASE-21-13 T01)
+
+**Date:** 2026-09-30
+**Status:** Accepted (spec approved by the user; the scaffolding rule approved during T01). Amends M20-02 T2a
+(`ReferenceExtractor.IsGeneratedFile`, v2.5.2).
+
+**Context:**
+- M20-02 T2a made `ReferenceExtractor` skip generated syntax trees: `*.g.cs`, `*.Designer.cs`, any path
+  under `obj/`, and files with an `<auto-generated>` leading comment. The aim was speed and no noise edges.
+- The Razor source generator emits each `.razor` component as `…/RazorSourceGenerator/…/<Name>_razor.g.cs`
+  and each MVC view or Razor Page as `<Name>_cshtml.g.cs`, under `obj/` with an `<auto-generated/>` marker.
+  That tree is the component's own code (markup and `@code`). All three rules matched it, so every
+  reference written in a `.razor` or `.cshtml` file was dropped (KNOWN-LIMITATIONS L-14).
+  `testdata/SampleBlazorSolution` had 1 reference instead of 10.
+- Symbols and facts were not affected. Component symbols are stored under the generated file path with
+  generated line numbers.
+
+**Decision:**
+- `IsGeneratedFile` returns false when the file name ends with `_razor.g.cs` or `_cshtml.g.cs`
+  (case-insensitive), checked **before** the other rules. Every other rule is unchanged.
+- References from those trees keep the generated file path and lines, the same as the component's
+  symbols (decision D1). Mapping symbols and references to the `.razor`/`.cshtml` file is a follow-up.
+- Views (`_cshtml.g.cs`) are included (decision D2).
+- **Scaffolding is not a reference target** (`ReferenceExtractor.IsRazorScaffolding`, added during T01 after
+  measuring nopCommerce). A reference is dropped when its target is a member (not a type) whose every
+  source declaration lies in a Razor generator tree at a line `#line` does not map to a `.razor`/`.cshtml`
+  file: `__tagHelperExecutionContext`, `__tagHelperAttribute_N`, tag-helper instance fields.
+  - Members written in `@code`, `@functions` or `@inject` are mapped and stay.
+  - Types stay: a component class is declared at a hidden line but `new Counter()` is a real use.
+  - `PHASE_TIMING_REFS_INNER` logs the drop count as `scaffolding_skipped`.
+  - Without it, 44,513 of the ~92,000 new references on nopCommerce's `Nop.Web` pointed at those
+    fields: not symbols in the index, written by no one.
+
+**Consequences:**
+- The sample has its 10 references again, and the Blazor golden row runs. `graph_callers` on a service
+  method called from a component returns the component's `BuildRenderTree` (the generated method that
+  holds the markup) or its `@code` member.
+- `BuildRenderTree` is filtered from the symbol table (M19), so a caller can be a symbol with no card.
+  References have no FK to symbols, and the query engine already handles a missing symbol.
+- Framework calls in the generated scaffolding (`__builder.*`, `TypeCheck<T>`) add no edges: their
+  targets are not source symbols. The generator's own fields add none either (the scaffolding rule).
+- Some kept edges come from hidden lines: `asp-for="Name"` becomes a lambda `__model => __model.Name` at an
+  unmapped line. The target is the model property the view really uses, so these stay.
+- Indexing time on repos with many views grows by the reference pass over those trees; the before/after
+  timing on Bitwarden and nopCommerce is in the PHASE-21-13 T01 report.
+- There is no `.cshtml` sample in testdata; views are covered by a unit test on `IsGeneratedFile` only.
+- No format change and no re-index: an existing baseline gets the references on its next build.

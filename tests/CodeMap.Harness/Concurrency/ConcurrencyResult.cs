@@ -107,14 +107,19 @@ public sealed record ToolStats(
     }
 }
 
-/// <summary>Memory totals across all daemon processes of a run.</summary>
+/// <summary>
+/// Memory totals across all daemon processes of a run. <see cref="PostIdleTotalPrivateBytes"/> (PHASE-21-12):
+/// private bytes after the idle period, the idle cost without file-backed mapped segments; 0 in reports
+/// written before it existed.
+/// </summary>
 public sealed record MemoryStats(
     long PeakTotalWorkingSetBytes,
     long SteadyTotalWorkingSetBytes,
     long PostIdleTotalWorkingSetBytes,
     long PeakTotalPrivateBytes,
     IReadOnlyList<long> PerProcessPeakWorkingSetBytes,
-    int SampleCount);
+    int SampleCount,
+    long PostIdleTotalPrivateBytes = 0);
 
 /// <summary>
 /// Setup-phase figures. <see cref="BaselineBuilds"/> counts <c>ensure_baseline</c> responses

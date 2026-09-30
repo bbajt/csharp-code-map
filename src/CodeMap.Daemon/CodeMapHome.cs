@@ -56,19 +56,56 @@ public static class CodeMapHome
     /// <summary>Environment variable that enables the shared baseline cache.</summary>
     public const string CacheEnvVar = "CODEMAP_CACHE_DIR";
 
+    /// <summary>The <c>config.json</c> key that names the shared cache when <see cref="CacheEnvVar"/> is unset.</summary>
+    public const string CacheConfigKey = "shared_cache_dir";
+
     /// <summary>
-    /// Resolves the shared baseline cache directory (F11, ADR-047). Pure, like <see cref="Resolve"/>.
-    /// Unset/blank → <c>null</c> (cache disabled); <c>~</c>, <c>~/x</c>, <c>~\x</c> → expanded against
-    /// the profile; fully qualified → normalised full path; relative → <see cref="ErrorCodes.InvalidArgument"/>.
-    /// A blank or relative value used to be taken as-is and resolved against the daemon's working
-    /// directory, usually the user's repo root, so baselines were written into the working tree.
+    /// Resolves the shared baseline cache directory from <c>CODEMAP_CACHE_DIR</c> alone (F11, ADR-047).
+    /// Pure, like <see cref="Resolve"/>. Unset/blank → <c>null</c> (cache disabled); <c>~</c>, <c>~/x</c>,
+    /// <c>~\x</c> → expanded against the profile; fully qualified → normalised full path; relative →
+    /// <see cref="ErrorCodes.InvalidArgument"/>. A blank or relative value used to be taken as-is and
+    /// resolved against the daemon's working directory, usually the user's repo root, so baselines were
+    /// written into the working tree.
     /// </summary>
-    public static Result<string?, CodeMapError> ResolveCacheDir(string? envValue, string userProfile)
+    public static Result<string?, CodeMapError> ResolveCacheDir(string? envValue, string userProfile) =>
+        ResolveCacheValue(envValue, userProfile,
+            $"{CacheEnvVar} must be an absolute path or start with '~/' (or be unset to disable the shared cache); got '{envValue}'.");
+
+    /// <summary>
+    /// Resolves the shared baseline cache directory (ADR-047, ADR-059). <c>CODEMAP_CACHE_DIR</c> wins
+    /// whenever it is set, and a set-but-blank value disables the cache. When it is unset (<c>null</c>),
+    /// <c>config.json</c>'s <c>shared_cache_dir</c> is used with the same rules: blank/null → disabled;
+    /// absolute or <c>~/…</c> accepted; relative → <see cref="ErrorCodes.InvalidArgument"/> naming
+    /// <c>config.json</c> (exit 2 at startup).
+    /// </summary>
+    public static Result<string?, CodeMapError> ResolveCacheDir(string? envValue, string? configValue, string userProfile) =>
+        envValue is not null
+            ? ResolveCacheDir(envValue, userProfile)
+            : ResolveCacheValue(configValue, userProfile,
+                $"config.json: {CacheConfigKey} must be an absolute path or start with '~/' (or be removed to disable the shared cache); got '{configValue}'.");
+
+    /// <summary>
+    /// Resolves the shared cache directory from the process environment (<c>CODEMAP_CACHE_DIR</c>), falling
+    /// back to <paramref name="configValue"/> (<c>config.json</c>'s <c>shared_cache_dir</c>).
+    /// See <see cref="ResolveCacheDir(string?, string?, string)"/> for the rules.
+    /// </summary>
+    public static Result<string?, CodeMapError> ResolveCacheDirFromEnvironment(string? configValue) =>
+        ResolveCacheDir(
+            Environment.GetEnvironmentVariable(CacheEnvVar),
+            configValue,
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+    /// <summary>
+    /// Shared path rule for both cache sources: blank → <c>null</c>; <c>~</c> / <c>~/x</c> / <c>~\x</c> →
+    /// expanded against <paramref name="userProfile"/>; fully qualified → normalised; relative → failure
+    /// with <paramref name="relativeMessage"/>.
+    /// </summary>
+    private static Result<string?, CodeMapError> ResolveCacheValue(string? raw, string userProfile, string relativeMessage)
     {
-        if (string.IsNullOrWhiteSpace(envValue))
+        if (string.IsNullOrWhiteSpace(raw))
             return (string?)null;
 
-        var value = envValue.Trim();
+        var value = raw.Trim();
 
         if (value == "~")
             return Path.GetFullPath(userProfile);
@@ -77,18 +114,8 @@ public static class CodeMapHome
             value = Path.Combine(userProfile, value[2..]);
 
         if (!Path.IsPathFullyQualified(value))
-            return Result<string?, CodeMapError>.Failure(CodeMapError.InvalidArgument(
-                $"{CacheEnvVar} must be an absolute path or start with '~/' (or be unset to disable the shared cache); got '{envValue}'."));
+            return Result<string?, CodeMapError>.Failure(CodeMapError.InvalidArgument(relativeMessage));
 
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(value));
     }
-
-    /// <summary>
-    /// Resolves the shared cache directory from the process environment (<c>CODEMAP_CACHE_DIR</c>).
-    /// See <see cref="ResolveCacheDir"/> for the rules.
-    /// </summary>
-    public static Result<string?, CodeMapError> ResolveCacheDirFromEnvironment() =>
-        ResolveCacheDir(
-            Environment.GetEnvironmentVariable(CacheEnvVar),
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
 }

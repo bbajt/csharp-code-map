@@ -87,6 +87,22 @@ public sealed class CardHandlerIncludeCodeTests
         json["data"]!.AsObject().TryGetPropertyValue("source_code", out _).Should().BeFalse();
     }
 
+    /// <summary>PHASE-21-13 T02: a stringified boolean is honoured, not an INTERNAL_ERROR.</summary>
+    [Fact]
+    public async Task GetCard_IncludeCodeStringFalse_NoSourceCode()
+    {
+        SetupCardAndSpan(spanStart: 10, spanEnd: 20, code: "irrelevant");
+
+        var result = await _handler.HandleGetCardAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["symbol_id"] = SymbolIdStr, ["include_code"] = "false" },
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse();
+        await _queryEngine.DidNotReceive().GetDefinitionSpanAsync(
+            Arg.Any<RoutingContext>(), Arg.Any<SymbolId>(),
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task GetCard_NoSpanInfo_NoSourceCodeEvenWhenIncludeCodeTrue()
     {

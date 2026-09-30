@@ -29,11 +29,56 @@ public class IncrementalCompiler : IIncrementalCompiler
     private MSBuildWorkspace? _cachedWorkspace;
     private Solution? _cachedSolution;
     private string? _cachedSolutionPath;
+    private DateTimeOffset _lastUsedUtc;
+    private readonly IActivityMonitor? _activity;
 
-    public IncrementalCompiler(SymbolDiffer differ, ILogger<IncrementalCompiler> logger)
+    /// <summary>
+    /// Creates the compiler. <paramref name="activity"/> (PHASE-21-12): a cold solution open is marked as heavy
+    /// work, so idle reclamation later compacts what it allocated.
+    /// </summary>
+    public IncrementalCompiler(SymbolDiffer differ, ILogger<IncrementalCompiler> logger, IActivityMonitor? activity = null)
     {
         _differ = differ;
         _logger = logger;
+        _activity = activity;
+    }
+
+    /// <summary>Whether a workspace + solution is cached (the next refresh of that solution is warm).</summary>
+    public bool HasCachedSolution => _cachedSolution is not null;
+
+    /// <summary>
+    /// Drops the cached workspace and solution when the last refresh is at least <paramref name="idleFor"/> before
+    /// <paramref name="now"/> (PHASE-21-12, ADR-061). Never waits: returns <c>false</c> while a refresh holds the
+    /// lock, when nothing is cached, or after disposal. The next refresh of that solution is a cold open.
+    /// </summary>
+    public bool EvictIfIdle(TimeSpan idleFor, DateTimeOffset now)
+    {
+        try
+        {
+            if (!_lock.Wait(0)) return false;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (_cachedSolution is null || now - _lastUsedUtc < idleFor) return false;
+
+            var path = _cachedSolutionPath;
+            _cachedWorkspace?.Dispose();
+            _cachedWorkspace = null;
+            _cachedSolution = null;
+            _cachedSolutionPath = null;
+            _logger.LogInformation("Evicted the cached solution {Path} after {Minutes:F0} min without an overlay refresh",
+                path, (now - _lastUsedUtc).TotalMinutes);
+            return true;
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
 
     /// <inheritdoc/>
@@ -65,9 +110,20 @@ public class IncrementalCompiler : IIncrementalCompiler
         await _lock.WaitAsync(ct);
         try
         {
-            return await ComputeDeltaCoreAsync(
+            var coldOpen = _cachedSolution is null || _cachedSolutionPath != solutionPath;
+            var delta = await ComputeDeltaCoreAsync(
                 solutionPath, repoRootPath, changedFiles,
                 baselineStore, repoId, commitSha, currentRevision, ct);
+
+            _lastUsedUtc = DateTimeOffset.UtcNow;
+
+            // PHASE-21-12: what a cold open (workspace + compilations now cached) costs in memory.
+            if (coldOpen)
+            {
+                _logger.LogInformation(MemorySnapshot.LogTemplate, MemorySnapshot.Capture().LogArgs("solution_opened"));
+                _activity?.MarkHeavyWork("solution_opened");
+            }
+            return delta;
         }
         finally
         {

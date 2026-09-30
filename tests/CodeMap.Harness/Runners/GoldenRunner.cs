@@ -81,14 +81,26 @@ public sealed class GoldenRunner(
         return (int)HarnessExitCode.Success;
     }
 
+    /// <summary>Runs <see cref="CheckWithOutcomeAsync"/> and returns its exit code.</summary>
     public async Task<int> CheckAsync(
+        RepoDescriptor repo,
+        IHarnessReporter reporter,
+        CancellationToken ct) =>
+        (await CheckWithOutcomeAsync(repo, reporter, ct).ConfigureAwait(false)).ExitCode;
+
+    /// <summary>
+    /// Indexes <paramref name="repo"/>, runs its query suite and compares each result with the golden
+    /// file. Returns the per-query outcome (PHASE-21-12 T01).
+    /// </summary>
+    public async Task<GoldenCheckOutcome> CheckWithOutcomeAsync(
         RepoDescriptor repo,
         IHarnessReporter reporter,
         CancellationToken ct)
     {
         reporter.ReportIndexStart(repo);
         var (repoId, commitShaNullable, alreadyExisted) = await indexer.IndexRepoAsync(repo, reporter, ct).ConfigureAwait(false);
-        if (repoId is null || commitShaNullable is null) return (int)HarnessExitCode.IndexBuildFailure;
+        if (repoId is null || commitShaNullable is null)
+            return GoldenCheckOutcome.Error((int)HarnessExitCode.IndexBuildFailure);
         var commitSha = commitShaNullable.Value;
         reporter.ReportIndexComplete(repo, TimeSpan.Zero, alreadyExisted);
 
@@ -97,37 +109,66 @@ public sealed class GoldenRunner(
         {
             Console.Error.WriteLine($"ERROR: No golden files found for {repo.Name} at {goldenDir}");
             Console.Error.WriteLine("Run: dotnet run -- golden save --repo micro");
-            return (int)HarnessExitCode.ConfigurationError;
+            return GoldenCheckOutcome.Error((int)HarnessExitCode.ConfigurationError);
         }
 
         var suite = QuerySuiteFactory.Build(repo, repoId.Value);
-        int passed = 0, failed = 0, missing = 0;
+        var passed = new List<string>();
+        var failed = new List<string>();
+        var missing = new List<string>();
+        var skipped = new List<string>();
 
         foreach (var query in suite.Queries)
         {
+            var qr = await query.ExecuteAsync(engine, repo, commitSha, ct).ConfigureAwait(false);
+
             var goldenPath = HarnessIndexer.GoldenPath(goldenDir, query);
-            if (!File.Exists(goldenPath))
+            var golden = File.Exists(goldenPath) ? JsonReporter.DeserializeGolden(File.ReadAllText(goldenPath)) : null;
+            if (golden is null)
             {
-                missing++;
+                // Mirrors SaveAsync: a query that returns a result gets a golden file, so a missing one is a
+                // failure (a renamed query, a deleted file). One without a result never had a golden file.
+                if (qr.Succeeded && qr.Result is not null) missing.Add(query.Name);
+                else skipped.Add(query.Name);
                 continue;
             }
 
-            var golden = JsonReporter.DeserializeGolden(File.ReadAllText(goldenPath));
-            if (golden is null) { missing++; continue; }
-
-            var qr = await query.ExecuteAsync(engine, repo, commitSha, ct).ConfigureAwait(false);
             var pairResult = QueryComparator.CompareWithGolden(query, qr, golden);
             reporter.ReportQueryResult(query, pairResult);
 
-            if (pairResult.IsPass) passed++;
-            else failed++;
+            if (pairResult.IsPass) passed.Add(query.Name);
+            else failed.Add(query.Name);
         }
 
-        reporter.ReportSummary(passed, failed, missing, TimeSpan.Zero);
+        reporter.ReportSummary(passed.Count, failed.Count + missing.Count, skipped.Count, TimeSpan.Zero);
 
-        if (missing > 0)
-            Console.WriteLine($"[golden]  {missing} queries had no golden file (run 'golden save' to add them)");
+        if (missing.Count > 0)
+        {
+            Console.WriteLine($"[golden]  FAIL: {missing.Count} queries returned a result but have no golden file:");
+            foreach (var name in missing)
+                Console.WriteLine($"[golden]    {name}  (expected {Path.GetFileName(HarnessIndexer.GoldenPath(goldenDir, suite.Queries.First(q => q.Name == name)))})");
+        }
+        if (skipped.Count > 0)
+            Console.WriteLine($"[golden]  {skipped.Count} queries returned no result and have no golden file (skipped)");
 
-        return failed > 0 ? (int)HarnessExitCode.CorrectnessMismatch : (int)HarnessExitCode.Success;
+        var exit = failed.Count + missing.Count > 0 ? (int)HarnessExitCode.CorrectnessMismatch : (int)HarnessExitCode.Success;
+        return new GoldenCheckOutcome(exit, passed, failed, missing, skipped);
     }
+}
+
+/// <summary>
+/// Result of one repo's golden check.
+/// <paramref name="MissingGolden"/>: queries that returned a result but have no golden file (a failure).
+/// <paramref name="Skipped"/>: queries with no golden file that returned no result either
+/// (<c>golden save</c> never writes one for them).
+/// </summary>
+public sealed record GoldenCheckOutcome(
+    int ExitCode,
+    IReadOnlyList<string> Passed,
+    IReadOnlyList<string> Failed,
+    IReadOnlyList<string> MissingGolden,
+    IReadOnlyList<string> Skipped)
+{
+    /// <summary>An outcome for a check that could not run (index or configuration failure).</summary>
+    public static GoldenCheckOutcome Error(int exitCode) => new(exitCode, [], [], [], []);
 }

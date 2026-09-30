@@ -108,6 +108,40 @@ public class BlazorIndexingTests
             (v.Contains("MainLayout") || v.Contains("Greeting")));
     }
 
+    /// <summary>
+    /// PHASE-21-13 T01 (L-14): references written in .razor files (the Razor generator's
+    /// *_razor.g.cs trees) are indexed — an @inject service call from markup and a field
+    /// write from @code.
+    /// </summary>
+    [Fact]
+    public async Task ComponentReferences_AreIndexed()
+    {
+        var compiler = CreateCompiler();
+        var result = await compiler.CompileAndExtractAsync(BlazorSolutionPath);
+
+        result.References.Should().Contain(r =>
+                r.ToSymbol.Value == "M:SampleBlazorApp.Services.IGreetingService.Greet(System.String)"
+                && r.FromSymbol.Value.Contains(".Weather.", StringComparison.Ordinal),
+            because: "Weather.razor calls @Greeter.Greet(\"forecaster\") in its markup");
+        result.References.Should().Contain(r =>
+                r.FromSymbol.Value == "M:SampleBlazorApp.Components.Pages.Counter.IncrementCount"
+                && r.ToSymbol.Value == "F:SampleBlazorApp.Components.Pages.Counter.currentCount",
+            because: "Counter.razor @code does currentCount++ (classified Read, as ++ is in plain .cs files)");
+    }
+
+    /// <summary>
+    /// PHASE-21-13 T01 (L-14): the sample's reference total matches the committed golden
+    /// (codemap_summarize reference_count = 10); it was 1 while Razor trees were skipped.
+    /// </summary>
+    [Fact]
+    public async Task ComponentReferences_Count_MatchesGolden()
+    {
+        var compiler = CreateCompiler();
+        var result = await compiler.CompileAndExtractAsync(BlazorSolutionPath);
+
+        result.References.Should().HaveCount(10);
+    }
+
     [Fact]
     public async Task SemanticLevel_IsFull_NoCompileErrors()
     {

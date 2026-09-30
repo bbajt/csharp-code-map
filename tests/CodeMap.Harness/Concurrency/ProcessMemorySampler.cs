@@ -68,7 +68,8 @@ public sealed class ProcessMemorySampler : IAsyncDisposable
                 PostIdleTotalWorkingSetBytes: postIdle.TotalWorkingSetBytes,
                 PeakTotalPrivateBytes: _samples.Count == 0 ? 0 : _samples.Max(s => s.TotalPrivateBytes),
                 PerProcessPeakWorkingSetBytes: [.. _peakPerProcess],
-                SampleCount: _samples.Count);
+                SampleCount: _samples.Count,
+                PostIdleTotalPrivateBytes: postIdle.TotalPrivateBytes);
         }
     }
 

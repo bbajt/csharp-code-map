@@ -88,6 +88,41 @@ public sealed class CleanupHandlerTests
         capturedDryRun.Should().BeFalse();
     }
 
+    /// <summary>PHASE-21-13 T02: a stringified boolean is honoured, not an INTERNAL_ERROR.</summary>
+    [Fact]
+    public async Task Cleanup_DryRunStringFalse_PassedToScanner()
+    {
+        bool capturedDryRun = true;
+        _scanner.CleanupBaselinesAsync(
+                Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<IReadOnlySet<CommitSha>>(),
+                Arg.Any<int>(), Arg.Any<int?>(), Arg.Do<bool>(v => capturedDryRun = v), Arg.Any<CancellationToken>())
+            .Returns(new CleanupResponse(0, 0, [], [], DryRun: false));
+
+        await _handler.HandleCleanupAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["dry_run"] = "false" },
+            CancellationToken.None);
+
+        capturedDryRun.Should().BeFalse();
+    }
+
+    /// <summary>PHASE-21-13 T02: a value that is not a boolean gives the safe default, a dry run.</summary>
+    [Fact]
+    public async Task Cleanup_DryRunUnparseable_IsDryRun()
+    {
+        bool capturedDryRun = false;
+        _scanner.CleanupBaselinesAsync(
+                Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<IReadOnlySet<CommitSha>>(),
+                Arg.Any<int>(), Arg.Any<int?>(), Arg.Do<bool>(v => capturedDryRun = v), Arg.Any<CancellationToken>())
+            .Returns(new CleanupResponse(0, 0, [], [], DryRun: true));
+
+        var result = await _handler.HandleCleanupAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["dry_run"] = "yes" },
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse();
+        capturedDryRun.Should().BeTrue();
+    }
+
     [Fact]
     public async Task Cleanup_KeepCountPassedToScanner()
     {
@@ -143,4 +178,68 @@ public sealed class CleanupHandlerTests
 
     private static JsonObject Args(string repoPath) =>
         new() { ["repo_path"] = repoPath };
+    // ── PHASE-21-10 T02 ──────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Cleanup_NoRepoPath_InvalidArgument_EvenWithOneRegisteredRepo()
+    {
+        // Before: the v2.4.0 auto-default resolved the only registered repo.
+        var registry = new RepoRegistry();
+        registry.Register(RepoPath);
+        var handler = new IndexHandler(_git, _compiler, _store, _cache, registry,
+            NullLogger<IndexHandler>.Instance, scanner: _scanner);
+
+        var result = await handler.HandleCleanupAsync(new JsonObject { ["dry_run"] = false }, CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        using var doc = JsonDocument.Parse(result.Content);
+        doc.RootElement.GetProperty("code").GetString().Should().Be("INVALID_ARGUMENT");
+        doc.RootElement.GetProperty("message").GetString().Should().Contain("explicit repo_path");
+        await _scanner.DidNotReceive().CleanupBaselinesAsync(
+            Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<IReadOnlySet<CommitSha>>(),
+            Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void Schema_RepoPathRequired()
+    {
+        var registry = new ToolRegistry();
+        _handler.Register(registry);
+
+        registry.Find("index_cleanup")!.InputSchema["required"]!.AsArray()
+            .Select(n => n!.GetValue<string>()).Should().Contain("repo_path");
+    }
+
+    [Fact]
+    public async Task Cleanup_LiveWorkspaceWithoutRecord_ReturnsWorkspaceInUse()
+    {
+        _scanner.CleanupBaselinesAsync(
+            Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<IReadOnlySet<CommitSha>>(),
+            Arg.Any<int>(), Arg.Any<int?>(), false, Arg.Any<CancellationToken>())
+            .Returns(new CleanupResponse(0, 0, [], [], DryRun: false, WorkspacesInUse: ["old-agent"]));
+
+        var result = await _handler.HandleCleanupAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["dry_run"] = false }, CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        using var doc = JsonDocument.Parse(result.Content);
+        doc.RootElement.GetProperty("code").GetString().Should().Be("WORKSPACE_IN_USE");
+        doc.RootElement.GetProperty("message").GetString().Should().Contain("old-agent");
+    }
+
+    [Fact]
+    public async Task Cleanup_WorkspacesWithoutRecord_AnswerSuggestsWorkspaceDelete()
+    {
+        _scanner.CleanupBaselinesAsync(
+            Arg.Any<RepoId>(), Arg.Any<CommitSha>(), Arg.Any<IReadOnlySet<CommitSha>>(),
+            Arg.Any<int>(), Arg.Any<int?>(), false, Arg.Any<CancellationToken>())
+            .Returns(new CleanupResponse(1, 10, [CommitSha.From(ValidSha)], [], DryRun: false,
+                WorkspacesWithoutBaselineRecord: ["stale-ws"]));
+
+        var result = await _handler.HandleCleanupAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["dry_run"] = false }, CancellationToken.None);
+
+        result.IsError.Should().BeFalse();
+        result.Content.Should().Contain("stale-ws").And.Contain("workspace_delete");
+    }
 }

@@ -71,7 +71,8 @@ in-progress edits are invisible.
 workspace_delete { repo_path: ".", workspace_id: "session" }
 ```
 
-Or just leave it — stale workspaces are cleaned up by `index_cleanup`.
+Please delete it: a workspace left behind keeps its baseline protected from `index_cleanup` (for
+every CodeMap process) until it is deleted.
 
 If you committed your changes during the session:
 

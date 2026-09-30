@@ -142,10 +142,10 @@ public interface ISymbolStore
         CancellationToken ct = default);
 
     /// <summary>
-    /// Returns symbols by kind(s) using a direct SQL query on the symbols table.
+    /// Returns symbols by kind(s) without a text query.
     /// Pass <c>null</c> for <paramref name="kinds"/> to return all symbols regardless of kind.
     /// Use this instead of <see cref="SearchSymbolsAsync"/> when no text query is needed —
-    /// FTS5 does not support bare <c>*</c> as a match-all wildcard (ADR-017).
+    /// search has no match-all query (ADR-017, ADR-055).
     /// <para>Optional <paramref name="filters"/> applies the same Namespace / FilePath
     /// / ProjectName predicates as <see cref="SearchSymbolsAsync"/>; <see cref="SymbolSearchFilters.Kinds"/>
     /// is ignored here in favour of the explicit <paramref name="kinds"/> argument.</para>
@@ -256,9 +256,9 @@ public interface ISymbolStore
         CancellationToken ct = default);
 
     /// <summary>
-    /// Triggers an FTS5 content table rebuild for the baseline's <c>symbols_fts</c>
-    /// virtual table. Call after <see cref="InsertMetadataStubsAsync"/> to keep
-    /// full-text search in sync with newly inserted stubs.
+    /// Refreshes the baseline's search index after <see cref="InsertMetadataStubsAsync"/>.
+    /// A hook from the removed SQLite engine (FTS5 rebuild): the v2 search index is immutable,
+    /// so the v2 store implements it as a no-op.
     /// </summary>
     Task RebuildFtsAsync(
         RepoId repoId,

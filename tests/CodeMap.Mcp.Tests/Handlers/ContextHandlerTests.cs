@@ -137,6 +137,24 @@ public sealed class ContextHandlerTests
             Arg.Any<CancellationToken>());
     }
 
+    /// <summary>PHASE-21-13 T02: a stringified boolean is honoured, not an INTERNAL_ERROR.</summary>
+    [Fact]
+    public async Task Handler_IncludeCodeStringFalse_PassedThrough()
+    {
+        SetupContextSuccess();
+
+        await _handler.HandleGetContextAsync(
+            new JsonObject { ["repo_path"] = RepoPath, ["symbol_id"] = MethodId, ["include_code"] = "false" },
+            CancellationToken.None);
+
+        await _queryEngine.Received(1).GetContextAsync(
+            Arg.Any<RoutingContext>(),
+            Arg.Any<SymbolId>(),
+            Arg.Any<int>(), Arg.Any<int>(),
+            Arg.Is(false),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task Handler_StableIdPrefix_ResolvesToSymbolId()
     {

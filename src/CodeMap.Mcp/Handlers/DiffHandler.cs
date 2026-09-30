@@ -103,7 +103,7 @@ public sealed class DiffHandler
         if (string.IsNullOrEmpty(toCommitStr))
             return Err(CodeMapError.InvalidArgument("to_commit is required"));
 
-        var includeFacts = args?["include_facts"]?.GetValue<bool>() ?? true;
+        var includeFacts = args.GetBool("include_facts", true);
 
         // Resolve HEAD
         if (toCommitStr.Equals("HEAD", StringComparison.OrdinalIgnoreCase))

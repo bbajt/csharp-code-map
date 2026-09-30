@@ -102,7 +102,7 @@ public sealed class ContextHandler
 
         var calleeDepth = args.GetInt("callee_depth", DefaultCalleeDepth);
         var maxCallees = args.GetInt("max_callees", DefaultMaxCallees);
-        var includeCode = args?["include_code"]?.GetValue<bool>() ?? true;
+        var includeCode = args.GetBool("include_code", true);
 
         calleeDepth = Math.Clamp(calleeDepth, 0, 2);
         maxCallees = Math.Clamp(maxCallees, 0, 25);

@@ -173,9 +173,15 @@ public static class ResultNormalizer
             TotalAvailable: r.TotalCount);
     }
 
+    /// <summary>
+    /// Text-search golden form. Matches in build output (<c>obj/</c>) are left out: the Razor
+    /// generator's files there embed the checkout's absolute path and the source's line
+    /// endings, so they differ per machine and OS (PHASE-21-13 T01).
+    /// </summary>
     public static NormalizedResult FromTextSearch(SearchTextResponse r)
     {
         var keys = r.Matches
+            .Where(m => !IsBuildOutput(m.FilePath.Value))
             .Select(m => $"{m.FilePath.Value}:{m.Line}:{m.Excerpt.Trim()}")
             .OrderBy(x => x)
             .ToList();
@@ -188,12 +194,17 @@ public static class ResultNormalizer
             ScalarFields: new Dictionary<string, string>
             {
                 ["total_files"] = r.TotalFiles.ToString(),
-                ["match_count"] = r.Matches.Count.ToString(),
+                ["match_count"] = keys.Count.ToString(),
                 ["truncated"] = r.Truncated.ToString().ToLowerInvariant(),
             },
             IsTruncated: r.Truncated,
-            TotalAvailable: r.Matches.Count);
+            TotalAvailable: keys.Count);
     }
+
+    /// <summary>True for a repo-relative path inside an <c>obj/</c> directory (build output).</summary>
+    private static bool IsBuildOutput(string path) =>
+        path.StartsWith("obj/", StringComparison.OrdinalIgnoreCase) ||
+        path.Contains("/obj/", StringComparison.OrdinalIgnoreCase);
 
     public static NormalizedResult FromSummarize(SummarizeResponse r)
     {

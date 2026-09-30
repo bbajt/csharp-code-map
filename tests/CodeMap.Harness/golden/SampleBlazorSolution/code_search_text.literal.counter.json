@@ -1,0 +1,16 @@
+{
+  "category": "TextSearch",
+  "symbol_ids": [],
+  "edge_keys": [],
+  "fact_keys": [
+    "SampleBlazorApp/Components/Pages/Counter.razor:4:\u003CPageTitle\u003ECounter\u003C/PageTitle\u003E",
+    "SampleBlazorApp/Components/Pages/Counter.razor:6:\u003Ch1\u003ECounter\u003C/h1\u003E"
+  ],
+  "scalar_fields": {
+    "total_files": "21",
+    "match_count": "2",
+    "truncated": "false"
+  },
+  "is_truncated": false,
+  "total_available": 2
+}

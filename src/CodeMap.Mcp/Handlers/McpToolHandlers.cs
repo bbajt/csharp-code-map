@@ -200,7 +200,7 @@ public sealed class McpToolHandlers
         var (repoPath, repoErr) = HandlerHelpers.ResolveRepoPath(args, _repoRegistry);
         if (repoErr is { } re) return re;
 
-        var includeCode = args?["include_code"]?.GetValue<bool>() ?? true;
+        var includeCode = args.GetBool("include_code", true);
 
         var routingResult = await BuildRoutingResultAsync(repoPath!, args, ct).ConfigureAwait(false);
         if (routingResult.IsFailure) return routingResult.Error;
