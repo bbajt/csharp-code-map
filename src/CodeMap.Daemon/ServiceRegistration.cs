@@ -96,7 +96,8 @@ public static class ServiceRegistration
         // ── Query ─────────────────────────────────────────────────────────────
         services.AddSingleton<ICacheService, InMemoryCacheService>();
         // Pass codeMapDir so the tracker can persist totals across restarts.
-        services.AddSingleton<ITokenSavingsTracker>(new TokenSavingsTracker(resolvedBaseDir));
+        services.AddSingleton<ITokenSavingsTracker>(sp => new TokenSavingsTracker(
+            resolvedBaseDir, sp.GetService<ILoggerFactory>()?.CreateLogger("CodeMap.Query.TokenSavings")));
 
         // ── Workspace manager ─────────────────────────────────────────────────
         services.AddSingleton<WorkspaceManager>();
